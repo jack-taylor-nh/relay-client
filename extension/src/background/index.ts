@@ -789,23 +789,61 @@ async function sendEmail(
     }
     
     const prepData = await prepRes.json() as {
-      encryptedRecipient: string;
+      requiresMessageDecryption: boolean;
       edgeAddress: string;
       replySubject: string;
       inReplyTo?: string;
     };
     
-    // Step 2: Decrypt recipient email using identity's encryption key
+    // Step 2: Get first message to extract sender's email
+    const messagesRes = await fetch(`${apiUrl}/v1/conversations/${conversationId}/messages`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    
+    if (!messagesRes.ok) {
+      return { success: false, error: 'Failed to load conversation messages' };
+    }
+    
+    const messagesData = await messagesRes.json();
+    if (!messagesData.messages || messagesData.messages.length === 0) {
+      return { success: false, error: 'No messages in conversation' };
+    }
+    
+    // Get the first (oldest) message which is from the external sender
+    const firstMessage = messagesData.messages[messagesData.messages.length - 1];
+    
+    if (!firstMessage.encryptedContent) {
+      return { success: false, error: 'First message has no encrypted content' };
+    }
+    
+    // Decrypt the first message to extract sender's email
     const encryptionKeys = deriveEncryptionKeyPair(unlockedIdentity.secretKey);
-    const recipientEmail = decryptEmail(prepData.encryptedRecipient, encryptionKeys.secretKey);
+    let recipientEmail: string;
+    
+    try {
+      const emailData = JSON.parse(decryptEmail(firstMessage.encryptedContent, encryptionKeys.secretKey));
+      recipientEmail = emailData.from;
+      
+      if (!recipientEmail) {
+        return { success: false, error: 'Could not extract sender email from message' };
+      }
+    } catch (decryptError) {
+      console.error('Message decryption error:', decryptError);
+      return { success: false, error: 'Failed to decrypt first message' };
+    }
     
     // Step 3: Get worker's public key for encryption
     const workerUrl = 'https://relay-email-worker.taylor-d-jack.workers.dev';
     const workerKeyRes = await fetch(`${workerUrl}/public-key`);
     if (!workerKeyRes.ok) {
-      return { success: false, error: 'Failed to get worker public key' };
+      const errorText = await workerKeyRes.text();
+      return { success: false, error: `Failed to get worker public key: ${errorText}` };
     }
-    const { publicKey: workerPublicKey } = await workerKeyRes.json();
+    const workerKeyData = await workerKeyRes.json();
+    const workerPublicKey = workerKeyData.publicKey;
     
     // Step 4: Encrypt recipient for worker (zero-knowledge!)
     const encryptedRecipient = encryptForRecipient(recipientEmail, workerPublicKey);
@@ -827,8 +865,8 @@ async function sendEmail(
     });
     
     if (!workerRes.ok) {
-      const err = await workerRes.json();
-      return { success: false, error: err.message || 'Failed to send email' };
+      const errorText = await workerRes.text();
+      return { success: false, error: `Worker send failed: ${errorText}` };
     }
     
     const workerData = await workerRes.json();

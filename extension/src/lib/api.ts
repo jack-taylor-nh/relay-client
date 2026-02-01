@@ -21,8 +21,17 @@ export interface AuthSession {
 
 export interface ResolvedHandle {
   handle: string;
+  displayName: string | null;
   publicKey: string;
-  fingerprint: string;
+  createdAt: string;
+}
+
+export interface Handle {
+  id: string;
+  handle: string;
+  displayName: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ConversationSummary {
@@ -161,15 +170,29 @@ class ApiClient {
   // Handle Operations
   // ============================================
 
+  async createHandle(handle: string, displayName?: string): Promise<Handle> {
+    return this.request<Handle>(
+      'POST',
+      '/v1/handles',
+      { handle, displayName },
+      true
+    );
+  }
+
+  async getHandles(): Promise<{ handles: Handle[] }> {
+    return this.request<{ handles: Handle[] }>('GET', '/v1/handles', undefined, true);
+  }
+
   async resolveHandle(handle: string): Promise<ResolvedHandle | null> {
     try {
-      const cleanHandle = handle.toLowerCase().replace(/^&/, '');
-      return await this.request<ResolvedHandle>('GET', `/v1/handle/${cleanHandle}`);
+      const cleanHandle = handle.toLowerCase().replace(/^@/, '');
+      return await this.request<ResolvedHandle>('GET', `/v1/handles/${cleanHandle}`);
     } catch {
       return null;
     }
   }
 
+  // Legacy handle claim (deprecated - use createHandle)
   async claimHandle(
     handle: string,
     publicKey: string,
@@ -235,6 +258,40 @@ class ApiClient {
       'POST',
       '/v1/conversations',
       { recipientFingerprint, encryptedContent, nonce },
+      true
+    );
+  }
+
+  // ============================================
+  // Native Messaging
+  // ============================================
+
+  async sendNativeMessage(
+    recipientHandle: string,
+    senderHandle: string,
+    ciphertext: string,
+    ephemeralPubkey: string,
+    nonce: string,
+    signature: string,
+    contentType = 'text/plain'
+  ): Promise<{ 
+    messageId: string;
+    conversationId: string;
+    recipientPublicKey: string;
+    createdAt: string;
+  }> {
+    return this.request(
+      'POST',
+      '/v1/messages/send-native',
+      {
+        recipientHandle,
+        senderHandle,
+        ciphertext,
+        ephemeralPubkey,
+        nonce,
+        signature,
+        contentType,
+      },
       true
     );
   }

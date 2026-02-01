@@ -39,6 +39,13 @@ export const pendingPassphrase = signal<string | null>(null);
 export const conversations = signal<Conversation[]>([]);
 export const selectedConversationId = signal<string | null>(null);
 export const aliases = signal<EmailAlias[]>([]); // Legacy - will be replaced by edges
+export const handles = signal<Array<{
+  id: string;
+  handle: string;
+  displayName: string | null;
+  createdAt: string;
+  updatedAt: string;
+}>>([]);
 export const edges = signal<Array<{
   id: string;
   type: string;

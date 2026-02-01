@@ -4,7 +4,7 @@ const tabs: { id: Tab; label: string; icon: string }[] = [
   { id: 'inbox', label: 'Inbox', icon: 'inbox' },
   { id: 'new', label: 'New', icon: 'plus' },
   { id: 'edges', label: 'Edges', icon: 'edges' },
-  { id: 'wallet', label: 'Wallet', icon: 'wallet' },
+  { id: 'identity', label: 'Identity', icon: 'user' },
 ];
 
 function TabIcon({ icon }: { icon: string }) {
@@ -21,6 +21,20 @@ function TabIcon({ icon }: { icon: string }) {
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="12" y1="5" x2="12" y2="19" />
           <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      );
+    case 'at':
+      return (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M16 8a6 6 0 1 0 0 8" />
+        </svg>
+      );
+    case 'user':
+      return (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
         </svg>
       );
     case 'wallet':

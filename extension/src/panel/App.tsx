@@ -3,7 +3,7 @@ import { Header } from './components/Header';
 import { TabBar } from './components/TabBar';
 import { InboxView } from './views/InboxView';
 import { NewView } from './views/NewView';
-import { WalletView } from './views/WalletView';
+import { IdentityView } from './views/IdentityView';
 import { EdgesView } from './views/EdgesView';
 import { LockScreen } from './views/LockScreen';
 import {
@@ -15,7 +15,7 @@ import {
 } from './views/OnboardingViews';
 import { appState, onboardingStep, toastMessage } from './state';
 
-export type Tab = 'inbox' | 'new' | 'edges' | 'wallet';
+export type Tab = 'inbox' | 'new' | 'edges' | 'identity';
 
 export const activeTab = signal<Tab>('inbox');
 
@@ -53,7 +53,7 @@ function MainApp() {
         {activeTab.value === 'inbox' && <InboxView />}
         {activeTab.value === 'new' && <NewView />}
         {activeTab.value === 'edges' && <EdgesView />}
-        {activeTab.value === 'wallet' && <WalletView />}
+        {activeTab.value === 'identity' && <IdentityView />}
       </main>
       <TabBar />
     </div>
