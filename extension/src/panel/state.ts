@@ -33,12 +33,21 @@ export const isOnboarding = computed(() => appState.value === 'onboarding');
 export const pendingPassphrase = signal<string | null>(null);
 
 // ============================================
-// Conversations & Aliases
+// Conversations, Edges & Messages
 // ============================================
 
 export const conversations = signal<Conversation[]>([]);
 export const selectedConversationId = signal<string | null>(null);
-export const aliases = signal<EmailAlias[]>([]);
+export const aliases = signal<EmailAlias[]>([]); // Legacy - will be replaced by edges
+export const edges = signal<Array<{
+  id: string;
+  type: string;
+  address: string;
+  label?: string;
+  status: 'active' | 'disabled' | 'rotated';
+  messageCount: number;
+  createdAt: string;
+}>>([]);
 
 // ============================================
 // UI State
@@ -217,26 +226,54 @@ export async function loadData() {
       success: boolean;
       conversations?: Array<{
         id: string;
-        type: string;
-        participants: string[];
-        counterpartyName?: string;
+        origin: string;
+        securityLevel: string;
+        channelLabel?: string;
+        edge?: {
+          type: string;
+          address: string;
+          label?: string;
+          status: string;
+        };
+        counterparty?: {
+          identityId?: string;
+          externalId?: string;
+          displayName?: string;
+        };
         lastActivityAt: string;
         createdAt: string;
       }>;
     }>({ type: 'GET_CONVERSATIONS' });
 
     if (convResult.success && convResult.conversations) {
-      conversations.value = convResult.conversations.map(conv => ({
-        id: conv.id,
-        type: conv.type as 'native' | 'email' | 'contact_endpoint',
-        securityLevel: (conv as any).securityLevel || (conv.type === 'native' ? 'e2ee' : 'gateway_secured'),
-        participants: conv.participants,
-        counterpartyName: conv.counterpartyName || conv.participants[0],
-        lastMessagePreview: '', // TODO: Fetch last message
-        lastActivityAt: conv.lastActivityAt,
-        createdAt: conv.createdAt,
-        unreadCount: 0, // TODO: Track unread
-      }));
+      conversations.value = convResult.conversations.map(conv => {
+        // Determine conversation type from origin
+        let type: 'native' | 'email' | 'contact_endpoint' = 'native';
+        if (conv.origin === 'email_inbound') type = 'email';
+        else if (conv.origin === 'contact_link_inbound') type = 'contact_endpoint';
+
+        // Build counterparty name
+        let counterpartyName = 'Unknown';
+        if (conv.counterparty?.displayName) {
+          counterpartyName = conv.counterparty.displayName;
+        } else if (conv.edge?.address) {
+          // For email/contact endpoints without display name, use edge address
+          counterpartyName = `Contact via ${conv.edge.address.split('@')[0]}`;
+        }
+        // Note: Don't show externalId - it's encrypted data
+
+        return {
+          id: conv.id,
+          type,
+          securityLevel: conv.securityLevel as 'e2ee' | 'gateway_secured',
+          participants: [conv.counterparty?.identityId || conv.counterparty?.externalId || 'unknown'],
+          counterpartyName,
+          lastMessagePreview: '', // TODO: Fetch last message
+          lastActivityAt: conv.lastActivityAt,
+          createdAt: conv.createdAt,
+          unreadCount: 0, // TODO: Track unread
+        };
+      });
     }
 
     // Load aliases
@@ -366,6 +403,77 @@ export function loadMockData() {
 
 // ============================================
 // Listen for background messages
+// ============================================
+
+// ============================================
+// Edge Management
+// ============================================
+
+export async function createEdge(type: string, label?: string): Promise<{ success: boolean; edge?: any; error?: string }> {
+  isLoading.value = true;
+  try {
+    const result = await sendMessage<{
+      success: boolean;
+      edge?: any;
+      error?: string;
+    }>({ type: 'CREATE_EDGE', payload: { type, label } });
+
+    if (result.success && result.edge) {
+      // Add to local state
+      edges.value = [...edges.value, result.edge];
+      return { success: true, edge: result.edge };
+    }
+    return { success: false, error: result.error || 'Failed to create edge' };
+  } catch (error) {
+    console.error('Create edge error:', error);
+    return { success: false, error: 'Failed to create edge' };
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+export async function loadEdges(): Promise<void> {
+  try {
+    const result = await sendMessage<{
+      success: boolean;
+      edges?: any[];
+      error?: string;
+    }>({ type: 'GET_EDGES' });
+
+    if (result.success && result.edges) {
+      edges.value = result.edges;
+    }
+  } catch (error) {
+    console.error('Load edges error:', error);
+  }
+}
+
+export async function disableEdge(edgeId: string): Promise<{ success: boolean; error?: string }> {
+  isLoading.value = true;
+  try {
+    const result = await sendMessage<{
+      success: boolean;
+      error?: string;
+    }>({ type: 'DISABLE_EDGE', payload: { edgeId } });
+
+    if (result.success) {
+      // Update local state
+      edges.value = edges.value.map(e => 
+        e.id === edgeId ? { ...e, status: 'disabled' as const } : e
+      );
+      return { success: true };
+    }
+    return { success: false, error: result.error || 'Failed to disable edge' };
+  } catch (error) {
+    console.error('Disable edge error:', error);
+    return { success: false, error: 'Failed to disable edge' };
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+// ============================================
+// Runtime Listeners
 // ============================================
 
 chrome.runtime.onMessage.addListener((message) => {

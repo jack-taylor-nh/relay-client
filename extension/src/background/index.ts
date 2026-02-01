@@ -19,6 +19,8 @@ import {
   deriveEncryptionKeyPair,
   encryptMessage,
   decryptMessage,
+  decryptEmail,
+  encryptForRecipient,
   type EncryptedBundle,
 } from '../lib/crypto';
 
@@ -113,9 +115,12 @@ type MessageType =
   | { type: 'GET_CONVERSATIONS' }
   | { type: 'GET_MESSAGES'; payload: { conversationId: string; cursor?: string } }
   | { type: 'SEND_MESSAGE'; payload: { recipientIdentityId: string; recipientPublicKey: string; content: string; conversationId?: string } }
+  | { type: 'SEND_EMAIL'; payload: { conversationId: string; content: string } }
   | { type: 'CREATE_EDGE'; payload: { type: 'email' | 'contact_link'; label?: string } }
   | { type: 'GET_EDGES' }
-  | { type: 'DISABLE_EDGE'; payload: { edgeId: string } };
+  | { type: 'DISABLE_EDGE'; payload: { edgeId: string } }
+  | { type: 'GET_ALIASES' }
+  | { type: 'CREATE_ALIAS'; payload: { label?: string } };
 
 async function handleMessage(message: MessageType): Promise<unknown> {
   // Reset lock timer on activity
@@ -157,6 +162,9 @@ async function handleMessage(message: MessageType): Promise<unknown> {
     case 'SEND_MESSAGE':
       return sendMessage(message.payload);
 
+    case 'SEND_EMAIL':
+      return sendEmail(message.payload.conversationId, message.payload.content);
+
     case 'CREATE_EDGE':
       return createEdge(message.payload.type, message.payload.label);
 
@@ -165,6 +173,14 @@ async function handleMessage(message: MessageType): Promise<unknown> {
 
     case 'DISABLE_EDGE':
       return disableEdge(message.payload.edgeId);
+
+    case 'GET_ALIASES':
+      // Aliases are now edges - redirect to getEdges
+      return getEdges();
+
+    case 'CREATE_ALIAS':
+      // Aliases are now edges - redirect to createEdge with email type
+      return createEdge('email', message.payload.label);
 
     default:
       throw new Error(`Unknown message type: ${(message as { type: string }).type}`);
@@ -425,7 +441,7 @@ async function getPublicKey(): Promise<{ publicKey: string } | { error: string }
 
 async function getApiUrl(): Promise<string> {
   const result = await chrome.storage.local.get(['apiUrl']);
-  return result.apiUrl || 'http://localhost:3000';
+  return result.apiUrl || 'https://api.rlymsg.com';
 }
 
 // Suppress unused variable warning for session (will be used in M2)
@@ -580,7 +596,8 @@ async function getMessages(
         ciphertext?: string;
         ephemeralPubkey?: string;
         nonce?: string;
-        plaintextContent?: string;
+        encryptedContent?: string;    // NEW: Full encrypted payload from worker
+        plaintextContent?: string;    // DEPRECATED: Plaintext gateway content
         createdAt: string;
       }) => {
         const isMine = msg.senderIdentityId === unlockedIdentity!.fingerprint;
@@ -588,7 +605,7 @@ async function getMessages(
         let content: string;
         
         if (data.securityLevel === 'e2ee' && msg.ciphertext && msg.nonce && msg.ephemeralPubkey) {
-          // Decrypt E2EE message
+          // Decrypt E2EE message (native Relay-to-Relay)
           const encryptionKeyPair = deriveEncryptionKeyPair(unlockedIdentity!.secretKey);
           const senderPubKey = fromBase64(msg.ephemeralPubkey);
           const decrypted = decryptMessage(
@@ -598,8 +615,24 @@ async function getMessages(
             encryptionKeyPair.secretKey
           );
           content = decrypted || '[Unable to decrypt]';
+        } else if (msg.encryptedContent) {
+          // Decrypt encrypted email payload from worker (zero-knowledge)
+          const encryptionKeyPair = deriveEncryptionKeyPair(unlockedIdentity!.secretKey);
+          const decryptedJson = decryptEmail(msg.encryptedContent, encryptionKeyPair.secretKey);
+          
+          try {
+            const emailData = JSON.parse(decryptedJson);
+            // Format email as readable content
+            const from = emailData.fromName || emailData.from || 'Unknown Sender';
+            const subject = emailData.subject || '(no subject)';
+            const body = emailData.textBody || emailData.htmlBody || '(empty message)';
+            content = `From: ${from}\nSubject: ${subject}\n\n${body}`;
+          } catch (error) {
+            console.error('Failed to parse decrypted email:', error);
+            content = '[Unable to decrypt email]';
+          }
         } else if (msg.plaintextContent) {
-          // Gateway secured message - content is plaintext
+          // DEPRECATED: Gateway secured message - plaintext
           content = msg.plaintextContent;
         } else {
           content = '[No content]';
@@ -717,6 +750,122 @@ async function sendMessage(payload: {
   }
 }
 
+async function sendEmail(
+  conversationId: string,
+  content: string
+): Promise<{
+  success: boolean;
+  messageId?: string;
+  error?: string;
+}> {
+  if (!unlockedIdentity) {
+    return { success: false, error: 'Wallet is locked' };
+  }
+
+  try {
+    const apiUrl = await getApiUrl();
+    const token = await getAuthToken();
+    
+    if (!token) {
+      return { success: false, error: 'Failed to authenticate' };
+    }
+    
+    // Step 1: Get encrypted recipient email from API
+    const prepRes = await fetch(`${apiUrl}/v1/email/send`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        conversationId,
+        content,
+      }),
+    });
+    
+    if (!prepRes.ok) {
+      const err = await prepRes.json();
+      return { success: false, error: err.message || 'Failed to prepare email' };
+    }
+    
+    const prepData = await prepRes.json() as {
+      encryptedRecipient: string;
+      edgeAddress: string;
+      replySubject: string;
+      inReplyTo?: string;
+    };
+    
+    // Step 2: Decrypt recipient email using identity's encryption key
+    const encryptionKeys = deriveEncryptionKeyPair(unlockedIdentity.secretKey);
+    const recipientEmail = decryptEmail(prepData.encryptedRecipient, encryptionKeys.secretKey);
+    
+    // Step 3: Get worker's public key for encryption
+    const workerUrl = 'https://relay-email-worker.taylor-d-jack.workers.dev';
+    const workerKeyRes = await fetch(`${workerUrl}/public-key`);
+    if (!workerKeyRes.ok) {
+      return { success: false, error: 'Failed to get worker public key' };
+    }
+    const { publicKey: workerPublicKey } = await workerKeyRes.json();
+    
+    // Step 4: Encrypt recipient for worker (zero-knowledge!)
+    const encryptedRecipient = encryptForRecipient(recipientEmail, workerPublicKey);
+    
+    // Step 5: Send via worker (MailChannels) - NO user token!
+    const workerRes = await fetch(`${workerUrl}/send`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        conversationId,
+        encryptedRecipient,  // Encrypted for worker's key
+        edgeAddress: prepData.edgeAddress,
+        subject: prepData.replySubject,
+        content,
+        inReplyTo: prepData.inReplyTo,
+      }),
+    });
+    
+    if (!workerRes.ok) {
+      const err = await workerRes.json();
+      return { success: false, error: err.message || 'Failed to send email' };
+    }
+    
+    const workerData = await workerRes.json();
+    
+    // Step 6: Encrypt message content for storage (zero-knowledge!)
+    // Use identity's public key to encrypt (same as incoming messages)
+    const identityPublicKeyBase64 = toBase64(encryptionKeys.publicKey);
+    const encryptedContent = encryptForRecipient(content, identityPublicKeyBase64);
+    
+    // Step 7: Record encrypted message in database via API
+    const recordRes = await fetch(`${apiUrl}/v1/email/record-sent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        conversationId,
+        encryptedContent,  // Encrypted content, not plaintext!
+      }),
+    });
+    
+    if (!recordRes.ok) {
+      console.warn('Failed to record sent message in database');
+      // Don't fail the send operation if recording fails
+    }
+    
+    return {
+      success: true,
+      messageId: workerData.messageId,
+    };
+  } catch (error) {
+    console.error('Send email error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Network error' };
+  }
+}
+
 // ============================================
 // Edge Management
 // ============================================
@@ -746,12 +895,16 @@ async function createEdge(
     const messageToSign = `relay-create-edge:${type}:${nonce}`;
     const signature = signString(messageToSign, unlockedIdentity.secretKey);
 
+    // Derive X25519 encryption key for email encryption
+    const encryptionKeys = deriveEncryptionKeyPair(unlockedIdentity.secretKey);
+
     const res = await fetch(`${apiUrl}/v1/edge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         type,
         publicKey: toBase64(unlockedIdentity.publicKey),
+        x25519PublicKey: toBase64(encryptionKeys.publicKey),
         nonce,
         signature,
         label,

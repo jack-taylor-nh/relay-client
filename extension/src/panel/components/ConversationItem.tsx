@@ -36,19 +36,19 @@ function SecurityBadge({ level }: { level: SecurityLevel }) {
     case 'e2ee':
       return (
         <span class="security-badge e2ee" title="End-to-end encrypted">
-          🔒
+          E2EE
         </span>
       );
     case 'gateway_secured':
       return (
         <span class="security-badge gateway" title="Relayed (gateway secured)">
-          🔁
+          Relayed
         </span>
       );
     case 'mixed':
       return (
         <span class="security-badge mixed" title="Mixed security levels">
-          ⚠️
+          Mixed
         </span>
       );
   }

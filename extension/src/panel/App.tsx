@@ -4,6 +4,7 @@ import { TabBar } from './components/TabBar';
 import { InboxView } from './views/InboxView';
 import { NewView } from './views/NewView';
 import { WalletView } from './views/WalletView';
+import { EdgesView } from './views/EdgesView';
 import { LockScreen } from './views/LockScreen';
 import {
   WelcomeScreen,
@@ -14,7 +15,7 @@ import {
 } from './views/OnboardingViews';
 import { appState, onboardingStep, toastMessage } from './state';
 
-export type Tab = 'inbox' | 'new' | 'wallet';
+export type Tab = 'inbox' | 'new' | 'edges' | 'wallet';
 
 export const activeTab = signal<Tab>('inbox');
 
@@ -51,6 +52,7 @@ function MainApp() {
       <main class="app-main">
         {activeTab.value === 'inbox' && <InboxView />}
         {activeTab.value === 'new' && <NewView />}
+        {activeTab.value === 'edges' && <EdgesView />}
         {activeTab.value === 'wallet' && <WalletView />}
       </main>
       <TabBar />

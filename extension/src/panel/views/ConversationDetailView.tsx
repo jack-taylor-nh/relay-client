@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { signal } from '@preact/signals';
-import { selectedConversationId, currentIdentity, showToast } from '../state';
+import { selectedConversationId, currentIdentity, showToast, sendMessage, conversations } from '../state';
 
 // ============================================
 // Icons
@@ -64,97 +64,64 @@ const conversationDetails = signal<ConversationDetails | null>(null);
 const isLoadingMessages = signal(false);
 
 // ============================================
-// Mock Data (will be replaced with API calls)
+// Load Messages from API
 // ============================================
 
-function loadMockMessages(conversationId: string) {
+async function loadMessages(conversationId: string) {
   isLoadingMessages.value = true;
   
-  // Simulate network delay
-  setTimeout(() => {
-    const myFingerprint = currentIdentity.value?.id || 'fp_abc123';
-    
-    if (conversationId === '01hq8k3x0001') {
+  try {
+    // Find conversation details from state
+    const conv = conversations.value.find(c => c.id === conversationId);
+    if (conv) {
       conversationDetails.value = {
-        id: conversationId,
-        type: 'native',
-        counterpartyName: 'alice',
-        counterpartyFingerprint: 'fp_xyz789',
+        id: conv.id,
+        type: conv.type,
+        counterpartyName: conv.counterpartyName || 'Unknown Contact',
+        counterpartyFingerprint: conv.participants[0] !== 'unknown' ? conv.participants[0] : undefined,
       };
-      
-      messages.value = [
-        {
-          id: 'msg_001',
-          senderFingerprint: 'fp_xyz789',
-          content: 'Hey! How are you doing?',
-          createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-          isMine: false,
-        },
-        {
-          id: 'msg_002',
-          senderFingerprint: myFingerprint,
-          content: "I'm good, thanks! Just working on some stuff.",
-          createdAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-          isMine: true,
-        },
-        {
-          id: 'msg_003',
-          senderFingerprint: 'fp_xyz789',
-          content: 'Cool! Did you get the files I sent?',
-          createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-          isMine: false,
-        },
-        {
-          id: 'msg_004',
-          senderFingerprint: myFingerprint,
-          content: 'Yes! They look great. Let me review and get back to you.',
-          createdAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-          isMine: true,
-        },
-        {
-          id: 'msg_005',
-          senderFingerprint: 'fp_xyz789',
-          content: 'Hey, did you get the files I sent?',
-          createdAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-          isMine: false,
-        },
-      ];
-    } else if (conversationId === '01hq8k3x0002') {
-      conversationDetails.value = {
-        id: conversationId,
-        type: 'email',
-        counterpartyName: 'Weekly Digest',
-      };
-      
-      messages.value = [
-        {
-          id: 'msg_010',
-          senderFingerprint: 'newsletter@example.com',
-          content: 'Your Weekly Summary\n\nHere are the highlights from this week:\n\n• 5 new messages\n• 2 alias updates\n• Security reminder: Enable 2FA',
-          createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-          isMine: false,
-        },
-      ];
-    } else {
-      conversationDetails.value = {
-        id: conversationId,
-        type: 'contact_endpoint',
-        counterpartyName: 'Contact Form',
-      };
-      
-      messages.value = [
-        {
-          id: 'msg_020',
-          senderFingerprint: 'anonymous',
-          content: "Hi, I found your work interesting and wanted to reach out. I'm working on a similar project and would love to chat!",
-          createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-          isMine: false,
-        },
-      ];
     }
     
+    console.log('Loading messages for conversation:', conversationId);
+    
+    // Fetch messages from background worker
+    const result = await sendMessage<{
+      success: boolean;
+      securityLevel?: string;
+      messages?: Array<{
+        id: string;
+        senderIdentityId?: string;
+        senderExternalId?: string;
+        content: string;
+        createdAt: string;
+        isMine: boolean;
+      }>;
+      error?: string;
+    }>({ type: 'GET_MESSAGES', payload: { conversationId } });
+    
+    if (result.success && result.messages) {
+      console.log('Loaded messages:', result.messages.length);
+      messages.value = result.messages.map(msg => ({
+        id: msg.id,
+        senderFingerprint: msg.senderIdentityId || msg.senderExternalId || 'unknown',
+        content: msg.content,
+        createdAt: msg.createdAt,
+        isMine: msg.isMine,
+      })).reverse(); // Reverse so oldest is first
+    } else {
+      console.log('No messages or error:', result);
+      if (result.error) {
+        showToast(`Error loading messages: ${result.error}`);
+      }
+      messages.value = [];
+    }
+  } catch (error) {
+    console.error('Load messages error:', error);
+    showToast('Failed to load messages');
+    messages.value = [];
+  } finally {
     isLoadingMessages.value = false;
-  }, 300);
+  }
 }
 
 // ============================================
@@ -230,7 +197,7 @@ export function ConversationDetailView() {
   
   useEffect(() => {
     if (conversationId) {
-      loadMockMessages(conversationId);
+      loadMessages(conversationId);
     }
     
     return () => {
@@ -248,7 +215,12 @@ export function ConversationDetailView() {
     selectedConversationId.value = null;
   }
   
-  function handleSendMessage(content: string) {
+  async function handleSendMessage(content: string) {
+    if (!conversationId) return;
+    
+    const conv = conversations.value.find(c => c.id === conversationId);
+    if (!conv) return;
+    
     // Add optimistic message
     const newMessage: Message = {
       id: `msg_${Date.now()}`,
@@ -260,8 +232,35 @@ export function ConversationDetailView() {
     
     messages.value = [...messages.value, newMessage];
     
-    // TODO: Actually send via API and encrypt
-    showToast('Message sent');
+    try {
+      // Send via appropriate endpoint based on conversation type
+      if (conv.securityLevel === 'gateway_secured') {
+        // Email or contact endpoint - use email send API
+        const result = await sendMessage<{
+          success?: boolean;
+          messageId?: string;
+          error?: string;
+        }>({ 
+          type: 'SEND_EMAIL', 
+          payload: { conversationId, content }
+        });
+        
+        if (!result.success) {
+          showToast(`Failed to send: ${result.error}`);
+          // Remove optimistic message on failure
+          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+        }
+      } else {
+        // Native E2EE - use encrypted message send
+        // TODO: Implement native send
+        showToast('Native E2EE send not yet implemented');
+        messages.value = messages.value.filter(m => m.id !== newMessage.id);
+      }
+    } catch (error) {
+      console.error('Send error:', error);
+      showToast('Failed to send message');
+      messages.value = messages.value.filter(m => m.id !== newMessage.id);
+    }
   }
   
   if (!conversationId) {
@@ -269,6 +268,7 @@ export function ConversationDetailView() {
   }
   
   const details = conversationDetails.value;
+  const conv = conversations.value.find(c => c.id === conversationId);
   const isNativeChat = details?.type === 'native';
   
   return (
@@ -283,19 +283,18 @@ export function ConversationDetailView() {
         
         <div class="conversation-detail-info">
           <div class="conversation-detail-name">
-            {details?.type === 'native' ? `&${details.counterpartyName}` : details?.counterpartyName}
+            {details?.counterpartyName}
           </div>
-          {details?.type === 'native' && (
+          {details?.counterpartyFingerprint && (
             <div class="conversation-detail-fingerprint">
-              {details.counterpartyFingerprint?.slice(0, 12)}...
+              {details.counterpartyFingerprint.slice(0, 12)}...
             </div>
           )}
         </div>
         
         <div class="conversation-detail-badge">
-          {details?.type === 'native' && <span class="badge badge-encrypted"><LockIcon /> E2E</span>}
-          {details?.type === 'email' && <span class="badge badge-email"><MailIcon /> Email</span>}
-          {details?.type === 'contact_endpoint' && <span class="badge badge-contact"><FileTextIcon /> Contact</span>}
+          {conv?.securityLevel === 'e2ee' && <span class="badge badge-encrypted"><LockIcon /> E2EE</span>}
+          {conv?.securityLevel === 'gateway_secured' && <span class="badge badge-email">Relayed</span>}
         </div>
       </div>
       
@@ -304,6 +303,10 @@ export function ConversationDetailView() {
         {isLoadingMessages.value ? (
           <div class="messages-loading">
             <div class="loading-spinner"></div>
+          </div>
+        ) : messages.value.length === 0 ? (
+          <div class="messages-empty">
+            <div class="text-secondary">No messages yet</div>
           </div>
         ) : (
           <>
@@ -315,17 +318,8 @@ export function ConversationDetailView() {
         )}
       </div>
       
-      {/* Input - only for native chats */}
-      {isNativeChat && <MessageInput onSend={handleSendMessage} />}
-      
-      {/* Email/Contact read-only notice */}
-      {!isNativeChat && (
-        <div class="read-only-notice">
-          {details?.type === 'email' 
-            ? 'Email messages are read-only' 
-            : 'Contact form submissions are read-only'}
-        </div>
-      )}
+      {/* Input - for all conversations */}
+      <MessageInput onSend={handleSendMessage} />
       
       <style>{`
         .conversation-detail {

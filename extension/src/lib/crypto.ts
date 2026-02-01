@@ -236,6 +236,58 @@ export function decryptMessage(
 // ============================================
 
 /**
+ * Decrypt email address that was encrypted with sealed box pattern
+ * Used to decrypt sender's email address from the server for replies
+ * 
+ * @param encryptedPackage - JSON string with ephemeralPubkey, nonce, ciphertext
+ * @param recipientSecretKey - Identity's X25519 secret key (derived from signing key)
+ * @returns Decrypted email address
+ */
+export function decryptEmail(
+  encryptedPackage: string,
+  recipientSecretKey: Uint8Array
+): string {
+  const pkg = JSON.parse(encryptedPackage);
+  const ephemeralPubkey = decodeBase64(pkg.ephemeralPubkey);
+  const nonce = decodeBase64(pkg.nonce);
+  const ciphertext = decodeBase64(pkg.ciphertext);
+  
+  const decrypted = nacl.box.open(ciphertext, nonce, ephemeralPubkey, recipientSecretKey);
+  
+  if (!decrypted) {
+    throw new Error('Failed to decrypt email address');
+  }
+  
+  const decoder = new TextDecoder();
+  return decoder.decode(decrypted);
+}
+
+/**
+ * Encrypt a plaintext string for a recipient's public key
+ * Returns: ephemeralPubkey:nonce:ciphertext (all base64, colon-separated)
+ * Used to encrypt recipient email for worker
+ */
+export function encryptForRecipient(
+  plaintext: string,
+  recipientPublicKeyBase64: string
+): string {
+  const recipientPublicKey = decodeBase64(recipientPublicKeyBase64);
+  const ephemeralKeyPair = nacl.box.keyPair();
+  const nonce = nacl.randomBytes(nacl.box.nonceLength);
+  const plaintextBytes = new TextEncoder().encode(plaintext);
+  
+  const ciphertext = nacl.box(
+    plaintextBytes,
+    nonce,
+    recipientPublicKey,
+    ephemeralKeyPair.secretKey
+  );
+  
+  // Return as colon-separated base64 string
+  return `${encodeBase64(ephemeralKeyPair.publicKey)}:${encodeBase64(nonce)}:${encodeBase64(ciphertext)}`;
+}
+
+/**
  * Generate a random nonce for auth challenges
  */
 export function generateNonce(): string {

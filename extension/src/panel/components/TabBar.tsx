@@ -3,6 +3,7 @@ import { activeTab, type Tab } from '../App';
 const tabs: { id: Tab; label: string; icon: string }[] = [
   { id: 'inbox', label: 'Inbox', icon: 'inbox' },
   { id: 'new', label: 'New', icon: 'plus' },
+  { id: 'edges', label: 'Edges', icon: 'edges' },
   { id: 'wallet', label: 'Wallet', icon: 'wallet' },
 ];
 
@@ -28,6 +29,13 @@ function TabIcon({ icon }: { icon: string }) {
           <path d="M21 12V7H5a2 2 0 010-4h14v4" />
           <path d="M3 5v14a2 2 0 002 2h16v-5" />
           <path d="M18 12a2 2 0 100 4 2 2 0 000-4z" />
+        </svg>
+      );
+    case 'edges':
+      return (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
         </svg>
       );
     default:
