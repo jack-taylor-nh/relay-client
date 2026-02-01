@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Relay",
+  "version": "0.1.0",
+  "description": "Your private communications perimeter",
+  "permissions": [
+    "storage",
+    "sidePanel"
+  ],
+  "host_permissions": [],
+  "background": {
+    "service_worker": "background/index.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Open Relay"
+  },
+  "side_panel": {
+    "default_path": "panel/index.html"
+  }
+}

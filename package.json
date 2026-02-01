@@ -1,0 +1,14 @@
+{
+  "name": "relay-client-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MPL-2.0",
+  "workspaces": [
+    "core",
+    "extension"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces"
+  }
+}
