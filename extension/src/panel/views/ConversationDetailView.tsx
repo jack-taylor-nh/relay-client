@@ -233,9 +233,44 @@ export function ConversationDetailView() {
     messages.value = [...messages.value, newMessage];
     
     try {
-      // Send via appropriate endpoint based on conversation type
-      if (conv.securityLevel === 'e2ee' && conv.type === 'native') {
-        // Native E2EE - need sender and recipient handles
+      // Phase 4: Use unified SEND_TO_EDGE if we have edge info
+      if (conv.myEdgeId && conv.counterpartyEdgeId && conv.counterpartyX25519PublicKey) {
+        console.log('[ConversationDetailView] Using unified SEND_TO_EDGE:', {
+          myEdgeId: conv.myEdgeId,
+          counterpartyEdgeId: conv.counterpartyEdgeId,
+          hasX25519Key: !!conv.counterpartyX25519PublicKey,
+        });
+        
+        const result = await sendMessage<{
+          success: boolean;
+          conversationId?: string;
+          messageId?: string;
+          error?: string;
+        }>({ 
+          type: 'SEND_TO_EDGE', 
+          payload: { 
+            myEdgeId: conv.myEdgeId,
+            recipientEdgeId: conv.counterpartyEdgeId,
+            recipientX25519PublicKey: conv.counterpartyX25519PublicKey,
+            content,
+            conversationId,
+            origin: conv.type === 'native' ? 'native' : conv.type === 'email' ? 'email' : 'contact_link',
+          }
+        });
+        
+        if (!result.success) {
+          showToast(`Failed to send: ${result.error}`);
+          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+        } else {
+          messages.value = messages.value.map(m => 
+            m.id === newMessage.id ? { ...m, id: result.messageId || m.id } : m
+          );
+          await loadMessages(conversationId);
+        }
+      } else if (conv.securityLevel === 'e2ee' && conv.type === 'native') {
+        // Fallback: Legacy native E2EE - need sender and recipient handles
+        console.log('[ConversationDetailView] Falling back to legacy SEND_NATIVE_MESSAGE');
+        
         // Get user's handles
         const handlesResult = await sendMessage<{
           success: boolean;

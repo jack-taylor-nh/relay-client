@@ -17,6 +17,10 @@ export interface Conversation {
   lastActivityAt: string;
   createdAt: string;
   unreadCount?: number;
+  // Phase 4: Edge-to-edge messaging info
+  myEdgeId?: string;              // My edge ID for this conversation
+  counterpartyEdgeId?: string;    // Counterparty's edge ID
+  counterpartyX25519PublicKey?: string; // Counterparty's encryption key
 }
 
 export interface Identity {

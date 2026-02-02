@@ -17,6 +17,7 @@ import {
   toBase64,
   fromBase64,
   deriveEncryptionKeyPair,
+  generateEdgeKeyPair,
   encryptMessage,
   decryptMessage,
   decryptEmail,
@@ -123,6 +124,7 @@ type MessageType =
   | { type: 'SEND_MESSAGE'; payload: { recipientIdentityId: string; recipientPublicKey: string; content: string; conversationId?: string } }
   | { type: 'SEND_NATIVE_MESSAGE'; payload: { recipientHandle: string; senderHandle: string; content: string } }
   | { type: 'SEND_EMAIL'; payload: { conversationId: string; content: string } }
+  | { type: 'SEND_TO_EDGE'; payload: { myEdgeId: string; recipientEdgeId: string; recipientX25519PublicKey: string; content: string; conversationId?: string; origin?: 'native' | 'email' | 'contact_link' | 'bridge' } }
   | { type: 'CREATE_EDGE'; payload: { type: 'native' | 'email' | 'contact_link'; label?: string; customAddress?: string; displayName?: string } }
   | { type: 'GET_EDGE_TYPES' }
   | { type: 'GET_EDGES' }
@@ -184,13 +186,27 @@ async function handleMessage(message: MessageType): Promise<unknown> {
       return getMessages(message.payload.conversationId, message.payload.cursor);
 
     case 'SEND_MESSAGE':
+      // DEPRECATED: Use SEND_TO_EDGE for new code
       return sendMessage(message.payload);
 
     case 'SEND_NATIVE_MESSAGE':
+      // DEPRECATED: Use SEND_TO_EDGE for new code
       return sendNativeMessage(message.payload.recipientHandle, message.payload.senderHandle, message.payload.content);
 
     case 'SEND_EMAIL':
+      // DEPRECATED: Use SEND_TO_EDGE for new code (email goes via bridge edge)
       return sendEmail(message.payload.conversationId, message.payload.content);
+
+    case 'SEND_TO_EDGE':
+      // UNIFIED: Single function for all edge-to-edge messaging
+      return sendToEdge(
+        message.payload.myEdgeId,
+        message.payload.recipientEdgeId,
+        message.payload.recipientX25519PublicKey,
+        message.payload.content,
+        message.payload.conversationId,
+        message.payload.origin
+      );
 
     case 'CREATE_EDGE':
       return createEdge(message.payload.type, message.payload.label, message.payload.customAddress, message.payload.displayName);
@@ -528,11 +544,11 @@ async function createHandle(handle: string, displayName?: string): Promise<{
       return { success: false, error: 'Failed to authenticate' };
     }
     
-    // Generate per-edge X25519 keypair for this handle
-    const edgeEncryptionKeys = deriveEncryptionKeyPair(unlockedIdentity.secretKey);
+    // Generate random X25519 keypair for this edge (unique, unlinkable)
+    const edgeEncryptionKeys = generateEdgeKeyPair();
     const edgeX25519PublicKey = toBase64(edgeEncryptionKeys.publicKey);
     
-    console.log('Creating handle with edge-level encryption key:', {
+    console.log('Creating handle with unique edge encryption key:', {
       handle,
       hasEdgeKey: !!edgeX25519PublicKey,
     });
@@ -560,10 +576,13 @@ async function createHandle(handle: string, displayName?: string): Promise<{
     // Store edge keypair locally for this handle
     const edgeId = data.nativeEdge?.id;
     if (edgeId) {
-      const edgeKeys = {
+      const edgeKeyEntry = {
         [edgeId]: {
           publicKey: toBase64(edgeEncryptionKeys.publicKey),
           secretKey: toBase64(edgeEncryptionKeys.secretKey),
+          address: handle,  // Store handle for lookup
+          type: 'native',
+          createdAt: new Date().toISOString(),
         },
       };
       
@@ -571,7 +590,7 @@ async function createHandle(handle: string, displayName?: string): Promise<{
       const storage = await chrome.storage.local.get(['edgeKeys']);
       const existingKeys = storage.edgeKeys || {};
       await chrome.storage.local.set({
-        edgeKeys: { ...existingKeys, ...edgeKeys },
+        edgeKeys: { ...existingKeys, ...edgeKeyEntry },
       });
       
       console.log('Stored edge keypair for handle:', handle, 'edgeId:', edgeId);
@@ -725,61 +744,126 @@ function clearSession() {
 }
 
 // ============================================
-// Handle Resolution
+// Edge Resolution (Unified)
 // ============================================
 
-async function resolveHandle(handle: string): Promise<{
+interface ResolvedEdge {
+  edgeId: string;
+  type: string;
+  status: string;
+  securityLevel: string;
+  x25519PublicKey: string;
+  displayName?: string | null;
+}
+
+/**
+ * Unified edge resolution - resolves any edge type to its encryption key
+ * Phase 5: Also handles bridge edges with fallback to worker endpoint
+ * Returns ONLY edge data - no identity information
+ */
+async function resolveEdge(
+  type: 'native' | 'email' | 'contact_link' | 'bridge',
+  address: string
+): Promise<{
   success: boolean;
-  handle?: string;
-  publicKey?: string;
-  fingerprint?: string;
-  x25519PublicKey?: string;
-  edgeId?: string;
+  edge?: ResolvedEdge;
   error?: string;
 }> {
-  const cleanHandle = handle.toLowerCase().replace(/^&/, '').trim();
-  
   try {
     const apiUrl = await getApiUrl();
     
-    // Use POST endpoint to avoid handle appearing in URL/logs
-    const res = await fetch(`${apiUrl}/v1/handles/resolve`, {
+    const res = await fetch(`${apiUrl}/v1/edge/resolve`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ handle: cleanHandle }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, address: address.toLowerCase() }),
     });
+    
+    // Handle bridge redirect (307) - fallback to worker endpoint
+    if (res.status === 307 && type === 'bridge') {
+      const data = await res.json();
+      if (data.workerUrl) {
+        console.log('[resolveEdge] Bridge redirect to worker:', data.workerUrl);
+        // Fetch directly from worker
+        const workerRes = await fetch(data.workerUrl);
+        if (workerRes.ok) {
+          const workerData = await workerRes.json();
+          return {
+            success: true,
+            edge: {
+              edgeId: `RELAY_${address.toUpperCase()}_BRIDGE`,
+              type: 'bridge',
+              status: 'active',
+              securityLevel: 'gateway_secured',
+              x25519PublicKey: workerData.publicKey,
+              displayName: `${address.charAt(0).toUpperCase() + address.slice(1)} Bridge`,
+            },
+          };
+        }
+      }
+      return { success: false, error: 'Failed to resolve bridge from worker' };
+    }
     
     if (!res.ok) {
       if (res.status === 404) {
-        return { success: false, error: 'Handle not found' };
+        return { success: false, error: `${type} edge not found: ${address}` };
       }
       if (res.status === 410) {
-        return { success: false, error: 'Handle is no longer active' };
+        return { success: false, error: 'Edge is no longer active' };
       }
       const err = await res.json();
-      return { success: false, error: err.message || 'Failed to resolve handle' };
+      return { success: false, error: err.message || 'Failed to resolve edge' };
     }
     
     const data = await res.json();
     
-    // Compute fingerprint from public key for identity verification
-    const publicKeyBytes = fromBase64(data.publicKey);
-    const fingerprint = computeFingerprint(publicKeyBytes);
-    
     return {
       success: true,
-      handle: data.handle,
-      publicKey: data.publicKey,
-      fingerprint,
-      x25519PublicKey: data.x25519PublicKey,
-      edgeId: data.edgeId,
+      edge: {
+        edgeId: data.edgeId,
+        type: data.type,
+        status: data.status,
+        securityLevel: data.securityLevel,
+        x25519PublicKey: data.x25519PublicKey,
+        displayName: data.displayName,
+      },
     };
   } catch (error) {
-    console.error('Resolve handle error:', error);
+    console.error('Resolve edge error:', error);
     return { success: false, error: 'Network error' };
   }
+}
+
+// ============================================
+// Handle Resolution (Legacy wrapper)
+// ============================================
+
+/**
+ * @deprecated Use resolveEdge('native', handle) instead
+ */
+async function resolveHandle(handle: string): Promise<{
+  success: boolean;
+  handle?: string;
+  x25519PublicKey?: string;
+  edgeId?: string;
+  displayName?: string;
+  error?: string;
+}> {
+  const cleanHandle = handle.toLowerCase().replace(/^&/, '').trim();
+  
+  // Use unified edge resolution
+  const result = await resolveEdge('native', cleanHandle);
+  
+  if (!result.success || !result.edge) {
+    return { success: false, error: result.error };
+  }
+  
+  return {
+    success: true,
+    handle: cleanHandle,
+    x25519PublicKey: result.edge.x25519PublicKey,
+    edgeId: result.edge.edgeId,
+    displayName: result.edge.displayName || undefined,
+  };
 }
 
 // ============================================
@@ -794,15 +878,20 @@ async function getConversations(): Promise<{
     securityLevel: string;
     channelLabel?: string;
     edge?: {
+      id: string;
       type: string;
       address: string;
       label?: string;
       status: string;
     };
+    myEdgeId?: string;  // Phase 4: My edge ID for this conversation
     counterparty?: {
       identityId?: string;
       externalId?: string;
       displayName?: string;
+      handle?: string;          // Phase 4: Counterparty handle
+      edgeId?: string;          // Phase 4: Counterparty edge ID
+      x25519PublicKey?: string; // Phase 4: Counterparty encryption key
     };
     lastActivityAt: string;
     createdAt: string;
@@ -924,17 +1013,12 @@ async function getMessages(
             
             // Fallback: If no x25519 key in response and we have a handle, resolve it
             if (!conversationDetails.counterpartyX25519Key && conv.counterparty?.handle) {
-              console.log('[DEBUG] Falling back to handle resolution for:', conv.counterparty.handle);
-              const resolveRes = await fetch(`${apiUrl}/v1/handles/resolve`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ handle: conv.counterparty.handle }),
-              });
-              if (resolveRes.ok) {
-                const resolveData = await resolveRes.json();
-                conversationDetails.counterpartyX25519Key = resolveData.x25519PublicKey;
-                conversationDetails.counterpartyEdgeId = resolveData.edgeId;
-                console.log('[DEBUG] Resolved via handle:', { handle: conv.counterparty.handle, hasKey: !!resolveData.x25519PublicKey });
+              console.log('[DEBUG] Falling back to edge resolution for:', conv.counterparty.handle);
+              const resolved = await resolveEdge('native', conv.counterparty.handle);
+              if (resolved.success && resolved.edge) {
+                conversationDetails.counterpartyX25519Key = resolved.edge.x25519PublicKey;
+                conversationDetails.counterpartyEdgeId = resolved.edge.edgeId;
+                console.log('[DEBUG] Resolved via edge:', { handle: conv.counterparty.handle, hasKey: !!resolved.edge.x25519PublicKey });
               }
             }
           }
@@ -1118,6 +1202,10 @@ async function getMessages(
   }
 }
 
+/**
+ * @deprecated Use sendToEdge() instead - this uses identity-based addressing
+ * which leaks linkability. Kept for backwards compatibility.
+ */
 async function sendMessage(payload: {
   recipientIdentityId: string;
   recipientPublicKey: string;
@@ -1207,6 +1295,10 @@ async function sendMessage(payload: {
   }
 }
 
+/**
+ * @deprecated Use sendToEdge() with email bridge edge instead.
+ * This will be migrated to use unified bridge-as-edge pattern.
+ */
 async function sendEmail(
   conversationId: string,
   content: string
@@ -1292,15 +1384,29 @@ async function sendEmail(
       return { success: false, error: 'Failed to decrypt first message' };
     }
     
-    // Step 3: Get worker's public key for encryption
+    // Step 3: Get email bridge's public key for encryption
+    // Phase 5: Use unified edge resolution instead of direct worker fetch
+    const bridgeResolved = await resolveEdge('bridge', 'email');
+    
+    // Worker URL for email sending
     const workerUrl = 'https://relay-email-worker.taylor-d-jack.workers.dev';
-    const workerKeyRes = await fetch(`${workerUrl}/public-key`);
-    if (!workerKeyRes.ok) {
-      const errorText = await workerKeyRes.text();
-      return { success: false, error: `Failed to get worker public key: ${errorText}` };
+    
+    let workerPublicKey: string;
+    if (bridgeResolved.success && bridgeResolved.edge?.x25519PublicKey) {
+      // Bridge is registered in database
+      workerPublicKey = bridgeResolved.edge.x25519PublicKey;
+      console.log('[sendEmail] Resolved bridge from database');
+    } else {
+      // Fallback: Fetch from worker directly (legacy)
+      console.log('[sendEmail] Falling back to worker endpoint for bridge key');
+      const workerKeyRes = await fetch(`${workerUrl}/public-key`);
+      if (!workerKeyRes.ok) {
+        const errorText = await workerKeyRes.text();
+        return { success: false, error: `Failed to get worker public key: ${errorText}` };
+      }
+      const workerKeyData = await workerKeyRes.json();
+      workerPublicKey = workerKeyData.publicKey;
     }
-    const workerKeyData = await workerKeyRes.json();
-    const workerPublicKey = workerKeyData.publicKey;
     
     // Step 4: Encrypt recipient for worker (zero-knowledge!)
     const encryptedRecipient = encryptForRecipient(recipientEmail, workerPublicKey);
@@ -1371,6 +1477,10 @@ const pendingNativeSends = new Set<string>();
 const recentNativeSends = new Map<string, number>();
 const SEND_COOLDOWN_MS = 2000; // 2 second cooldown for same content
 
+/**
+ * @deprecated Use sendToEdge() instead - this function resolves handle internally.
+ * New code should resolve the edge first, then call sendToEdge directly.
+ */
 async function sendNativeMessage(
   recipientHandle: string,
   senderHandle: string,
@@ -1407,27 +1517,22 @@ async function sendNativeMessage(
   try {
     const apiUrl = await getApiUrl();
     
-    // 1. Resolve recipient handle to get their edge public key and edge ID
-    // Use POST endpoint to avoid handle appearing in URL/logs
-    const resolveRes = await fetch(`${apiUrl}/v1/handles/resolve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ handle: recipientHandle }),
-    });
-    if (!resolveRes.ok) {
+    // 1. Resolve recipient edge to get their edge public key and edge ID
+    const resolved = await resolveEdge('native', recipientHandle);
+    if (!resolved.success || !resolved.edge) {
       pendingNativeSends.delete(sendKey);
-      return { success: false, error: 'Recipient handle not found' };
+      return { success: false, error: resolved.error || 'Recipient handle not found' };
     }
-    const resolveData = await resolveRes.json();
-    const recipientEdgeId = resolveData.edgeId;
-    const recipientX25519PublicKey = resolveData.x25519PublicKey;
+    
+    const recipientEdgeId = resolved.edge.edgeId;
+    const recipientX25519PublicKey = resolved.edge.x25519PublicKey;
     
     if (!recipientX25519PublicKey) {
       pendingNativeSends.delete(sendKey);
       return { success: false, error: 'Recipient has no encryption key' };
     }
     
-    console.log('Resolved recipient:', {
+    console.log('Resolved recipient edge:', {
       handle: recipientHandle,
       edgeId: recipientEdgeId,
       hasX25519Key: !!recipientX25519PublicKey,
@@ -1437,15 +1542,32 @@ async function sendNativeMessage(
     const storage = await chrome.storage.local.get(['edgeKeys']);
     const edgeKeys = storage.edgeKeys || {};
     
-    // Find my edge ID for this handle (stored during createHandle)
+    // Find my edge ID for this handle
     let myEdgeId: string | null = null;
     let myEdgeSecretKey: Uint8Array | null = null;
     
+    // Match by handle (address)
     for (const [edgeId, keys] of Object.entries(edgeKeys)) {
-      // Match edge by handle (stored in edges with address = handle)
-      myEdgeId = edgeId;
-      myEdgeSecretKey = fromBase64((keys as any).secretKey);
-      break; // For now, use the first edge (TODO: match by handle)
+      const keyData = keys as { address?: string; secretKey: string; type?: string };
+      if (keyData.address === senderHandle && keyData.type === 'native') {
+        myEdgeId = edgeId;
+        myEdgeSecretKey = fromBase64(keyData.secretKey);
+        console.log('Found matching edge for handle:', senderHandle, 'edgeId:', edgeId);
+        break;
+      }
+    }
+    
+    // Fallback: use first native edge if no exact match (for backwards compat)
+    if (!myEdgeId) {
+      for (const [edgeId, keys] of Object.entries(edgeKeys)) {
+        const keyData = keys as { address?: string; secretKey: string; type?: string };
+        if (keyData.type === 'native' || !keyData.type) {
+          myEdgeId = edgeId;
+          myEdgeSecretKey = fromBase64(keyData.secretKey);
+          console.warn('Using fallback edge (no exact match for handle):', senderHandle, 'using edgeId:', edgeId);
+          break;
+        }
+      }
     }
     
     if (!myEdgeId || !myEdgeSecretKey) {
@@ -1567,6 +1689,167 @@ async function sendNativeMessage(
 }
 
 // ============================================
+// Unified Edge-to-Edge Messaging (Phase 4)
+// ============================================
+
+/**
+ * UNIFIED SEND TO EDGE
+ * 
+ * Single function for sending messages to ANY edge type.
+ * Uses Double Ratchet encryption for all channels.
+ * 
+ * @param myEdgeId - The sender's edge ID
+ * @param recipientEdgeId - The recipient's edge ID
+ * @param content - Message content
+ * @param conversationId - Optional existing conversation ID
+ * @param origin - Edge type (defaults to 'native')
+ */
+async function sendToEdge(
+  myEdgeId: string,
+  recipientEdgeId: string,
+  recipientX25519PublicKey: string,
+  content: string,
+  conversationId?: string,
+  origin: 'native' | 'email' | 'contact_link' | 'bridge' = 'native'
+): Promise<{
+  success: boolean;
+  conversationId?: string;
+  messageId?: string;
+  error?: string;
+}> {
+  if (!unlockedIdentity) {
+    return { success: false, error: 'Wallet is locked' };
+  }
+
+  // Duplicate send prevention
+  const sendKey = `${myEdgeId}:${recipientEdgeId}:${content.slice(0, 50)}`;
+  const lastSendTime = recentNativeSends.get(sendKey);
+  if (lastSendTime && (Date.now() - lastSendTime) < SEND_COOLDOWN_MS) {
+    console.warn('[sendToEdge] Duplicate send detected (cooldown), ignoring');
+    return { success: false, error: 'Duplicate send - please wait' };
+  }
+  if (pendingNativeSends.has(sendKey)) {
+    console.warn('[sendToEdge] Duplicate send detected (in-flight), ignoring');
+    return { success: false, error: 'Duplicate send - already in progress' };
+  }
+  
+  pendingNativeSends.add(sendKey);
+  recentNativeSends.set(sendKey, Date.now());
+
+  try {
+    const apiUrl = await getApiUrl();
+    const token = await getAuthToken();
+    
+    if (!token) {
+      pendingNativeSends.delete(sendKey);
+      return { success: false, error: 'Authentication failed' };
+    }
+
+    // 1. Get my edge secret key
+    const storage = await chrome.storage.local.get(['edgeKeys']);
+    const edgeKeys = storage.edgeKeys || {};
+    const myEdgeData = edgeKeys[myEdgeId] as { secretKey: string } | undefined;
+    
+    if (!myEdgeData?.secretKey) {
+      pendingNativeSends.delete(sendKey);
+      return { success: false, error: 'No edge key found for your edge' };
+    }
+    
+    const myEdgeSecretKey = fromBase64(myEdgeData.secretKey);
+    const recipientPubKey = fromBase64(recipientX25519PublicKey);
+
+    // 2. Build conversation object for ratchet
+    const isNewConversation = !conversationId;
+    const conversation: RatchetConversation = {
+      id: conversationId || crypto.randomUUID(), // Temp ID for new, replaced by server
+      origin: origin as EdgeType,
+      security_level: 'e2ee' as SecurityLevel,
+      my_edge_id: myEdgeId,
+      counterparty_edge_id: recipientEdgeId,
+      is_initiator: isNewConversation,
+      ratchet_state: null,
+    };
+
+    // 3. Encrypt with Double Ratchet
+    const { envelope } = await sendUnifiedMessage(
+      conversation,
+      content,
+      'text/plain',
+      myEdgeSecretKey,
+      recipientPubKey,
+      ratchetStorage
+    );
+
+    // 4. Build server payload
+    const ratchetMsg = envelope.payload.ratchet;
+    const serverPayload = {
+      conversation_id: conversationId || undefined,
+      recipient_edge_id: recipientEdgeId,
+      edge_id: myEdgeId,
+      origin,
+      security_level: 'e2ee',
+      payload: {
+        content_type: envelope.payload.content_type || 'text/plain',
+        ciphertext: ratchetMsg.ciphertext,
+        ephemeral_pubkey: ratchetMsg.dh,
+        nonce: ratchetMsg.nonce,
+        dh: ratchetMsg.dh,
+        pn: ratchetMsg.pn,
+        n: ratchetMsg.n,
+      },
+      signature: signString(`relay-msg:${recipientEdgeId}:${ratchetMsg.nonce}`, unlockedIdentity.secretKey),
+    };
+
+    // 5. Send to unified endpoint
+    const res = await fetch(`${apiUrl}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(serverPayload),
+    });
+
+    if (!res.ok) {
+      pendingNativeSends.delete(sendKey);
+      const err = await res.json();
+      return { success: false, error: err.error || 'Failed to send message' };
+    }
+
+    const data = await res.json();
+
+    // 6. Update ratchet storage key if new conversation
+    if (isNewConversation && data.conversation_id) {
+      const tempId = conversation.id;
+      const realId = data.conversation_id;
+      const tempState = await ratchetStorage.load(tempId);
+      if (tempState) {
+        await ratchetStorage.save(realId, tempState);
+      }
+    }
+
+    pendingNativeSends.delete(sendKey);
+    
+    console.log('[sendToEdge] Message sent:', {
+      myEdgeId,
+      recipientEdgeId,
+      conversationId: data.conversation_id,
+      messageId: data.message_id,
+    });
+
+    return {
+      success: true,
+      conversationId: data.conversation_id,
+      messageId: data.message_id,
+    };
+  } catch (error) {
+    pendingNativeSends.delete(sendKey);
+    console.error('[sendToEdge] Error:', error);
+    return { success: false, error: 'Network error' };
+  }
+}
+
+// ============================================
 // Edge Management
 // ============================================
 
@@ -1597,8 +1880,8 @@ async function createEdge(
     const messageToSign = `relay-create-edge:${type}:${nonce}`;
     const signature = signString(messageToSign, unlockedIdentity.secretKey);
 
-    // Derive X25519 encryption key for edge encryption
-    const encryptionKeys = deriveEncryptionKeyPair(unlockedIdentity.secretKey);
+    // Generate random X25519 keypair for this edge (unique, unlinkable)
+    const encryptionKeys = generateEdgeKeyPair();
 
     const res = await fetch(`${apiUrl}/v1/edge`, {
       method: 'POST',
@@ -1624,20 +1907,23 @@ async function createEdge(
     
     // Store edge keypair locally for encryption
     if (edge.id) {
-      const edgeKeys = {
+      const edgeKeyEntry = {
         [edge.id]: {
           publicKey: toBase64(encryptionKeys.publicKey),
           secretKey: toBase64(encryptionKeys.secretKey),
+          address: edge.address || customAddress,  // Store address for lookup
+          type: type,
+          createdAt: new Date().toISOString(),
         },
       };
       
       const storage = await chrome.storage.local.get(['edgeKeys']);
       const existingKeys = storage.edgeKeys || {};
       await chrome.storage.local.set({
-        edgeKeys: { ...existingKeys, ...edgeKeys },
+        edgeKeys: { ...existingKeys, ...edgeKeyEntry },
       });
       
-      console.log('Stored edge keypair for edge:', edge.id);
+      console.log('Stored edge keypair for edge:', edge.id, 'address:', edge.address);
     }
     
     return { success: true, edge };
@@ -1672,7 +1958,7 @@ async function getEdgeTypes(): Promise<{
 /**
  * Ensure edge has X25519 key (migration for old edges)
  */
-async function ensureEdgeHasX25519(edgeId: string): Promise<boolean> {
+async function ensureEdgeHasX25519(edgeId: string, edgeAddress?: string, edgeType?: string): Promise<boolean> {
   if (!unlockedIdentity) return false;
 
   try {
@@ -1681,8 +1967,8 @@ async function ensureEdgeHasX25519(edgeId: string): Promise<boolean> {
     const messageToSign = `relay-update-edge:${edgeId}:${nonce}`;
     const signature = signString(messageToSign, unlockedIdentity.secretKey);
     
-    // Derive X25519 encryption key
-    const encryptionKeys = deriveEncryptionKeyPair(unlockedIdentity.secretKey);
+    // Generate random X25519 keypair for this edge (unique, unlinkable)
+    const encryptionKeys = generateEdgeKeyPair();
 
     const res = await fetch(`${apiUrl}/v1/edge/${edgeId}`, {
       method: 'PATCH',
@@ -1700,7 +1986,28 @@ async function ensureEdgeHasX25519(edgeId: string): Promise<boolean> {
       return false;
     }
     
-    console.log(`Updated edge ${edgeId} with X25519 key`);
+    // Store edge keypair locally for encryption
+    // Preserve existing edge data if present
+    const storage = await chrome.storage.local.get(['edgeKeys']);
+    const existingKeys = storage.edgeKeys || {};
+    const existingEdgeData = existingKeys[edgeId] || {};
+    
+    const edgeKeyEntry = {
+      [edgeId]: {
+        ...existingEdgeData,  // Preserve existing address/type if present
+        publicKey: toBase64(encryptionKeys.publicKey),
+        secretKey: toBase64(encryptionKeys.secretKey),
+        address: edgeAddress || existingEdgeData.address,
+        type: edgeType || existingEdgeData.type,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    
+    await chrome.storage.local.set({
+      edgeKeys: { ...existingKeys, ...edgeKeyEntry },
+    });
+    
+    console.log(`Updated edge ${edgeId} with unique X25519 key`);
     return true;
   } catch (error) {
     console.error('Error updating edge X25519:', error);
@@ -1758,7 +2065,7 @@ async function getEdges(): Promise<{
       console.log(`[Edge Migration] ${edgesNeedingMigration.length} edges need X25519 key migration`);
       
       for (const edge of edgesNeedingMigration) {
-        await ensureEdgeHasX25519(edge.id);
+        await ensureEdgeHasX25519(edge.id, edge.address, edge.type);
       }
     }
     

@@ -315,16 +315,20 @@ export async function loadData() {
         securityLevel: string;
         channelLabel?: string;
         edge?: {
+          id: string;
           type: string;
           address: string;
           label?: string;
           status: string;
         };
+        myEdgeId?: string;  // Phase 4: My edge in this conversation
         counterparty?: {
           identityId?: string;
           externalId?: string;
           displayName?: string;
           handle?: string;
+          edgeId?: string;          // Phase 4: Counterparty edge ID
+          x25519PublicKey?: string; // Phase 4: Counterparty encryption key
         };
         lastActivityAt: string;
         createdAt: string;
@@ -369,6 +373,10 @@ export async function loadData() {
           lastActivityAt: conv.lastActivityAt,
           createdAt: conv.createdAt,
           unreadCount: 0, // TODO: Track unread
+          // Phase 4: Edge-to-edge messaging info
+          myEdgeId: conv.myEdgeId || conv.edge?.id,
+          counterpartyEdgeId: conv.counterparty?.edgeId,
+          counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey,
         };
       });
     }
@@ -555,16 +563,20 @@ export async function loadConversations(): Promise<void> {
         securityLevel: string;
         channelLabel?: string;
         edge?: {
+          id: string;
           type: string;
           address: string;
           label?: string;
           status: string;
         };
+        myEdgeId?: string;  // Phase 4: My edge in this conversation
         counterparty?: {
           identityId?: string;
           externalId?: string;
           displayName?: string;
           handle?: string;
+          edgeId?: string;          // Phase 4: Counterparty edge ID
+          x25519PublicKey?: string; // Phase 4: Counterparty encryption key
         };
         lastActivityAt: string;
         createdAt: string;
@@ -605,6 +617,10 @@ export async function loadConversations(): Promise<void> {
           lastActivityAt: conv.lastActivityAt,
           createdAt: conv.createdAt,
           unreadCount: 0,
+          // Phase 4: Edge-to-edge messaging info
+          myEdgeId: conv.myEdgeId || conv.edge?.id,
+          counterpartyEdgeId: conv.counterparty?.edgeId,
+          counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey,
         };
       });
     }
@@ -615,13 +631,16 @@ export async function loadConversations(): Promise<void> {
   }
 }
 
+/**
+ * Resolve a handle to edge info
+ * @deprecated For internal use - now returns edge data only, no identity info
+ */
 export async function resolveHandle(handle: string): Promise<{
   success: boolean;
   handle?: string;
-  publicKey?: string;
-  fingerprint?: string;
   x25519PublicKey?: string;
   edgeId?: string;
+  displayName?: string;
   error?: string;
 }> {
   return sendMessage({ type: 'RESOLVE_HANDLE', payload: { handle } });

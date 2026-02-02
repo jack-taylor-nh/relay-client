@@ -186,10 +186,35 @@ class ApiClient {
     return this.request<{ handles: Handle[] }>('GET', '/v1/handles', undefined, true);
   }
 
+  /**
+   * @deprecated Use resolveEdge instead
+   */
   async resolveHandle(handle: string): Promise<ResolvedHandle | null> {
     try {
       const cleanHandle = handle.toLowerCase().replace(/^@/, '');
-      return await this.request<ResolvedHandle>('GET', `/v1/handles/${cleanHandle}`);
+      // Use new unified edge resolution endpoint
+      return await this.request<ResolvedHandle>('POST', '/v1/edge/resolve', {
+        type: 'native',
+        address: cleanHandle,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Unified edge resolution - resolves any edge type to its encryption key
+   */
+  async resolveEdge(type: 'native' | 'email' | 'contact_link', address: string): Promise<{
+    edgeId: string;
+    type: string;
+    status: string;
+    securityLevel: string;
+    x25519PublicKey: string;
+    displayName?: string;
+  } | null> {
+    try {
+      return await this.request('POST', '/v1/edge/resolve', { type, address });
     } catch {
       return null;
     }

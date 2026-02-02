@@ -34,11 +34,24 @@ export function generateSigningKeyPair(): KeyPair {
 
 /**
  * Derive X25519 encryption keypair from Ed25519 signing keypair
+ * @deprecated Use generateEdgeKeyPair() for new edges - derived keys are linkable!
  */
 export function deriveEncryptionKeyPair(signingSecretKey: Uint8Array): KeyPair {
   // Extract the seed (first 32 bytes of the 64-byte secret key)
   const seed = signingSecretKey.slice(0, 32);
   const kp = nacl.box.keyPair.fromSecretKey(seed);
+  return {
+    publicKey: kp.publicKey,
+    secretKey: kp.secretKey,
+  };
+}
+
+/**
+ * Generate a random X25519 keypair for edge-level encryption
+ * Each edge gets a unique, unlinkable keypair
+ */
+export function generateEdgeKeyPair(): KeyPair {
+  const kp = nacl.box.keyPair();
   return {
     publicKey: kp.publicKey,
     secretKey: kp.secretKey,

@@ -117,11 +117,12 @@ export function NewView() {
     
     const result = await resolveHandle(cleanHandle);
     
-    if (result.success && result.publicKey && result.fingerprint) {
+    // Phase 6: Use edge-based resolution (no identity data)
+    if (result.success && result.x25519PublicKey && result.edgeId) {
       setResolvedUser({
         handle: result.handle || cleanHandle,
-        fingerprint: result.fingerprint,
-        publicKey: result.publicKey,
+        fingerprint: result.edgeId,  // Use edgeId as identifier
+        publicKey: result.x25519PublicKey,  // Use edge key
         x25519PublicKey: result.x25519PublicKey,
         edgeId: result.edgeId,
       });
