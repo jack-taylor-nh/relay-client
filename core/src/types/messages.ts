@@ -76,6 +76,8 @@ export interface Conversation {
   security_level: SecurityLevel;
   my_edge_id: string;
   counterparty_edge_id?: string;
+  /** Whether we are the initiator of this conversation (send first message) */
+  is_initiator?: boolean;
   ratchet_state?: any; // RatchetState from @relay/core
 }
 

@@ -907,10 +907,12 @@ async function getMessages(
             conversationDetails = {
               myEdgeId: conv.edge?.id,
               counterpartyEdgeId: conv.counterparty?.edgeId,
+              // Server now returns x25519PublicKey directly in counterparty
+              counterpartyX25519Key: conv.counterparty?.x25519PublicKey,
             };
             
-            // If we have a counterparty handle, resolve their edge public key
-            if (conv.counterparty?.handle) {
+            // Fallback: If no x25519 key in response and we have a handle, resolve it
+            if (!conversationDetails.counterpartyX25519Key && conv.counterparty?.handle) {
               const resolveRes = await fetch(`${apiUrl}/v1/handles/resolve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1433,12 +1435,14 @@ async function sendNativeMessage(
     }
 
     // 4. Build conversation object for unified messaging
+    const isNewConversation = !conversationId;
     const conversation: RatchetConversation = {
       id: conversationId || crypto.randomUUID(), // Will be replaced by server for new conversations
       origin: 'native' as EdgeType,
       security_level: 'e2ee' as SecurityLevel,
       my_edge_id: myEdgeId,
       counterparty_edge_id: recipientEdgeId,
+      is_initiator: isNewConversation, // We're the initiator if starting a new conversation
       ratchet_state: null, // Will be loaded from storage
     };
 
@@ -1803,17 +1807,6 @@ function onLock() {
 // ============================================
 // Initialization
 // ============================================
-
-// Set up message listener
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  handleMessage(message)
-    .then(sendResponse)
-    .catch(error => {
-      console.error('Background message error:', error);
-      sendResponse({ error: error.message || 'Unknown error' });
-    });
-  return true; // Keep message channel open for async response
-});
 
 // Enable side panel to open on action click (Chrome MV3)
 try {

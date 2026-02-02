@@ -51,8 +51,10 @@ export async function getRatchetState(
   const sharedSecret = deriveSharedSecret(myEdgeSecretKey, counterpartyEdgePublicKey);
   
   // Determine if we're Alice (initiator) or Bob (responder)
-  // Use lexicographic comparison of edge IDs for deterministic role assignment
-  const weAreAlice = conversation.my_edge_id > (conversation.counterparty_edge_id || '');
+  // If is_initiator is explicitly set, use that; otherwise use edge ID comparison
+  const weAreAlice = conversation.is_initiator !== undefined 
+    ? conversation.is_initiator 
+    : conversation.my_edge_id > (conversation.counterparty_edge_id || '');
   
   if (weAreAlice) {
     return RatchetInitAlice(sharedSecret, counterpartyEdgePublicKey);
