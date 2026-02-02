@@ -1367,6 +1367,9 @@ async function sendEmail(
 
 // Prevent duplicate sends
 const pendingNativeSends = new Set<string>();
+// Track recent sends with timestamps to prevent rapid duplicates
+const recentNativeSends = new Map<string, number>();
+const SEND_COOLDOWN_MS = 2000; // 2 second cooldown for same content
 
 async function sendNativeMessage(
   recipientHandle: string,
@@ -1384,11 +1387,22 @@ async function sendNativeMessage(
 
   // Create a unique key for this send to prevent duplicates
   const sendKey = `${recipientHandle}:${senderHandle}:${content.slice(0, 50)}`;
+  
+  // Check if this exact send is already in progress
   if (pendingNativeSends.has(sendKey)) {
-    console.warn('Duplicate send detected, ignoring:', sendKey);
+    console.warn('Duplicate send detected (in-flight), ignoring:', sendKey);
     return { success: false, error: 'Duplicate send - already in progress' };
   }
+  
+  // Check if this exact send was done recently
+  const lastSendTime = recentNativeSends.get(sendKey);
+  if (lastSendTime && (Date.now() - lastSendTime) < SEND_COOLDOWN_MS) {
+    console.warn('Duplicate send detected (cooldown), ignoring:', sendKey);
+    return { success: false, error: 'Duplicate send - please wait' };
+  }
+  
   pendingNativeSends.add(sendKey);
+  recentNativeSends.set(sendKey, Date.now());
 
   try {
     const apiUrl = await getApiUrl();
@@ -1655,6 +1669,45 @@ async function getEdgeTypes(): Promise<{
   }
 }
 
+/**
+ * Ensure edge has X25519 key (migration for old edges)
+ */
+async function ensureEdgeHasX25519(edgeId: string): Promise<boolean> {
+  if (!unlockedIdentity) return false;
+
+  try {
+    const apiUrl = await getApiUrl();
+    const nonce = crypto.randomUUID();
+    const messageToSign = `relay-update-edge:${edgeId}:${nonce}`;
+    const signature = signString(messageToSign, unlockedIdentity.secretKey);
+    
+    // Derive X25519 encryption key
+    const encryptionKeys = deriveEncryptionKeyPair(unlockedIdentity.secretKey);
+
+    const res = await fetch(`${apiUrl}/v1/edge/${edgeId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        publicKey: toBase64(unlockedIdentity.publicKey),
+        nonce,
+        signature,
+        x25519PublicKey: toBase64(encryptionKeys.publicKey),
+      }),
+    });
+
+    if (!res.ok) {
+      console.error('Failed to update edge X25519:', await res.text());
+      return false;
+    }
+    
+    console.log(`Updated edge ${edgeId} with X25519 key`);
+    return true;
+  } catch (error) {
+    console.error('Error updating edge X25519:', error);
+    return false;
+  }
+}
+
 async function getEdges(): Promise<{
   success: boolean;
   edges?: Array<{
@@ -1665,6 +1718,7 @@ async function getEdges(): Promise<{
     status: string;
     securityLevel: string;
     messageCount: number;
+    hasX25519?: boolean;
     createdAt: string;
     lastActivityAt: string | null;
   }>;
@@ -1694,6 +1748,20 @@ async function getEdges(): Promise<{
     }
 
     const data = await res.json();
+    
+    // Migrate edges missing X25519 key (one-time migration for old edges)
+    const edgesNeedingMigration = data.edges.filter(
+      (e: { hasX25519?: boolean; status: string }) => !e.hasX25519 && e.status === 'active'
+    );
+    
+    if (edgesNeedingMigration.length > 0) {
+      console.log(`[Edge Migration] ${edgesNeedingMigration.length} edges need X25519 key migration`);
+      
+      for (const edge of edgesNeedingMigration) {
+        await ensureEdgeHasX25519(edge.id);
+      }
+    }
+    
     return { success: true, edges: data.edges };
   } catch (error) {
     console.error('Get edges error:', error);
