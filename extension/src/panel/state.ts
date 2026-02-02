@@ -345,11 +345,17 @@ export async function loadData() {
           counterpartyName = conv.counterparty.handle.startsWith('&') 
             ? conv.counterparty.handle 
             : `&${conv.counterparty.handle}`;
+        } else if (conv.channelLabel && conv.origin === 'native') {
+          // Fallback to channelLabel for native conversations (e.g., "&sarahtaylor")
+          counterpartyName = conv.channelLabel;
         } else if (conv.counterparty?.displayName) {
           counterpartyName = conv.counterparty.displayName;
-        } else if (conv.edge?.address) {
+        } else if (conv.edge?.address && conv.origin !== 'native') {
           // For email/contact endpoints without display name, use edge address
           counterpartyName = `Contact via ${conv.edge.address.split('@')[0]}`;
+        } else if (conv.channelLabel) {
+          // General fallback to channelLabel
+          counterpartyName = conv.channelLabel;
         }
         // Note: Don't show externalId - it's encrypted data
 
@@ -576,10 +582,17 @@ export async function loadConversations(): Promise<void> {
           counterpartyName = conv.counterparty.handle.startsWith('&') 
             ? conv.counterparty.handle 
             : `&${conv.counterparty.handle}`;
+        } else if (conv.channelLabel && conv.origin === 'native') {
+          // Fallback to channelLabel for native conversations (e.g., "&sarahtaylor")
+          counterpartyName = conv.channelLabel;
         } else if (conv.counterparty?.displayName) {
           counterpartyName = conv.counterparty.displayName;
-        } else if (conv.edge?.address) {
+        } else if (conv.edge?.address && conv.origin !== 'native') {
+          // For email/contact endpoints without display name, use edge address
           counterpartyName = `Contact via ${conv.edge.address.split('@')[0]}`;
+        } else if (conv.channelLabel) {
+          // General fallback to channelLabel
+          counterpartyName = conv.channelLabel;
         }
 
         return {

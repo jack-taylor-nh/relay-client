@@ -191,7 +191,7 @@ export function EdgesView() {
                       value={handleName}
                       onInput={(e) => setHandleName((e.target as HTMLInputElement).value)}
                       placeholder="username"
-                      pattern="[a-z0-9_-]{3,32}"
+                      pattern="[a-z0-9_\-]{3,32}"
                       maxLength={32}
                       class="flex-1 border-none px-3 py-2.5 text-sm bg-stone-50 text-stone-900"
                     />
