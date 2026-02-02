@@ -8,6 +8,7 @@
  * - Session state
  */
 
+import nacl from 'tweetnacl';
 import {
   generateSigningKeyPair,
   computeFingerprint,
@@ -21,6 +22,9 @@ import {
   encryptMessage,
   decryptMessage,
   decryptEmail,
+  deriveStorageKey,
+  encryptForStorage,
+  decryptFromStorage,
   type EncryptedBundle,
 } from '../lib/crypto';
 import { sendMessage as sendUnifiedMessage, receiveMessage as receiveUnifiedMessage, type Conversation as RatchetConversation, type SecurityLevel, type EdgeType } from '@relay/core';
@@ -50,12 +54,25 @@ interface SessionState {
   expiresAt: number | null;
 }
 
+// Encrypted message cache entry (stored in chrome.storage.local)
+interface EncryptedCacheEntry {
+  ciphertext: string;
+  nonce: string;
+}
+
 // ============================================
 // State
 // ============================================
 
 let unlockedIdentity: UnlockedIdentity | null = null;
 let session: SessionState = { token: null, expiresAt: null };
+
+// Storage encryption key (derived from identity on unlock)
+let storageKey: Uint8Array | null = null;
+
+// In-memory cache for decrypted messages (fast access, lost on reload)
+// This is populated from encrypted chrome.storage.local on demand
+const decryptedMessageCache: Map<string, string> = new Map();
 
 // Auto-lock timer
 let lockTimer: ReturnType<typeof setTimeout> | null = null;
@@ -67,6 +84,113 @@ function resetLockTimer() {
     lock();
     notifyPanel({ type: 'LOCKED' });
   }, LOCK_TIMEOUT_MS);
+}
+
+// ============================================
+// Encrypted Message Cache (Persistent Storage)
+// ============================================
+
+const MESSAGE_CACHE_KEY = 'encryptedMessageCache';
+
+/**
+ * Save a decrypted message to encrypted persistent storage
+ */
+async function saveMessageToCache(messageId: string, plaintext: string): Promise<void> {
+  if (!storageKey) {
+    console.warn('[MessageCache] Cannot save - no storage key (wallet locked)');
+    return;
+  }
+  
+  // Encrypt the plaintext
+  const encrypted = encryptForStorage(plaintext, storageKey);
+  
+  // Load existing cache
+  const storage = await chrome.storage.local.get([MESSAGE_CACHE_KEY]);
+  const cache: Record<string, EncryptedCacheEntry> = storage[MESSAGE_CACHE_KEY] || {};
+  
+  // Add new entry
+  cache[messageId] = encrypted;
+  
+  // Save back
+  await chrome.storage.local.set({ [MESSAGE_CACHE_KEY]: cache });
+  
+  // Also keep in memory
+  decryptedMessageCache.set(messageId, plaintext);
+}
+
+/**
+ * Load a message from encrypted persistent storage
+ */
+async function loadMessageFromCache(messageId: string): Promise<string | null> {
+  // Check memory cache first
+  if (decryptedMessageCache.has(messageId)) {
+    return decryptedMessageCache.get(messageId)!;
+  }
+  
+  if (!storageKey) {
+    return null;
+  }
+  
+  // Check persistent storage
+  const storage = await chrome.storage.local.get([MESSAGE_CACHE_KEY]);
+  const cache: Record<string, EncryptedCacheEntry> = storage[MESSAGE_CACHE_KEY] || {};
+  
+  const entry = cache[messageId];
+  if (!entry) {
+    return null;
+  }
+  
+  // Decrypt
+  const plaintext = decryptFromStorage(entry.ciphertext, entry.nonce, storageKey);
+  if (plaintext) {
+    // Populate memory cache
+    decryptedMessageCache.set(messageId, plaintext);
+  }
+  
+  return plaintext;
+}
+
+/**
+ * Batch load messages from encrypted persistent storage
+ * Returns map of messageId -> plaintext for found messages
+ */
+async function loadMessagesFromCache(messageIds: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  
+  if (!storageKey) {
+    return result;
+  }
+  
+  // Check memory cache first
+  const notInMemory: string[] = [];
+  for (const id of messageIds) {
+    if (decryptedMessageCache.has(id)) {
+      result.set(id, decryptedMessageCache.get(id)!);
+    } else {
+      notInMemory.push(id);
+    }
+  }
+  
+  if (notInMemory.length === 0) {
+    return result;
+  }
+  
+  // Load from persistent storage
+  const storage = await chrome.storage.local.get([MESSAGE_CACHE_KEY]);
+  const cache: Record<string, EncryptedCacheEntry> = storage[MESSAGE_CACHE_KEY] || {};
+  
+  for (const id of notInMemory) {
+    const entry = cache[id];
+    if (entry) {
+      const plaintext = decryptFromStorage(entry.ciphertext, entry.nonce, storageKey);
+      if (plaintext) {
+        result.set(id, plaintext);
+        decryptedMessageCache.set(id, plaintext); // Populate memory cache
+      }
+    }
+  }
+  
+  return result;
 }
 
 // ============================================
@@ -374,6 +498,10 @@ async function unlock(passphrase: string): Promise<{ success: boolean; error?: s
     handle: stored.handle,
   };
 
+  // Derive storage encryption key for local message cache
+  storageKey = deriveStorageKey(secretKey);
+  console.log('[unlock] Derived storage encryption key');
+
   resetLockTimer();
   onUnlock(); // Start background polling
 
@@ -385,6 +513,15 @@ function lock(): { success: boolean } {
     // Zero out secret key in memory
     unlockedIdentity.secretKey.fill(0);
   }
+  
+  // Zero out storage key
+  if (storageKey) {
+    storageKey.fill(0);
+    storageKey = null;
+  }
+  
+  // Clear memory cache (encrypted cache in storage remains)
+  decryptedMessageCache.clear();
   
   unlockedIdentity = null;
   session = { token: null, expiresAt: null };
@@ -403,11 +540,12 @@ async function logout(): Promise<{ success: boolean }> {
   // First lock to clear memory
   lock();
   
-  // Clear all stored data
+  // Clear all stored data including encrypted message cache
   await chrome.storage.local.remove([
     'identity',
     'edgeKeys',
     'session',
+    MESSAGE_CACHE_KEY,
   ]);
   
   return { success: true };
@@ -669,9 +807,21 @@ async function getApiUrl(): Promise<string> {
 }
 
 // Simple helper for encrypting strings to base64 recipient public keys
+// Returns colon-separated format: ephemeralPubkey:nonce:ciphertext (all base64)
+// Used for email worker API which expects this format
 function encryptForRecipient(plaintext: string, recipientPublicKeyBase64: string): string {
   const recipientPubKey = fromBase64(recipientPublicKeyBase64);
   const encrypted = encryptMessage(plaintext, recipientPubKey, new Uint8Array(32));
+  // Return as colon-separated base64 string (format expected by email worker)
+  return `${encrypted.ephemeralPubkey}:${encrypted.nonce}:${encrypted.ciphertext}`;
+}
+
+// Encrypt for storage - returns JSON format for decryptEmail compatibility
+// Used for storing sent email content in database
+function encryptForEmailStorage(plaintext: string, recipientPublicKeyBase64: string): string {
+  const recipientPubKey = fromBase64(recipientPublicKeyBase64);
+  const encrypted = encryptMessage(plaintext, recipientPubKey, new Uint8Array(32));
+  // Return as JSON (format expected by decryptEmail)
   return JSON.stringify(encrypted);
 }
 
@@ -970,12 +1120,14 @@ async function getMessages(
     
     const data = await res.json();
     
-    // Get conversation details to determine edge info for ratchet decryption
-    // This is needed for Double Ratchet messages to get the counterparty's edge public key
+    // Get conversation details for edge info (needed for ratchet and email decryption)
     let conversationDetails: {
       myEdgeId?: string;
       counterpartyEdgeId?: string;
       counterpartyX25519Key?: string;
+      origin?: string;
+      counterpartyEmail?: string;
+      counterpartyDisplayName?: string;
     } | null = null;
     
     // Check if any message needs ratchet decryption (has ratchetPn/ratchetN defined)
@@ -983,7 +1135,11 @@ async function getMessages(
       msg.ratchetPn !== null && msg.ratchetPn !== undefined
     );
     
-    if (needsRatchetInfo) {
+    // Check if any message has encryptedContent (email messages)
+    const hasEncryptedContent = data.messages.some((msg: any) => msg.encryptedContent);
+    
+    // Fetch conversation details if needed for decryption
+    if (needsRatchetInfo || hasEncryptedContent) {
       // Fetch conversation details to get edge info
       try {
         const convRes = await fetch(`${apiUrl}/v1/conversations`, {
@@ -1007,6 +1163,9 @@ async function getMessages(
               counterpartyEdgeId: conv.counterparty?.edgeId,
               // Server now returns x25519PublicKey directly in counterparty
               counterpartyX25519Key: conv.counterparty?.x25519PublicKey,
+              origin: conv.origin,
+              counterpartyEmail: conv.counterparty?.email,
+              counterpartyDisplayName: conv.counterparty?.displayName,
             };
             
             console.log('[DEBUG] Extracted conversation details:', conversationDetails);
@@ -1024,13 +1183,18 @@ async function getMessages(
           }
         }
       } catch (e) {
-        console.warn('Failed to fetch conversation details for ratchet:', e);
+        console.warn('Failed to fetch conversation details for decryption:', e);
       }
     }
     
     // Get my edge keys
     const storage = await chrome.storage.local.get(['edgeKeys']);
     const edgeKeys = storage.edgeKeys || {};
+    
+    // Pre-load cached messages from encrypted storage
+    const messageIds = data.messages.map((m: { id: string }) => m.id);
+    const cachedMessages = await loadMessagesFromCache(messageIds);
+    console.log(`[getMessages] Loaded ${cachedMessages.size}/${messageIds.length} messages from encrypted cache`);
     
     // Process messages based on security level
     const processedMessages = await Promise.all(
@@ -1055,84 +1219,104 @@ async function getMessages(
         
         let content: string;
         
+        // Check encrypted cache first - Double Ratchet messages can only be decrypted once
+        const cachedContent = cachedMessages.get(msg.id);
+        if (cachedContent) {
+          content = cachedContent;
+          console.log('[getMessages] Using encrypted cache for message:', msg.id);
+        }
         // Check if this is a Double Ratchet message
-        const isRatchetMessage = msg.ratchetPn !== null && msg.ratchetPn !== undefined;
-        
-        if (isRatchetMessage && msg.ciphertext && msg.ephemeralPubkey && msg.nonce) {
-          try {
-            // Double Ratchet decryption
-            // Find our edge key for this conversation
-            let myEdgeSecretKey: Uint8Array | null = null;
-            let counterpartyEdgePublicKey: Uint8Array | null = null;
-            
-            // Get my edge key
-            for (const [edgeId, keys] of Object.entries(edgeKeys)) {
-              myEdgeSecretKey = fromBase64((keys as any).secretKey);
-              break; // Use first key for now (TODO: match by conversation edge)
-            }
-            
-            // Get counterparty edge public key
-            if (conversationDetails?.counterpartyX25519Key) {
-              counterpartyEdgePublicKey = fromBase64(conversationDetails.counterpartyX25519Key);
-            }
-            
-            if (myEdgeSecretKey && counterpartyEdgePublicKey) {
-              // Build conversation object for ratchet
-              const conversation: RatchetConversation = {
-                id: conversationId,
-                origin: (msg.origin || 'native') as EdgeType,
-                security_level: (msg.securityLevel || 'e2ee') as SecurityLevel,
-                my_edge_id: conversationDetails?.myEdgeId || '',
-                counterparty_edge_id: conversationDetails?.counterpartyEdgeId || '',
-              };
+        else if (msg.ratchetPn !== null && msg.ratchetPn !== undefined && 
+                 msg.ciphertext && msg.ephemeralPubkey && msg.nonce) {
+          // Own messages - try server-stored plaintext first
+          if (isMine && msg.plaintextContent) {
+            content = msg.plaintextContent;
+            // Save to encrypted cache for persistence
+            await saveMessageToCache(msg.id, content);
+            console.log('[getMessages] Using server plaintext for sent message:', msg.id);
+          } else if (isMine) {
+            // No cache, no server plaintext - we can't decrypt our own message
+            content = '[Message sent - content not cached locally]';
+            console.log('[getMessages] Cannot decrypt own message (not in cache):', msg.id);
+          } else {
+            // Received message - decrypt with Double Ratchet
+            try {
+              // Double Ratchet decryption
+              // Find our edge key for this conversation
+              let myEdgeSecretKey: Uint8Array | null = null;
+              let counterpartyEdgePublicKey: Uint8Array | null = null;
               
-              // Build the message envelope
-              const envelope = {
-                protocol_version: '1.0' as const,
-                message_id: msg.id,
-                conversation_id: conversationId,
-                edge_id: msg.edgeId || '',
-                origin: (msg.origin || 'native') as EdgeType,
-                security_level: (msg.securityLevel || 'e2ee') as 'e2ee' | 'gateway_secured',
-                payload: {
-                  content_type: 'text/plain',
-                  ratchet: {
-                    ciphertext: msg.ciphertext,
-                    dh: msg.ephemeralPubkey,
-                    pn: msg.ratchetPn || 0,
-                    n: msg.ratchetN || 0,
-                    nonce: msg.nonce,
-                  },
-                },
-                created_at: msg.createdAt,
-              };
-              
-              // Decrypt using unified messaging
-              const result = await receiveUnifiedMessage(
-                envelope,
-                conversation,
-                myEdgeSecretKey,
-                counterpartyEdgePublicKey,
-                ratchetStorage
-              );
-              
-              if (result) {
-                content = result.plaintext;
-                console.log('Decrypted ratchet message:', msg.id);
-              } else {
-                console.error('Ratchet decryption returned null for message:', msg.id);
-                content = '[Unable to decrypt ratchet]';
+              // Get my edge key
+              for (const [edgeId, keys] of Object.entries(edgeKeys)) {
+                myEdgeSecretKey = fromBase64((keys as any).secretKey);
+                break; // Use first key for now (TODO: match by conversation edge)
               }
-            } else {
-              console.error('Missing keys for ratchet decryption:', {
-                hasMyKey: !!myEdgeSecretKey,
-                hasCounterpartyKey: !!counterpartyEdgePublicKey,
-              });
-              content = '[Unable to decrypt - missing edge key]';
+              
+              // Get counterparty edge public key
+              if (conversationDetails?.counterpartyX25519Key) {
+                counterpartyEdgePublicKey = fromBase64(conversationDetails.counterpartyX25519Key);
+              }
+              
+              if (myEdgeSecretKey && counterpartyEdgePublicKey) {
+                // Build conversation object for ratchet
+                const conversation: RatchetConversation = {
+                  id: conversationId,
+                  origin: (msg.origin || 'native') as EdgeType,
+                  security_level: (msg.securityLevel || 'e2ee') as SecurityLevel,
+                  my_edge_id: conversationDetails?.myEdgeId || '',
+                  counterparty_edge_id: conversationDetails?.counterpartyEdgeId || '',
+                };
+                
+                // Build the message envelope
+                const envelope = {
+                  protocol_version: '1.0' as const,
+                  message_id: msg.id,
+                  conversation_id: conversationId,
+                  edge_id: msg.edgeId || '',
+                  origin: (msg.origin || 'native') as EdgeType,
+                  security_level: (msg.securityLevel || 'e2ee') as 'e2ee' | 'gateway_secured',
+                  payload: {
+                    content_type: 'text/plain',
+                    ratchet: {
+                      ciphertext: msg.ciphertext,
+                      dh: msg.ephemeralPubkey,
+                      pn: msg.ratchetPn || 0,
+                      n: msg.ratchetN || 0,
+                      nonce: msg.nonce,
+                    },
+                  },
+                  created_at: msg.createdAt,
+                };
+                
+                // Decrypt using unified messaging
+                const result = await receiveUnifiedMessage(
+                  envelope,
+                  conversation,
+                  myEdgeSecretKey,
+                  counterpartyEdgePublicKey,
+                  ratchetStorage
+                );
+                
+                if (result) {
+                  content = result.plaintext;
+                  // Save to encrypted persistent storage - Double Ratchet can only decrypt once!
+                  await saveMessageToCache(msg.id, content);
+                  console.log('Decrypted and saved to encrypted cache:', msg.id);
+                } else {
+                  console.error('Ratchet decryption returned null for message:', msg.id);
+                  content = '[Unable to decrypt ratchet]';
+                }
+              } else {
+                console.error('Missing keys for ratchet decryption:', {
+                  hasMyKey: !!myEdgeSecretKey,
+                  hasCounterpartyKey: !!counterpartyEdgePublicKey,
+                });
+                content = '[Unable to decrypt - missing edge key]';
+              }
+            } catch (error) {
+              console.error('Ratchet decryption error for message:', msg.id, error);
+              content = '[Unable to decrypt ratchet]';
             }
-          } catch (error) {
-            console.error('Ratchet decryption error for message:', msg.id, error);
-            content = '[Unable to decrypt ratchet]';
           }
         } else if (msg.ciphertext && msg.ephemeralPubkey && msg.nonce) {
           // Legacy NaCl box decryption (for older messages)
@@ -1159,17 +1343,92 @@ async function getMessages(
           }
         } else if (msg.encryptedContent) {
           // Decrypt encrypted email payload from worker (zero-knowledge)
-          const encryptionKeyPair = deriveEncryptionKeyPair(unlockedIdentity!.secretKey);
-          const decryptedJson = decryptEmail(msg.encryptedContent, encryptionKeyPair.secretKey);
-          
+          // Email worker encrypts to the edge's X25519 public key, not identity key
           try {
-            const emailData = JSON.parse(decryptedJson);
-            const from = emailData.fromName || emailData.from || 'Unknown Sender';
-            const subject = emailData.subject || '(no subject)';
-            const body = emailData.textBody || emailData.htmlBody || '(empty message)';
-            content = `From: ${from}\nSubject: ${subject}\n\n${body}`;
+            // Get my edge's secret key for this conversation
+            let myEdgeSecretKey: Uint8Array | null = null;
+            
+            if (conversationDetails?.myEdgeId) {
+              const edgeKeyData = edgeKeys[conversationDetails.myEdgeId] as { secretKey: string } | undefined;
+              if (edgeKeyData) {
+                myEdgeSecretKey = fromBase64(edgeKeyData.secretKey);
+                console.log('[getMessages] Using edge key for email decryption:', conversationDetails.myEdgeId);
+              }
+            }
+            
+            // Fallback: try any edge key (for older conversations)
+            if (!myEdgeSecretKey) {
+              for (const [edgeId, keys] of Object.entries(edgeKeys)) {
+                myEdgeSecretKey = fromBase64((keys as { secretKey: string }).secretKey);
+                console.log('[getMessages] Fallback: trying edge key:', edgeId);
+                break;
+              }
+            }
+            
+            if (!myEdgeSecretKey) {
+              // Last resort: try identity-derived key (for legacy messages)
+              console.log('[getMessages] Fallback: trying identity-derived key');
+              const encryptionKeyPair = deriveEncryptionKeyPair(unlockedIdentity!.secretKey);
+              myEdgeSecretKey = encryptionKeyPair.secretKey;
+            }
+            
+            // Detect and handle different encrypted content formats
+            let decryptedContent: string;
+            const encContent = msg.encryptedContent;
+            
+            if (encContent.startsWith('{')) {
+              // JSON format: {ciphertext, ephemeralPubkey, nonce}
+              decryptedContent = decryptEmail(encContent, myEdgeSecretKey);
+            } else if (encContent.includes(':') && encContent.split(':').length === 3) {
+              // Legacy colon-separated format: ephemeralPubkey:nonce:ciphertext
+              const parts = encContent.split(':');
+              const ephemeralPubkey = fromBase64(parts[0]);
+              const nonce = fromBase64(parts[1]);
+              const ciphertext = fromBase64(parts[2]);
+              
+              const decrypted = nacl.box.open(ciphertext, nonce, ephemeralPubkey, myEdgeSecretKey);
+              if (!decrypted) {
+                throw new Error('Failed to decrypt colon-separated format');
+              }
+              decryptedContent = new TextDecoder().decode(decrypted);
+            } else {
+              // Unknown format - might be raw text or corrupted
+              console.warn('[getMessages] Unknown encrypted content format for:', msg.id);
+              content = '[Unable to decrypt - unknown format]';
+              return {
+                id: msg.id,
+                senderIdentityId: msg.senderIdentityId,
+                senderExternalId: msg.senderExternalId,
+                content,
+                createdAt: msg.createdAt,
+                isMine,
+              };
+            }
+            
+            // Try to parse as email structure (incoming emails from worker)
+            // or use as plain content (sent replies)
+            try {
+              const emailData = JSON.parse(decryptedContent);
+              if (emailData.from || emailData.textBody || emailData.subject) {
+                // It's a structured email payload
+                const from = emailData.fromName || emailData.from || 'Unknown Sender';
+                const subject = emailData.subject || '(no subject)';
+                const body = emailData.textBody || emailData.htmlBody || '(empty message)';
+                content = `From: ${from}\nSubject: ${subject}\n\n${body}`;
+              } else {
+                // JSON but not email structure - just show as content
+                content = decryptedContent;
+              }
+            } catch {
+              // Not JSON - it's just the plain message content (sent reply)
+              content = decryptedContent;
+            }
+            
+            // Save to encrypted cache
+            await saveMessageToCache(msg.id, content);
+            console.log('[getMessages] Decrypted email and cached:', msg.id);
           } catch (error) {
-            console.error('Failed to parse decrypted email:', error);
+            console.error('Failed to decrypt email:', msg.id, error);
             content = '[Unable to decrypt email]';
           }
         } else if (msg.plaintextContent) {
@@ -1368,17 +1627,59 @@ async function sendEmail(
       return { success: false, error: 'First message has no encrypted content' };
     }
     
+    // Get conversation details to find my edge for this conversation
+    const convRes = await fetch(`${apiUrl}/v1/conversations`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    
+    let myEdgeId: string | undefined;
+    if (convRes.ok) {
+      const convData = await convRes.json();
+      const conv = convData.conversations?.find((c: any) => c.id === conversationId);
+      myEdgeId = conv?.edge?.id;
+      console.log('[sendEmail] Found edge for conversation:', myEdgeId);
+    }
+    
+    // Get edge keys to decrypt the first message
+    const storage = await chrome.storage.local.get(['edgeKeys']);
+    const edgeKeys = storage.edgeKeys || {};
+    
     // Decrypt the first message to extract sender's email
-    const encryptionKeys = deriveEncryptionKeyPair(unlockedIdentity.secretKey);
+    // Email messages are encrypted to the edge's X25519 key, not identity key
     let recipientEmail: string;
     
     try {
-      const emailData = JSON.parse(decryptEmail(firstMessage.encryptedContent, encryptionKeys.secretKey));
+      let decryptionKey: Uint8Array | null = null;
+      
+      // Try edge key first (correct for new messages)
+      if (myEdgeId && edgeKeys[myEdgeId]) {
+        decryptionKey = fromBase64((edgeKeys[myEdgeId] as { secretKey: string }).secretKey);
+        console.log('[sendEmail] Using edge key for decryption:', myEdgeId);
+      }
+      
+      // Fallback: try any edge key
+      if (!decryptionKey) {
+        for (const [edgeId, keys] of Object.entries(edgeKeys)) {
+          decryptionKey = fromBase64((keys as { secretKey: string }).secretKey);
+          console.log('[sendEmail] Fallback: trying edge key:', edgeId);
+          break;
+        }
+      }
+      
+      // Last resort: try identity-derived key (for legacy messages)
+      if (!decryptionKey) {
+        console.log('[sendEmail] Fallback: trying identity-derived key');
+        const encryptionKeys = deriveEncryptionKeyPair(unlockedIdentity.secretKey);
+        decryptionKey = encryptionKeys.secretKey;
+      }
+      
+      const emailData = JSON.parse(decryptEmail(firstMessage.encryptedContent, decryptionKey));
       recipientEmail = emailData.from;
       
       if (!recipientEmail) {
         return { success: false, error: 'Could not extract sender email from message' };
       }
+      console.log('[sendEmail] Extracted recipient email:', recipientEmail);
     } catch (decryptError) {
       console.error('Message decryption error:', decryptError);
       return { success: false, error: 'Failed to decrypt first message' };
@@ -1435,9 +1736,19 @@ async function sendEmail(
     const workerData = await workerRes.json();
     
     // Step 6: Encrypt message content for storage (zero-knowledge!)
-    // Use identity's public key to encrypt (same as incoming messages)
-    const identityPublicKeyBase64 = toBase64(encryptionKeys.publicKey);
-    const encryptedContent = encryptForRecipient(content, identityPublicKeyBase64);
+    // Use the edge's public key to encrypt (same as incoming messages)
+    let storagePublicKey: string;
+    if (myEdgeId && edgeKeys[myEdgeId]) {
+      // Use edge public key for consistency
+      const edgeKeyData = edgeKeys[myEdgeId] as { publicKey: string };
+      storagePublicKey = edgeKeyData.publicKey;
+    } else {
+      // Fallback to identity-derived key
+      const identityEncryptionKeys = deriveEncryptionKeyPair(unlockedIdentity!.secretKey);
+      storagePublicKey = toBase64(identityEncryptionKeys.publicKey);
+    }
+    // Use JSON format for storage (compatible with decryptEmail)
+    const encryptedContent = encryptForEmailStorage(content, storagePublicKey);
     
     // Step 7: Record encrypted message in database via API
     const recordRes = await fetch(`${apiUrl}/v1/email/record-sent`, {
@@ -1826,6 +2137,12 @@ async function sendToEdge(
       if (tempState) {
         await ratchetStorage.save(realId, tempState);
       }
+    }
+
+    // 7. Save the sent message to encrypted persistent storage
+    if (data.message_id) {
+      await saveMessageToCache(data.message_id, content);
+      console.log('[sendToEdge] Saved sent message to encrypted cache:', data.message_id);
     }
 
     pendingNativeSends.delete(sendKey);

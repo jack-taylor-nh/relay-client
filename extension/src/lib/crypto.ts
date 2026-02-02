@@ -313,6 +313,68 @@ export function generateNonce(): string {
   return encodeBase64(bytes);
 }
 
+// ============================================
+// Local Storage Encryption
+// ============================================
+
+// Fixed salt for storage key derivation (deterministic from passphrase)
+// This is safe because we're deriving from a high-entropy passphrase
+const STORAGE_KEY_CONTEXT = 'relay-local-message-storage-v1';
+
+/**
+ * Derive a storage encryption key from identity secret key
+ * Used to encrypt messages at rest in chrome.storage.local
+ */
+export function deriveStorageKey(identitySecretKey: Uint8Array): Uint8Array {
+  // Use HKDF-like derivation: hash(secret || context)
+  const context = new TextEncoder().encode(STORAGE_KEY_CONTEXT);
+  const combined = new Uint8Array(identitySecretKey.length + context.length);
+  combined.set(identitySecretKey, 0);
+  combined.set(context, identitySecretKey.length);
+  
+  // Hash to get 32-byte key
+  const hash = nacl.hash(combined);
+  return hash.slice(0, 32);
+}
+
+/**
+ * Encrypt a message for local storage
+ */
+export function encryptForStorage(
+  plaintext: string,
+  storageKey: Uint8Array
+): { ciphertext: string; nonce: string } {
+  const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
+  const plaintextBytes = new TextEncoder().encode(plaintext);
+  const ciphertext = nacl.secretbox(plaintextBytes, nonce, storageKey);
+  
+  return {
+    ciphertext: encodeBase64(ciphertext),
+    nonce: encodeBase64(nonce),
+  };
+}
+
+/**
+ * Decrypt a message from local storage
+ */
+export function decryptFromStorage(
+  ciphertext: string,
+  nonce: string,
+  storageKey: Uint8Array
+): string | null {
+  try {
+    const ciphertextBytes = decodeBase64(ciphertext);
+    const nonceBytes = decodeBase64(nonce);
+    
+    const plaintextBytes = nacl.secretbox.open(ciphertextBytes, nonceBytes, storageKey);
+    if (!plaintextBytes) return null;
+    
+    return new TextDecoder().decode(plaintextBytes);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Encode bytes to base64
  */

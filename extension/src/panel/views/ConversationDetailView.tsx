@@ -67,8 +67,11 @@ const isLoadingMessages = signal(false);
 // Load Messages from API
 // ============================================
 
-async function loadMessages(conversationId: string) {
-  isLoadingMessages.value = true;
+async function loadMessages(conversationId: string, isPolling = false) {
+  // Only show loading indicator on initial load, not polling
+  if (!isPolling) {
+    isLoadingMessages.value = true;
+  }
   
   try {
     // Find conversation details from state
@@ -82,7 +85,9 @@ async function loadMessages(conversationId: string) {
       };
     }
     
-    console.log('Loading messages for conversation:', conversationId);
+    if (!isPolling) {
+      console.log('Loading messages for conversation:', conversationId);
+    }
     
     // Fetch messages from background worker
     const result = await sendMessage<{
@@ -100,27 +105,49 @@ async function loadMessages(conversationId: string) {
     }>({ type: 'GET_MESSAGES', payload: { conversationId } });
     
     if (result.success && result.messages) {
-      console.log('Loaded messages:', result.messages.length);
-      messages.value = result.messages.map(msg => ({
+      const newMessages = result.messages.map(msg => ({
         id: msg.id,
         senderFingerprint: msg.senderIdentityId || msg.senderExternalId || 'unknown',
         content: msg.content,
         createdAt: msg.createdAt,
         isMine: msg.isMine,
       })).reverse(); // Reverse so oldest is first
-    } else {
-      console.log('No messages or error:', result);
-      if (result.error) {
-        showToast(`Error loading messages: ${result.error}`);
+      
+      // Merge messages incrementally to avoid UI flash
+      const existingIds = new Set(messages.value.map(m => m.id));
+      const messagesToAdd = newMessages.filter(m => !existingIds.has(m.id));
+      
+      if (messagesToAdd.length > 0 || messages.value.length === 0) {
+        // If we have new messages or this is initial load
+        if (messages.value.length === 0) {
+          // Initial load - set all messages
+          messages.value = newMessages;
+          console.log('Initial load:', newMessages.length, 'messages');
+        } else {
+          // Incremental update - only add new messages
+          messages.value = [...messages.value, ...messagesToAdd];
+          console.log('Added', messagesToAdd.length, 'new messages');
+        }
       }
-      messages.value = [];
+    } else {
+      if (!isPolling) {
+        console.log('No messages or error:', result);
+        if (result.error) {
+          showToast(`Error loading messages: ${result.error}`);
+        }
+        messages.value = [];
+      }
     }
   } catch (error) {
     console.error('Load messages error:', error);
-    showToast('Failed to load messages');
-    messages.value = [];
+    if (!isPolling) {
+      showToast('Failed to load messages');
+      messages.value = [];
+    }
   } finally {
-    isLoadingMessages.value = false;
+    if (!isPolling) {
+      isLoadingMessages.value = false;
+    }
   }
 }
 
@@ -191,16 +218,31 @@ function MessageInput({ onSend }: { onSend: (content: string) => void }) {
 // Main View
 // ============================================
 
+// Polling interval for new messages (5 seconds)
+const MESSAGE_POLL_INTERVAL = 5000;
+
 export function ConversationDetailView() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const conversationId = selectedConversationId.value;
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
+  // Load messages initially and set up polling
   useEffect(() => {
     if (conversationId) {
-      loadMessages(conversationId);
+      loadMessages(conversationId, false);
+      
+      // Set up polling for new messages
+      pollIntervalRef.current = setInterval(() => {
+        loadMessages(conversationId, true);
+      }, MESSAGE_POLL_INTERVAL);
     }
     
     return () => {
+      // Clean up polling on unmount or conversation change
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
       messages.value = [];
       conversationDetails.value = null;
     };
@@ -262,10 +304,14 @@ export function ConversationDetailView() {
           showToast(`Failed to send: ${result.error}`);
           messages.value = messages.value.filter(m => m.id !== newMessage.id);
         } else {
-          messages.value = messages.value.map(m => 
-            m.id === newMessage.id ? { ...m, id: result.messageId || m.id } : m
-          );
-          await loadMessages(conversationId);
+          // Update optimistic message with real ID from server
+          if (result.messageId) {
+            messages.value = messages.value.map(m => 
+              m.id === newMessage.id ? { ...m, id: result.messageId! } : m
+            );
+          }
+          // Don't reload - the optimistic message is already correct
+          // Polling will pick up any new messages from the counterparty
         }
       } else if (conv.securityLevel === 'e2ee' && conv.type === 'native') {
         // Fallback: Legacy native E2EE - need sender and recipient handles
@@ -312,11 +358,13 @@ export function ConversationDetailView() {
           messages.value = messages.value.filter(m => m.id !== newMessage.id);
         } else {
           // Update optimistic message with real ID
-          messages.value = messages.value.map(m => 
-            m.id === newMessage.id ? { ...m, id: result.messageId || m.id } : m
-          );
-          // Reload conversation to update last message
-          await loadMessages(conversationId);
+          if (result.messageId) {
+            messages.value = messages.value.map(m => 
+              m.id === newMessage.id ? { ...m, id: result.messageId! } : m
+            );
+          }
+          // Don't reload - the optimistic message is already correct
+          // Polling will pick up any new messages from the counterparty
         }
       } else if (conv.securityLevel === 'gateway_secured') {
         // Email or contact endpoint - use email send API
@@ -333,8 +381,9 @@ export function ConversationDetailView() {
           showToast(`Failed to send: ${result.error}`);
           messages.value = messages.value.filter(m => m.id !== newMessage.id);
         } else {
-          // Reload messages to get the sent message from server
-          await loadMessages(conversationId);
+          // Remove optimistic message and reload to get the server message
+          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+          await loadMessages(conversationId, false);
         }
       } else {
         showToast('Unsupported conversation type');
@@ -410,15 +459,15 @@ export function ConversationDetailView() {
           display: flex;
           flex-direction: column;
           height: 100%;
-          background-color: var(--color-bg);
+          background-color: var(--color-background);
         }
         
         .conversation-detail-header {
           display: flex;
           align-items: center;
-          gap: var(--space-3);
-          padding: var(--space-4) var(--space-4);
-          background-color: var(--color-bg-elevated);
+          gap: 12px;
+          padding: 16px;
+          background-color: var(--color-background-elevated);
           border-bottom: 1px solid var(--color-border);
           min-height: 64px;
         }
@@ -438,7 +487,7 @@ export function ConversationDetailView() {
         }
         
         .back-button:hover {
-          background-color: var(--color-bg-hover);
+          background-color: var(--color-background-hover);
           color: var(--color-text-primary);
         }
         
@@ -452,7 +501,7 @@ export function ConversationDetailView() {
         }
         
         .conversation-detail-fingerprint {
-          font-size: var(--text-xs);
+          font-size: 11px;
           font-family: var(--font-mono);
           color: var(--color-text-tertiary);
         }
@@ -467,7 +516,7 @@ export function ConversationDetailView() {
           align-items: center;
           gap: 4px;
           padding: 6px 12px;
-          font-size: var(--text-sm);
+          font-size: 13px;
           font-weight: 600;
           border-radius: var(--radius-full);
           white-space: nowrap;
@@ -491,10 +540,10 @@ export function ConversationDetailView() {
         .messages-container {
           flex: 1;
           overflow-y: auto;
-          padding: var(--space-4);
+          padding: 16px;
           display: flex;
           flex-direction: column;
-          gap: var(--space-3);
+          gap: 8px;
         }
         
         .messages-loading {
@@ -505,18 +554,20 @@ export function ConversationDetailView() {
         }
         
         .message-bubble {
-          max-width: 70%;
-          padding: 10px 14px;
-          border-radius: 16px;
+          max-width: 75%;
+          padding: 12px 16px;
+          border-radius: 18px;
           position: relative;
-          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+          margin: 2px 0;
         }
         
         .message-bubble.mine {
           align-self: flex-end;
           background-color: #6366f1;
           color: white;
-          border-bottom-right-radius: 4px;
+          border-bottom-right-radius: 6px;
+          margin-left: 20%;
         }
         
         .message-bubble.theirs {
@@ -524,7 +575,8 @@ export function ConversationDetailView() {
           background-color: #f3f4f6;
           border: none;
           color: #1f2937;
-          border-bottom-left-radius: 4px;
+          border-bottom-left-radius: 6px;
+          margin-right: 20%;
         }
         
         .message-content {
@@ -551,7 +603,7 @@ export function ConversationDetailView() {
           align-items: center;
           gap: 12px;
           padding: 16px;
-          background-color: var(--color-bg-elevated);
+          background-color: var(--color-background-elevated);
           border-top: 1px solid var(--color-border);
         }
         
@@ -562,7 +614,7 @@ export function ConversationDetailView() {
           font-family: inherit;
           border: 1.5px solid var(--color-border);
           border-radius: 24px;
-          background-color: var(--color-bg);
+          background-color: var(--color-background);
           color: var(--color-text-primary);
           resize: none;
           max-height: 120px;
@@ -610,11 +662,11 @@ export function ConversationDetailView() {
         }
         
         .read-only-notice {
-          padding: var(--space-3);
+          padding: 12px;
           text-align: center;
-          font-size: var(--text-sm);
+          font-size: 13px;
           color: var(--color-text-tertiary);
-          background-color: var(--color-bg-elevated);
+          background-color: var(--color-background-elevated);
           border-top: 1px solid var(--color-border);
         }
       `}</style>
