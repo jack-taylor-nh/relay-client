@@ -14,7 +14,7 @@ export interface Message {
   origin?: 'native' | 'email' | 'contact_link' | 'discord' | 'sms' | 'github' | 'slack' | 'other';
   securityLevel: 'e2ee' | 'gateway_secured';
   contentType: string;
-  senderIdentityId?: string;
+  senderEdgeId?: string;  // Sender identified by edge, not identity
   senderExternalId?: string;
   
   // E2EE fields

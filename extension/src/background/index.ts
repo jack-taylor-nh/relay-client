@@ -1085,7 +1085,7 @@ async function getMessages(
   securityLevel?: string;
   messages?: Array<{
     id: string;
-    senderIdentityId?: string;
+    senderEdgeId?: string;  // Sender identified by edge, not identity
     senderExternalId?: string;
     content: string;
     createdAt: string;
@@ -1191,6 +1191,9 @@ async function getMessages(
     const storage = await chrome.storage.local.get(['edgeKeys']);
     const edgeKeys = storage.edgeKeys || {};
     
+    // Build set of my edge IDs for quick lookup
+    const myEdgeIds = new Set(Object.keys(edgeKeys));
+    
     // Pre-load cached messages from encrypted storage
     const messageIds = data.messages.map((m: { id: string }) => m.id);
     const cachedMessages = await loadMessagesFromCache(messageIds);
@@ -1202,7 +1205,7 @@ async function getMessages(
         id: string;
         conversationId: string;
         edgeId?: string;
-        senderIdentityId?: string;
+        senderEdgeId?: string;  // Server now sends edge ID, not identity ID
         senderExternalId?: string;
         ciphertext?: string;
         ephemeralPubkey?: string;
@@ -1215,7 +1218,8 @@ async function getMessages(
         securityLevel?: string;
         createdAt: string;
       }) => {
-        const isMine = msg.senderIdentityId === unlockedIdentity!.fingerprint;
+        // Determine if this is my message by checking if senderEdgeId is one of my edges
+        const isMine = msg.senderEdgeId ? myEdgeIds.has(msg.senderEdgeId) : false;
         
         let content: string;
         
@@ -1397,7 +1401,7 @@ async function getMessages(
               content = '[Unable to decrypt - unknown format]';
               return {
                 id: msg.id,
-                senderIdentityId: msg.senderIdentityId,
+                senderEdgeId: msg.senderEdgeId,
                 senderExternalId: msg.senderExternalId,
                 content,
                 createdAt: msg.createdAt,
@@ -1440,7 +1444,7 @@ async function getMessages(
         
         return {
           id: msg.id,
-          senderIdentityId: msg.senderIdentityId,
+          senderEdgeId: msg.senderEdgeId,
           senderExternalId: msg.senderExternalId,
           content,
           createdAt: msg.createdAt,
