@@ -903,6 +903,15 @@ async function getMessages(
         if (convRes.ok) {
           const convData = await convRes.json();
           const conv = convData.conversations?.find((c: any) => c.id === conversationId);
+          console.log('[DEBUG] Conversation for decryption:', {
+            conversationId,
+            conv: conv ? {
+              id: conv.id,
+              origin: conv.origin,
+              counterparty: conv.counterparty,
+              edge: conv.edge,
+            } : null,
+          });
           if (conv) {
             conversationDetails = {
               myEdgeId: conv.edge?.id,
@@ -911,8 +920,11 @@ async function getMessages(
               counterpartyX25519Key: conv.counterparty?.x25519PublicKey,
             };
             
+            console.log('[DEBUG] Extracted conversation details:', conversationDetails);
+            
             // Fallback: If no x25519 key in response and we have a handle, resolve it
             if (!conversationDetails.counterpartyX25519Key && conv.counterparty?.handle) {
+              console.log('[DEBUG] Falling back to handle resolution for:', conv.counterparty.handle);
               const resolveRes = await fetch(`${apiUrl}/v1/handles/resolve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -922,6 +934,7 @@ async function getMessages(
                 const resolveData = await resolveRes.json();
                 conversationDetails.counterpartyX25519Key = resolveData.x25519PublicKey;
                 conversationDetails.counterpartyEdgeId = resolveData.edgeId;
+                console.log('[DEBUG] Resolved via handle:', { handle: conv.counterparty.handle, hasKey: !!resolveData.x25519PublicKey });
               }
             }
           }
@@ -1352,6 +1365,9 @@ async function sendEmail(
 // Native Messaging
 // ============================================
 
+// Prevent duplicate sends
+const pendingNativeSends = new Set<string>();
+
 async function sendNativeMessage(
   recipientHandle: string,
   senderHandle: string,
@@ -1366,6 +1382,14 @@ async function sendNativeMessage(
     return { success: false, error: 'Wallet is locked' };
   }
 
+  // Create a unique key for this send to prevent duplicates
+  const sendKey = `${recipientHandle}:${senderHandle}:${content.slice(0, 50)}`;
+  if (pendingNativeSends.has(sendKey)) {
+    console.warn('Duplicate send detected, ignoring:', sendKey);
+    return { success: false, error: 'Duplicate send - already in progress' };
+  }
+  pendingNativeSends.add(sendKey);
+
   try {
     const apiUrl = await getApiUrl();
     
@@ -1377,6 +1401,7 @@ async function sendNativeMessage(
       body: JSON.stringify({ handle: recipientHandle }),
     });
     if (!resolveRes.ok) {
+      pendingNativeSends.delete(sendKey);
       return { success: false, error: 'Recipient handle not found' };
     }
     const resolveData = await resolveRes.json();
@@ -1384,6 +1409,7 @@ async function sendNativeMessage(
     const recipientX25519PublicKey = resolveData.x25519PublicKey;
     
     if (!recipientX25519PublicKey) {
+      pendingNativeSends.delete(sendKey);
       return { success: false, error: 'Recipient has no encryption key' };
     }
     
@@ -1409,12 +1435,14 @@ async function sendNativeMessage(
     }
     
     if (!myEdgeId || !myEdgeSecretKey) {
+      pendingNativeSends.delete(sendKey);
       return { success: false, error: 'No edge keys found. Please recreate your handle.' };
     }
 
     // 3. Get or create conversation
     const token = await getAuthToken();
     if (!token) {
+      pendingNativeSends.delete(sendKey);
       return { success: false, error: 'Authentication failed' };
     }
     
@@ -1489,6 +1517,7 @@ async function sendNativeMessage(
     });
 
     if (!res.ok) {
+      pendingNativeSends.delete(sendKey);
       const err = await res.json();
       return { success: false, error: err.error || 'Failed to send message' };
     }
@@ -1507,12 +1536,17 @@ async function sendNativeMessage(
       }
     }
     
+    // Clear pending send lock
+    pendingNativeSends.delete(sendKey);
+    
     return {
       success: true,
       conversationId: data.conversation_id,
       messageId: data.message_id,
     };
   } catch (error) {
+    // Clear pending send lock on error
+    pendingNativeSends.delete(sendKey);
     console.error('Send native message error:', error);
     return { success: false, error: 'Network error' };
   }
