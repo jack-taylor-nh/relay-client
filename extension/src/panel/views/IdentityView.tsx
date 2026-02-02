@@ -5,8 +5,8 @@ export function IdentityView() {
 
   if (!identity) {
     return (
-      <div class="identity-view">
-        <div class="empty-state">
+      <div class="h-full flex flex-col bg-stone-50">
+        <div class="flex items-center justify-center h-full text-stone-600">
           <p>No identity loaded</p>
         </div>
       </div>
@@ -19,287 +19,126 @@ export function IdentityView() {
   }
 
   async function handleCopyPublicKey() {
-    if (identity.publicKey) {
+    if (identity?.publicKey) {
       await navigator.clipboard.writeText(identity.publicKey);
       showToast('Public key copied');
     }
   }
 
   async function handleCopyFingerprint() {
-    if (identity.id) {
+    if (identity?.id) {
       await navigator.clipboard.writeText(identity.id);
       showToast('Fingerprint copied');
     }
   }
 
   return (
-    <div class="identity-view">
-      <div class="identity-header">
-        <h2>Identity</h2>
-        <button class="btn-lock" onClick={handleLock}>
+    <div class="h-full flex flex-col bg-stone-50">
+      <div class="flex items-center justify-between px-4 py-4 border-b border-stone-200 bg-white">
+        <h2 class="text-lg font-semibold text-stone-900 m-0">Identity</h2>
+        <button 
+          class="px-4 py-2 bg-stone-100 border border-stone-200 rounded-md text-sm font-medium text-stone-900 hover:bg-stone-200 transition-all duration-200 cursor-pointer"
+          onClick={handleLock}
+        >
           Lock
         </button>
       </div>
 
-      <div class="identity-content">
-        <div class="identity-section">
-          <h3>Your Identity</h3>
-          <p class="section-description">
+      <div class="flex-1 overflow-y-auto p-5">
+        <div class="mb-8">
+          <h3 class="text-base font-semibold text-stone-900 m-0 mb-2">Your Identity</h3>
+          <p class="text-sm text-stone-600 m-0 mb-4">
             Your identity is cryptographically secured. Only you can decrypt your messages.
           </p>
 
-          <div class="identity-card">
-            <div class="identity-field">
-              <label>Fingerprint</label>
-              <div class="field-value">
-                <code class="fingerprint">{identity.id}</code>
-                <button class="btn-copy" onClick={handleCopyFingerprint} title="Copy">
+          <div class="bg-white border border-stone-200 rounded-lg p-4">
+            <div class="mb-5">
+              <label class="block text-xs font-medium text-stone-600 mb-1.5 uppercase tracking-wider">Fingerprint</label>
+              <div class="flex items-center gap-2">
+                <code class="flex-1 font-mono text-xs px-3 py-2 bg-stone-100 border border-stone-200 rounded overflow-hidden text-ellipsis whitespace-nowrap text-stone-900">
+                  {identity.id}
+                </code>
+                <button 
+                  class="p-1.5 bg-stone-100 border border-stone-200 rounded cursor-pointer text-stone-600 hover:bg-stone-200 hover:text-stone-900 transition-all duration-200 flex-shrink-0"
+                  onClick={handleCopyFingerprint}
+                  title="Copy"
+                >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
                     <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
                   </svg>
                 </button>
               </div>
-              <small>Your unique identity identifier</small>
+              <small class="block mt-1 text-xs text-stone-400">Your unique identity identifier</small>
             </div>
 
             {identity.publicKey && (
-              <div class="identity-field">
-                <label>Public Key</label>
-                <div class="field-value">
-                  <code class="public-key">{identity.publicKey.slice(0, 32)}...</code>
-                  <button class="btn-copy" onClick={handleCopyPublicKey} title="Copy">
+              <div class="mb-5">
+                <label class="block text-xs font-medium text-stone-600 mb-1.5 uppercase tracking-wider">Public Key</label>
+                <div class="flex items-center gap-2">
+                  <code class="flex-1 font-mono text-xs px-3 py-2 bg-stone-100 border border-stone-200 rounded overflow-hidden text-ellipsis whitespace-nowrap text-stone-900">
+                    {identity.publicKey.slice(0, 32)}...
+                  </code>
+                  <button 
+                    class="p-1.5 bg-stone-100 border border-stone-200 rounded cursor-pointer text-stone-600 hover:bg-stone-200 hover:text-stone-900 transition-all duration-200 flex-shrink-0"
+                    onClick={handleCopyPublicKey}
+                    title="Copy"
+                  >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
                       <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
                     </svg>
                   </button>
                 </div>
-                <small>Share this with others to receive encrypted messages</small>
+                <small class="block mt-1 text-xs text-stone-400">Share this with others to receive encrypted messages</small>
               </div>
             )}
 
             {identity.handle && (
-              <div class="identity-field">
-                <label>Primary Handle</label>
-                <div class="field-value">
-                  <span class="handle">@{identity.handle}</span>
+              <div class="mb-0">
+                <label class="block text-xs font-medium text-stone-600 mb-1.5 uppercase tracking-wider">Primary Handle</label>
+                <div class="flex items-center gap-2">
+                  <span class="text-base font-semibold text-purple-600">&{identity.handle}</span>
                 </div>
-                <small>Manage all handles in the Edges tab</small>
+                <small class="block mt-1 text-xs text-stone-400">Manage all handles in the Edges tab</small>
               </div>
             )}
           </div>
         </div>
 
-        <div class="identity-section">
-          <h3>Security</h3>
-          <p class="section-description">
-            Your private keys are encrypted and stored locally. Lock your identity when not in use.
-          </p>
-
-          <div class="security-info">
-            <div class="info-item">
-              <div class="info-icon">🔒</div>
+        {/* Security highlights - same as onboarding complete screen */}
+        <div class="w-full bg-gradient-to-br from-purple-50 to-emerald-50 border border-purple-200 rounded-xl p-5 mb-6">
+          <h3 class="text-sm font-semibold text-purple-900 mb-3 flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            Your privacy, by design
+          </h3>
+          <div class="space-y-3 text-sm">
+            <div class="flex items-start gap-3">
+              <span class="text-emerald-600 mt-0.5">✓</span>
               <div>
-                <div class="info-title">End-to-End Encrypted</div>
-                <div class="info-text">Only you can read your messages</div>
+                <strong class="text-stone-900">Zero-knowledge architecture</strong>
+                <p class="text-stone-600 text-xs mt-0.5">We can't read your messages — ever. All encryption happens on your device.</p>
               </div>
             </div>
-
-            <div class="info-item">
-              <div class="info-icon">🔑</div>
+            <div class="flex items-start gap-3">
+              <span class="text-emerald-600 mt-0.5">✓</span>
               <div>
-                <div class="info-title">Zero-Knowledge</div>
-                <div class="info-text">Server never sees your keys or plaintext</div>
+                <strong class="text-stone-900">Disposable edges</strong>
+                <p class="text-stone-600 text-xs mt-0.5">Every handle and email alias is isolated. Burn one, keep the rest.</p>
               </div>
             </div>
-
-            <div class="info-item">
-              <div class="info-icon">🛡️</div>
+            <div class="flex items-start gap-3">
+              <span class="text-emerald-600 mt-0.5">✓</span>
               <div>
-                <div class="info-title">Client-Side Encryption</div>
-                <div class="info-text">All encryption happens in your browser</div>
+                <strong class="text-stone-900">You own your identity</strong>
+                <p class="text-stone-600 text-xs mt-0.5">Your cryptographic keys live on your device. No accounts, no passwords stored with us.</p>
               </div>
             </div>
           </div>
         </div>
       </div>
-
-      <style>{`
-        .identity-view {
-          height: 100%;
-          display: flex;
-          flex-direction: column;
-          background: var(--bg-primary);
-        }
-
-        .identity-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 16px;
-          border-bottom: 1px solid var(--border-color);
-        }
-
-        .identity-header h2 {
-          margin: 0;
-          font-size: 18px;
-          font-weight: 600;
-        }
-
-        .btn-lock {
-          padding: 8px 16px;
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          border-radius: 6px;
-          font-size: 14px;
-          font-weight: 500;
-          cursor: pointer;
-          color: var(--text-primary);
-          transition: all 0.2s;
-        }
-
-        .btn-lock:hover {
-          background: var(--bg-hover);
-        }
-
-        .identity-content {
-          flex: 1;
-          overflow-y: auto;
-          padding: 20px;
-        }
-
-        .identity-section {
-          margin-bottom: 32px;
-        }
-
-        .identity-section h3 {
-          margin: 0 0 8px 0;
-          font-size: 16px;
-          font-weight: 600;
-        }
-
-        .section-description {
-          margin: 0 0 16px 0;
-          font-size: 14px;
-          color: var(--text-secondary);
-        }
-
-        .identity-card {
-          background: var(--bg-secondary);
-          border: 1px solid var(--border-color);
-          border-radius: 8px;
-          padding: 16px;
-        }
-
-        .identity-field {
-          margin-bottom: 20px;
-        }
-
-        .identity-field:last-child {
-          margin-bottom: 0;
-        }
-
-        .identity-field label {
-          display: block;
-          font-size: 12px;
-          font-weight: 500;
-          color: var(--text-secondary);
-          margin-bottom: 6px;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .field-value {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .field-value code {
-          flex: 1;
-          font-family: 'SF Mono', Monaco, 'Courier New', monospace;
-          font-size: 12px;
-          padding: 8px 12px;
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          border-radius: 4px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          color: var(--text-primary);
-        }
-
-        .field-value .handle {
-          font-size: 15px;
-          font-weight: 600;
-          color: var(--primary-color);
-        }
-
-        .btn-copy {
-          padding: 6px;
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          border-radius: 4px;
-          cursor: pointer;
-          color: var(--text-secondary);
-          transition: all 0.2s;
-          flex-shrink: 0;
-        }
-
-        .btn-copy:hover {
-          background: var(--bg-hover);
-          color: var(--text-primary);
-        }
-
-        .identity-field small {
-          display: block;
-          margin-top: 4px;
-          font-size: 11px;
-          color: var(--text-tertiary);
-        }
-
-        .security-info {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .info-item {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 12px;
-          background: var(--bg-secondary);
-          border: 1px solid var(--border-color);
-          border-radius: 8px;
-        }
-
-        .info-icon {
-          font-size: 24px;
-          flex-shrink: 0;
-        }
-
-        .info-title {
-          font-size: 14px;
-          font-weight: 600;
-          color: var(--text-primary);
-          margin-bottom: 2px;
-        }
-
-        .info-text {
-          font-size: 13px;
-          color: var(--text-secondary);
-        }
-
-        .empty-state {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          height: 100%;
-          color: var(--text-secondary);
-        }
-      `}</style>
     </div>
   );
 }

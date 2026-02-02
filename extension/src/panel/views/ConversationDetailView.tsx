@@ -234,7 +234,56 @@ export function ConversationDetailView() {
     
     try {
       // Send via appropriate endpoint based on conversation type
-      if (conv.securityLevel === 'gateway_secured') {
+      if (conv.securityLevel === 'e2ee' && conv.type === 'native') {
+        // Native E2EE - need sender and recipient handles
+        // Get user's handles
+        const handlesResult = await sendMessage<{
+          success: boolean;
+          handles?: Array<{ id: string; handle: string; displayName: string | null; nativeEdgeId: string }>;
+        }>({ type: 'GET_HANDLES' });
+        
+        if (!handlesResult.success || !handlesResult.handles || handlesResult.handles.length === 0) {
+          showToast('No handle found to send from');
+          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+          return;
+        }
+        
+        const senderHandle = handlesResult.handles[0].handle;
+        
+        // Get recipient handle from conversation counterparty
+        if (!conv.counterpartyName) {
+          showToast('Cannot send: recipient unknown');
+          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+          return;
+        }
+        const recipientHandle = conv.counterpartyName.replace(/^&/, ''); // Remove & prefix
+        
+        const result = await sendMessage<{
+          success: boolean;
+          conversationId?: string;
+          messageId?: string;
+          error?: string;
+        }>({ 
+          type: 'SEND_NATIVE_MESSAGE', 
+          payload: { 
+            recipientHandle,
+            senderHandle,
+            content 
+          }
+        });
+        
+        if (!result.success) {
+          showToast(`Failed to send: ${result.error}`);
+          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+        } else {
+          // Update optimistic message with real ID
+          messages.value = messages.value.map(m => 
+            m.id === newMessage.id ? { ...m, id: result.messageId || m.id } : m
+          );
+          // Reload conversation to update last message
+          await loadMessages(conversationId);
+        }
+      } else if (conv.securityLevel === 'gateway_secured') {
         // Email or contact endpoint - use email send API
         const result = await sendMessage<{
           success?: boolean;
@@ -247,13 +296,13 @@ export function ConversationDetailView() {
         
         if (!result.success) {
           showToast(`Failed to send: ${result.error}`);
-          // Remove optimistic message on failure
           messages.value = messages.value.filter(m => m.id !== newMessage.id);
+        } else {
+          // Reload messages to get the sent message from server
+          await loadMessages(conversationId);
         }
       } else {
-        // Native E2EE - use encrypted message send
-        // TODO: Implement native send
-        showToast('Native E2EE send not yet implemented');
+        showToast('Unsupported conversation type');
         messages.value = messages.value.filter(m => m.id !== newMessage.id);
       }
     } catch (error) {
@@ -333,9 +382,10 @@ export function ConversationDetailView() {
           display: flex;
           align-items: center;
           gap: var(--space-3);
-          padding: var(--space-3) var(--space-4);
+          padding: var(--space-4) var(--space-4);
           background-color: var(--color-bg-elevated);
           border-bottom: 1px solid var(--color-border);
+          min-height: 64px;
         }
         
         .back-button {
@@ -378,9 +428,14 @@ export function ConversationDetailView() {
         }
         
         .badge {
-          padding: var(--space-1) var(--space-2);
-          font-size: var(--text-xs);
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 6px 12px;
+          font-size: var(--text-sm);
+          font-weight: 600;
           border-radius: var(--radius-full);
+          white-space: nowrap;
         }
         
         .badge-encrypted {
@@ -415,64 +470,70 @@ export function ConversationDetailView() {
         }
         
         .message-bubble {
-          max-width: 80%;
-          padding: var(--space-3);
-          border-radius: var(--radius-lg);
+          max-width: 70%;
+          padding: 10px 14px;
+          border-radius: 16px;
           position: relative;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
         }
         
         .message-bubble.mine {
           align-self: flex-end;
-          background-color: var(--color-accent);
+          background-color: #6366f1;
           color: white;
+          border-bottom-right-radius: 4px;
         }
         
         .message-bubble.theirs {
           align-self: flex-start;
-          background-color: var(--color-bg-elevated);
-          border: 1px solid var(--color-border);
-          color: var(--color-text-primary);
+          background-color: #f3f4f6;
+          border: none;
+          color: #1f2937;
+          border-bottom-left-radius: 4px;
         }
         
         .message-content {
-          font-size: var(--text-sm);
-          line-height: 1.5;
+          font-size: 15px;
+          line-height: 1.4;
           white-space: pre-wrap;
           word-break: break-word;
         }
         
         .message-time {
-          font-size: 10px;
-          opacity: 0.7;
-          margin-top: var(--space-1);
+          font-size: 11px;
+          opacity: 0.6;
+          margin-top: 4px;
           text-align: right;
+          font-weight: 500;
         }
         
         .message-bubble.theirs .message-time {
-          color: var(--color-text-tertiary);
+          color: #6b7280;
         }
         
         .message-input-container {
           display: flex;
-          align-items: flex-end;
-          gap: var(--space-2);
-          padding: var(--space-3) var(--space-4);
+          align-items: center;
+          gap: 12px;
+          padding: 16px;
           background-color: var(--color-bg-elevated);
           border-top: 1px solid var(--color-border);
         }
         
         .message-input {
           flex: 1;
-          padding: var(--space-3);
-          font-size: var(--text-sm);
+          padding: 10px 16px;
+          font-size: 15px;
           font-family: inherit;
-          border: 1px solid var(--color-border);
-          border-radius: var(--radius-lg);
+          border: 1.5px solid var(--color-border);
+          border-radius: 24px;
           background-color: var(--color-bg);
           color: var(--color-text-primary);
           resize: none;
           max-height: 120px;
-          line-height: 1.4;
+          line-height: 1.5;
+          min-height: 40px;
+          transition: border-color 0.2s;
         }
         
         .message-input:focus {
@@ -491,20 +552,26 @@ export function ConversationDetailView() {
           width: 40px;
           height: 40px;
           border: none;
-          background-color: var(--color-accent);
+          background-color: #6366f1;
           color: white;
-          border-radius: var(--radius-full);
+          border-radius: 8px;
           cursor: pointer;
-          transition: all var(--transition-fast);
+          transition: background-color 0.2s;
+          flex-shrink: 0;
         }
         
         .send-button:hover:not(:disabled) {
-          background-color: var(--color-accent-hover);
+          background-color: #4f46e5;
+        }
+        
+        .send-button:active:not(:disabled) {
+          background-color: #4338ca;
         }
         
         .send-button:disabled {
           opacity: 0.5;
           cursor: not-allowed;
+          background-color: #9ca3af;
         }
         
         .read-only-notice {

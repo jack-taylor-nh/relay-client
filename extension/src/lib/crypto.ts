@@ -182,25 +182,30 @@ export function signString(message: string, secretKey: Uint8Array): string {
 // ============================================
 
 /**
- * Encrypt a message for a recipient
+ * Encrypt a message for a recipient using their X25519 public key
+ * Uses ephemeral key exchange for forward secrecy per-message
  */
 export function encryptMessage(
   plaintext: string,
-  recipientPublicKey: Uint8Array,
-  senderSecretKey: Uint8Array
-): { ciphertext: string; nonce: string } {
-  const plaintextBytes = decodeUTF8(plaintext);
+  recipientPubkey: Uint8Array,
+  _senderPrivateKey: Uint8Array
+): { ciphertext: string; ephemeralPubkey: string; nonce: string } {
+  // Generate ephemeral keypair for this message
+  const ephemeralKp = nacl.box.keyPair();
   const nonce = nacl.randomBytes(nacl.box.nonceLength);
   
+  // Encrypt using crypto_box (X25519 + XSalsa20-Poly1305)
+  const plaintextBytes = decodeUTF8(plaintext);
   const ciphertext = nacl.box(
     plaintextBytes,
     nonce,
-    recipientPublicKey,
-    senderSecretKey
+    recipientPubkey,
+    ephemeralKp.secretKey
   );
   
   return {
     ciphertext: encodeBase64(ciphertext),
+    ephemeralPubkey: encodeBase64(ephemeralKp.publicKey),
     nonce: encodeBase64(nonce),
   };
 }

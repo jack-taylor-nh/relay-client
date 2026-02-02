@@ -320,3 +320,19 @@ export function secureZero(buffer: Uint8Array): void {
   ensureInit();
   sodium.memzero(buffer);
 }
+
+// ============================================
+// Double Ratchet Re-exports
+// ============================================
+
+export {
+  type RatchetState,
+  type EncryptedRatchetMessage,
+  RatchetInitAlice,
+  RatchetInitBob,
+  RatchetEncrypt,
+  RatchetDecrypt,
+  serializeRatchetState,
+  deserializeRatchetState,
+} from './ratchet.js';
+

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SVG to PNG Converter - Relay Icons</title>
+    <style>
+        body { font-family: system-ui; padding: 40px; max-width: 800px; margin: 0 auto; }
+        h1 { color: #8B5CF6; }
+        .converter { margin: 20px 0; padding: 20px; background: #f5f5f4; border-radius: 8px; }
+        canvas { border: 1px solid #ccc; margin: 10px 0; }
+        button { padding: 10px 20px; background: #8B5CF6; color: white; border: none; border-radius: 6px; cursor: pointer; margin: 5px; }
+        button:hover { background: #7C3AED; }
+        .preview { display: flex; gap: 20px; align-items: center; margin: 20px 0; }
+        .icon-display { padding: 20px; background: white; border: 1px solid #e7e5e4; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <h1>Relay Icon Converter</h1>
+    <p>Convert SVG icons to PNG format for Chrome extension manifest</p>
+    
+    <div class="converter">
+        <h2>Generate Icons</h2>
+        <button onclick="generateIcons()">Generate All Icon Sizes</button>
+        <div id="output"></div>
+    </div>
+
+    <div class="preview">
+        <div class="icon-display">
+            <canvas id="canvas16" width="16" height="16"></canvas>
+            <p>16x16</p>
+        </div>
+        <div class="icon-display">
+            <canvas id="canvas32" width="32" height="32"></canvas>
+            <p>32x32</p>
+        </div>
+        <div class="icon-display">
+            <canvas id="canvas48" width="48" height="48"></canvas>
+            <p>48x48</p>
+        </div>
+        <div class="icon-display">
+            <canvas id="canvas128" width="128" height="128"></canvas>
+            <p>128x128</p>
+        </div>
+    </div>
+
+    <script>
+        const svgIcon = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="10 10 236 236" role="img" aria-label="Relay icon">
+  <defs>
+    <linearGradient id="relayGradient" x1="44" y1="28" x2="212" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="0.55" stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#10B981"/>
+    </linearGradient>
+  </defs>
+
+  <!-- background tile -->
+  <rect x="20" y="20" width="216" height="216" rx="56" fill="#0B1020"/>
+
+  <!-- abstract R -->
+  <path d="M92 176V86c0-10 8-18 18-18h30c22 0 40 18 40 40s-18 40-40 40h-22"
+        fill="none"
+        stroke="url(#relayGradient)"
+        stroke-width="18"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+
+  <!-- relay handoff stroke -->
+  <path d="M118 148l52 28"
+        fill="none"
+        stroke="url(#relayGradient)"
+        stroke-width="18"
+        stroke-linecap="round"/>
+
+  <!-- relay dot -->
+  <circle cx="188" cy="176" r="10" fill="url(#relayGradient)"/>
+</svg>`;
+
+        function svgToCanvas(svgString, size) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                const blob = new Blob([svgString], {type: 'image/svg+xml'});
+                const url = URL.createObjectURL(blob);
+                
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = size;
+                    canvas.height = size;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, size, size);
+                    URL.revokeObjectURL(url);
+                    resolve(canvas);
+                };
+                
+                img.src = url;
+            });
+        }
+
+        async function generateIcons() {
+            const sizes = [16, 32, 48, 128];
+            const output = document.getElementById('output');
+            output.innerHTML = '<p>Generating icons...</p>';
+            
+            for (const size of sizes) {
+                const canvas = await svgToCanvas(svgIcon, size);
+                
+                // Display in preview
+                const previewCanvas = document.getElementById(`canvas${size}`);
+                const previewCtx = previewCanvas.getContext('2d');
+                previewCtx.clearRect(0, 0, size, size);
+                previewCtx.drawImage(canvas, 0, 0);
+                
+                // Create download link
+                canvas.toBlob((blob) => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `icon-${size}.png`;
+                    a.textContent = `Download icon-${size}.png`;
+                    a.style.display = 'block';
+                    a.style.margin = '5px 0';
+                    output.appendChild(a);
+                });
+            }
+            
+            const instruction = document.createElement('p');
+            instruction.innerHTML = '<strong>Instructions:</strong> Click each download link and save to <code>relay-client/extension/public/icons/</code>';
+            instruction.style.marginTop = '20px';
+            instruction.style.color = '#8B5CF6';
+            output.appendChild(instruction);
+        }
+    </script>
+</body>
+</html>

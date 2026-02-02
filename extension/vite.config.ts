@@ -76,11 +76,15 @@ export default defineConfig({
         chunkFileNames: 'chunks/[name]-[hash].js',
         assetFileNames: 'assets/[name][extname]',
       },
+      external: ['libsodium-wrappers-sumo'],
     },
   },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
     },
+  },
+  optimizeDeps: {
+    exclude: ['libsodium-wrappers-sumo'],
   },
 });

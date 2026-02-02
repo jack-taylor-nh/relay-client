@@ -20,9 +20,10 @@ import {
   encryptMessage,
   decryptMessage,
   decryptEmail,
-  encryptForRecipient,
   type EncryptedBundle,
 } from '../lib/crypto';
+import { sendMessage as sendUnifiedMessage, receiveMessage as receiveUnifiedMessage, type Conversation as RatchetConversation, type SecurityLevel, type EdgeType } from '@relay/core';
+import { ratchetStorage } from '../lib/storage';
 
 // ============================================
 // Types
@@ -108,17 +109,24 @@ type MessageType =
   | { type: 'CREATE_IDENTITY'; payload: { passphrase: string } }
   | { type: 'UNLOCK'; payload: { passphrase: string } }
   | { type: 'LOCK' }
+  | { type: 'LOGOUT' }
   | { type: 'CLAIM_HANDLE'; payload: { handle: string } }
+  | { type: 'GET_HANDLES' }
+  | { type: 'CREATE_HANDLE'; payload: { handle: string; displayName?: string } }
+  | { type: 'DELETE_HANDLE'; payload: { handleId: string } }
   | { type: 'SIGN_MESSAGE'; payload: { message: string } }
   | { type: 'GET_PUBLIC_KEY' }
+  | { type: 'GET_AUTH_TOKEN' }
   | { type: 'RESOLVE_HANDLE'; payload: { handle: string } }
   | { type: 'GET_CONVERSATIONS' }
   | { type: 'GET_MESSAGES'; payload: { conversationId: string; cursor?: string } }
   | { type: 'SEND_MESSAGE'; payload: { recipientIdentityId: string; recipientPublicKey: string; content: string; conversationId?: string } }
+  | { type: 'SEND_NATIVE_MESSAGE'; payload: { recipientHandle: string; senderHandle: string; content: string } }
   | { type: 'SEND_EMAIL'; payload: { conversationId: string; content: string } }
-  | { type: 'CREATE_EDGE'; payload: { type: 'email' | 'contact_link'; label?: string } }
+  | { type: 'CREATE_EDGE'; payload: { type: 'native' | 'email' | 'contact_link'; label?: string; customAddress?: string; displayName?: string } }
+  | { type: 'GET_EDGE_TYPES' }
   | { type: 'GET_EDGES' }
-  | { type: 'DISABLE_EDGE'; payload: { edgeId: string } }
+  | { type: 'BURN_EDGE'; payload: { edgeId: string } }
   | { type: 'GET_ALIASES' }
   | { type: 'CREATE_ALIAS'; payload: { label?: string } };
 
@@ -141,14 +149,30 @@ async function handleMessage(message: MessageType): Promise<unknown> {
     case 'LOCK':
       return lock();
 
+    case 'LOGOUT':
+      return logout();
+
     case 'CLAIM_HANDLE':
       return claimHandle(message.payload.handle);
+
+    case 'GET_HANDLES':
+      return getHandles();
+
+    case 'CREATE_HANDLE':
+      return createHandle(message.payload.handle, message.payload.displayName);
+
+    case 'DELETE_HANDLE':
+      return deleteHandle(message.payload.handleId);
 
     case 'SIGN_MESSAGE':
       return signMessage(message.payload.message);
 
     case 'GET_PUBLIC_KEY':
       return getPublicKey();
+
+    case 'GET_AUTH_TOKEN':
+      const token = await getAuthToken();
+      return token ? { token } : { error: 'Failed to get auth token' };
 
     case 'RESOLVE_HANDLE':
       return resolveHandle(message.payload.handle);
@@ -162,17 +186,23 @@ async function handleMessage(message: MessageType): Promise<unknown> {
     case 'SEND_MESSAGE':
       return sendMessage(message.payload);
 
+    case 'SEND_NATIVE_MESSAGE':
+      return sendNativeMessage(message.payload.recipientHandle, message.payload.senderHandle, message.payload.content);
+
     case 'SEND_EMAIL':
       return sendEmail(message.payload.conversationId, message.payload.content);
 
     case 'CREATE_EDGE':
-      return createEdge(message.payload.type, message.payload.label);
+      return createEdge(message.payload.type, message.payload.label, message.payload.customAddress, message.payload.displayName);
+
+    case 'GET_EDGE_TYPES':
+      return getEdgeTypes();
 
     case 'GET_EDGES':
       return getEdges();
 
-    case 'DISABLE_EDGE':
-      return disableEdge(message.payload.edgeId);
+    case 'BURN_EDGE':
+      return burnEdge(message.payload.edgeId);
 
     case 'GET_ALIASES':
       // Aliases are now edges - redirect to getEdges
@@ -216,13 +246,29 @@ async function getStoredIdentity(): Promise<StoredIdentity | null> {
 // Identity Operations
 // ============================================
 
+let isCreatingIdentity = false;
+
 async function createIdentity(passphrase: string): Promise<{
   success: boolean;
   fingerprint: string;
   publicKey: string;
 }> {
-  // Generate new keypair
-  const keyPair = generateSigningKeyPair();
+  // Prevent duplicate creation attempts
+  if (isCreatingIdentity) {
+    throw new Error('Identity creation already in progress');
+  }
+
+  // Check if identity already exists
+  const existing = await getStoredIdentity();
+  if (existing) {
+    throw new Error('Identity already exists');
+  }
+
+  isCreatingIdentity = true;
+
+  try {
+    // Generate new keypair
+    const keyPair = generateSigningKeyPair();
   const fingerprint = computeFingerprint(keyPair.publicKey);
   const publicKeyBase64 = toBase64(keyPair.publicKey);
 
@@ -282,6 +328,9 @@ async function createIdentity(passphrase: string): Promise<{
     fingerprint,
     publicKey: publicKeyBase64,
   };
+} finally {
+    isCreatingIdentity = false;
+  }
 }
 
 async function unlock(passphrase: string): Promise<{ success: boolean; error?: string }> {
@@ -331,6 +380,20 @@ function lock(): { success: boolean } {
   
   onLock(); // Stop background polling
 
+  return { success: true };
+}
+
+async function logout(): Promise<{ success: boolean }> {
+  // First lock to clear memory
+  lock();
+  
+  // Clear all stored data
+  await chrome.storage.local.remove([
+    'identity',
+    'edgeKeys',
+    'session',
+  ]);
+  
   return { success: true };
 }
 
@@ -414,6 +477,148 @@ async function claimHandle(handle: string): Promise<{
   }
 }
 
+async function getHandles(): Promise<{
+  success: boolean;
+  handles?: any[];
+  error?: string;
+}> {
+  if (!unlockedIdentity) {
+    return { success: false, error: 'Wallet is locked' };
+  }
+
+  try {
+    const apiUrl = await getApiUrl();
+    const token = await getAuthToken();
+    
+    if (!token) {
+      return { success: false, error: 'Failed to authenticate' };
+    }
+    
+    const res = await fetch(`${apiUrl}/v1/handles`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    
+    if (!res.ok) {
+      const err = await res.json();
+      return { success: false, error: err.message || 'Failed to fetch handles' };
+    }
+    
+    const data = await res.json();
+    return { success: true, handles: data.handles };
+  } catch (error) {
+    console.error('Get handles error:', error);
+    return { success: false, error: 'Network error' };
+  }
+}
+
+async function createHandle(handle: string, displayName?: string): Promise<{
+  success: boolean;
+  handle?: any;
+  error?: string;
+}> {
+  if (!unlockedIdentity) {
+    return { success: false, error: 'Wallet is locked' };
+  }
+
+  try {
+    const apiUrl = await getApiUrl();
+    const token = await getAuthToken();
+    
+    if (!token) {
+      return { success: false, error: 'Failed to authenticate' };
+    }
+    
+    // Generate per-edge X25519 keypair for this handle
+    const edgeEncryptionKeys = deriveEncryptionKeyPair(unlockedIdentity.secretKey);
+    const edgeX25519PublicKey = toBase64(edgeEncryptionKeys.publicKey);
+    
+    console.log('Creating handle with edge-level encryption key:', {
+      handle,
+      hasEdgeKey: !!edgeX25519PublicKey,
+    });
+    
+    const res = await fetch(`${apiUrl}/v1/handles`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ 
+        handle, 
+        displayName,
+        x25519PublicKey: edgeX25519PublicKey,
+      }),
+    });
+    
+    if (!res.ok) {
+      const err = await res.json();
+      return { success: false, error: err.message || 'Failed to create handle' };
+    }
+    
+    const data = await res.json();
+    
+    // Store edge keypair locally for this handle
+    const edgeId = data.nativeEdge?.id;
+    if (edgeId) {
+      const edgeKeys = {
+        [edgeId]: {
+          publicKey: toBase64(edgeEncryptionKeys.publicKey),
+          secretKey: toBase64(edgeEncryptionKeys.secretKey),
+        },
+      };
+      
+      // Merge with existing edge keys
+      const storage = await chrome.storage.local.get(['edgeKeys']);
+      const existingKeys = storage.edgeKeys || {};
+      await chrome.storage.local.set({
+        edgeKeys: { ...existingKeys, ...edgeKeys },
+      });
+      
+      console.log('Stored edge keypair for handle:', handle, 'edgeId:', edgeId);
+    }
+    
+    return { success: true, handle: data };
+  } catch (error) {
+    console.error('Create handle error:', error);
+    return { success: false, error: 'Network error' };
+  }
+}
+
+async function deleteHandle(handleId: string): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  if (!unlockedIdentity) {
+    return { success: false, error: 'Wallet is locked' };
+  }
+
+  try {
+    const apiUrl = await getApiUrl();
+    const token = await getAuthToken();
+    
+    if (!token) {
+      return { success: false, error: 'Failed to authenticate' };
+    }
+    
+    const res = await fetch(`${apiUrl}/v1/handles/${handleId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    
+    if (!res.ok) {
+      const err = await res.json();
+      return { success: false, error: err.message || 'Failed to delete handle' };
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Delete handle error:', error);
+    return { success: false, error: 'Network error' };
+  }
+}
+
 // ============================================
 // Signing
 // ============================================
@@ -444,8 +649,80 @@ async function getApiUrl(): Promise<string> {
   return result.apiUrl || 'https://api.rlymsg.com';
 }
 
-// Suppress unused variable warning for session (will be used in M2)
-void session;
+// Simple helper for encrypting strings to base64 recipient public keys
+function encryptForRecipient(plaintext: string, recipientPublicKeyBase64: string): string {
+  const recipientPubKey = fromBase64(recipientPublicKeyBase64);
+  const encrypted = encryptMessage(plaintext, recipientPubKey, new Uint8Array(32));
+  return JSON.stringify(encrypted);
+}
+
+// ============================================
+// Authentication
+// ============================================
+
+async function getAuthToken(): Promise<string | null> {
+  // Check if we have a valid cached token
+  if (session.token && session.expiresAt && session.expiresAt > Date.now()) {
+    return session.token;
+  }
+
+  if (!unlockedIdentity) {
+    return null;
+  }
+
+  try {
+    const apiUrl = await getApiUrl();
+    const fingerprint = unlockedIdentity.fingerprint;
+    const publicKey = toBase64(unlockedIdentity.publicKey);
+
+    // Step 1: Request nonce
+    const nonceRes = await fetch(`${apiUrl}/v1/auth/nonce`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identityId: fingerprint }),
+    });
+
+    if (!nonceRes.ok) {
+      console.error('Failed to get auth nonce');
+      return null;
+    }
+
+    const { nonce } = await nonceRes.json();
+
+    // Step 2: Sign nonce
+    const messageToSign = `relay-auth:${nonce}`;
+    const signature = signString(messageToSign, unlockedIdentity.secretKey);
+
+    // Step 3: Verify signature and get token
+    const verifyRes = await fetch(`${apiUrl}/v1/auth/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ publicKey, nonce, signature }),
+    });
+
+    if (!verifyRes.ok) {
+      console.error('Failed to verify signature');
+      return null;
+    }
+
+    const { token, expiresAt } = await verifyRes.json();
+
+    // Cache token
+    session.token = token;
+    session.expiresAt = new Date(expiresAt).getTime();
+
+    return token;
+  } catch (error) {
+    console.error('Auth token error:', error);
+    return null;
+  }
+}
+
+// Clear session on lock
+function clearSession() {
+  session.token = null;
+  session.expiresAt = null;
+}
 
 // ============================================
 // Handle Resolution
@@ -455,14 +732,24 @@ async function resolveHandle(handle: string): Promise<{
   success: boolean;
   handle?: string;
   publicKey?: string;
-  identityId?: string;
+  fingerprint?: string;
+  x25519PublicKey?: string;
+  edgeId?: string;
   error?: string;
 }> {
   const cleanHandle = handle.toLowerCase().replace(/^&/, '').trim();
   
   try {
     const apiUrl = await getApiUrl();
-    const res = await fetch(`${apiUrl}/v1/handle/resolve?handle=${encodeURIComponent(cleanHandle)}`);
+    
+    // Use POST endpoint to avoid handle appearing in URL/logs
+    const res = await fetch(`${apiUrl}/v1/handles/resolve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ handle: cleanHandle }),
+    });
     
     if (!res.ok) {
       if (res.status === 404) {
@@ -476,11 +763,18 @@ async function resolveHandle(handle: string): Promise<{
     }
     
     const data = await res.json();
+    
+    // Compute fingerprint from public key for identity verification
+    const publicKeyBytes = fromBase64(data.publicKey);
+    const fingerprint = computeFingerprint(publicKeyBytes);
+    
     return {
       success: true,
       handle: data.handle,
       publicKey: data.publicKey,
-      identityId: data.identityId,
+      fingerprint,
+      x25519PublicKey: data.x25519PublicKey,
+      edgeId: data.edgeId,
     };
   } catch (error) {
     console.error('Resolve handle error:', error);
@@ -587,34 +881,183 @@ async function getMessages(
     
     const data = await res.json();
     
+    // Get conversation details to determine edge info for ratchet decryption
+    // This is needed for Double Ratchet messages to get the counterparty's edge public key
+    let conversationDetails: {
+      myEdgeId?: string;
+      counterpartyEdgeId?: string;
+      counterpartyX25519Key?: string;
+    } | null = null;
+    
+    // Check if any message needs ratchet decryption (has ratchetPn/ratchetN defined)
+    const needsRatchetInfo = data.messages.some((msg: any) => 
+      msg.ratchetPn !== null && msg.ratchetPn !== undefined
+    );
+    
+    if (needsRatchetInfo) {
+      // Fetch conversation details to get edge info
+      try {
+        const convRes = await fetch(`${apiUrl}/v1/conversations`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (convRes.ok) {
+          const convData = await convRes.json();
+          const conv = convData.conversations?.find((c: any) => c.id === conversationId);
+          if (conv) {
+            conversationDetails = {
+              myEdgeId: conv.edge?.id,
+              counterpartyEdgeId: conv.counterparty?.edgeId,
+            };
+            
+            // If we have a counterparty handle, resolve their edge public key
+            if (conv.counterparty?.handle) {
+              const resolveRes = await fetch(`${apiUrl}/v1/handles/resolve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ handle: conv.counterparty.handle }),
+              });
+              if (resolveRes.ok) {
+                const resolveData = await resolveRes.json();
+                conversationDetails.counterpartyX25519Key = resolveData.x25519PublicKey;
+                conversationDetails.counterpartyEdgeId = resolveData.edgeId;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to fetch conversation details for ratchet:', e);
+      }
+    }
+    
+    // Get my edge keys
+    const storage = await chrome.storage.local.get(['edgeKeys']);
+    const edgeKeys = storage.edgeKeys || {};
+    
     // Process messages based on security level
     const processedMessages = await Promise.all(
       data.messages.map(async (msg: {
         id: string;
+        conversationId: string;
+        edgeId?: string;
         senderIdentityId?: string;
         senderExternalId?: string;
         ciphertext?: string;
         ephemeralPubkey?: string;
         nonce?: string;
-        encryptedContent?: string;    // NEW: Full encrypted payload from worker
-        plaintextContent?: string;    // DEPRECATED: Plaintext gateway content
+        ratchetPn?: number;
+        ratchetN?: number;
+        encryptedContent?: string;
+        plaintextContent?: string;
+        origin?: string;
+        securityLevel?: string;
         createdAt: string;
       }) => {
         const isMine = msg.senderIdentityId === unlockedIdentity!.fingerprint;
         
         let content: string;
         
-        if (data.securityLevel === 'e2ee' && msg.ciphertext && msg.nonce && msg.ephemeralPubkey) {
-          // Decrypt E2EE message (native Relay-to-Relay)
-          const encryptionKeyPair = deriveEncryptionKeyPair(unlockedIdentity!.secretKey);
-          const senderPubKey = fromBase64(msg.ephemeralPubkey);
-          const decrypted = decryptMessage(
-            msg.ciphertext,
-            msg.nonce,
-            senderPubKey,
-            encryptionKeyPair.secretKey
-          );
-          content = decrypted || '[Unable to decrypt]';
+        // Check if this is a Double Ratchet message
+        const isRatchetMessage = msg.ratchetPn !== null && msg.ratchetPn !== undefined;
+        
+        if (isRatchetMessage && msg.ciphertext && msg.ephemeralPubkey && msg.nonce) {
+          try {
+            // Double Ratchet decryption
+            // Find our edge key for this conversation
+            let myEdgeSecretKey: Uint8Array | null = null;
+            let counterpartyEdgePublicKey: Uint8Array | null = null;
+            
+            // Get my edge key
+            for (const [edgeId, keys] of Object.entries(edgeKeys)) {
+              myEdgeSecretKey = fromBase64((keys as any).secretKey);
+              break; // Use first key for now (TODO: match by conversation edge)
+            }
+            
+            // Get counterparty edge public key
+            if (conversationDetails?.counterpartyX25519Key) {
+              counterpartyEdgePublicKey = fromBase64(conversationDetails.counterpartyX25519Key);
+            }
+            
+            if (myEdgeSecretKey && counterpartyEdgePublicKey) {
+              // Build conversation object for ratchet
+              const conversation: RatchetConversation = {
+                id: conversationId,
+                origin: (msg.origin || 'native') as EdgeType,
+                security_level: (msg.securityLevel || 'e2ee') as SecurityLevel,
+                my_edge_id: conversationDetails?.myEdgeId || '',
+                counterparty_edge_id: conversationDetails?.counterpartyEdgeId || '',
+              };
+              
+              // Build the message envelope
+              const envelope = {
+                protocol_version: '1.0' as const,
+                message_id: msg.id,
+                conversation_id: conversationId,
+                edge_id: msg.edgeId || '',
+                origin: (msg.origin || 'native') as EdgeType,
+                security_level: (msg.securityLevel || 'e2ee') as 'e2ee' | 'gateway_secured',
+                payload: {
+                  content_type: 'text/plain',
+                  ratchet: {
+                    ciphertext: msg.ciphertext,
+                    dh: msg.ephemeralPubkey,
+                    pn: msg.ratchetPn || 0,
+                    n: msg.ratchetN || 0,
+                    nonce: msg.nonce,
+                  },
+                },
+                created_at: msg.createdAt,
+              };
+              
+              // Decrypt using unified messaging
+              const result = await receiveUnifiedMessage(
+                envelope,
+                conversation,
+                myEdgeSecretKey,
+                counterpartyEdgePublicKey,
+                ratchetStorage
+              );
+              
+              if (result) {
+                content = result.plaintext;
+                console.log('Decrypted ratchet message:', msg.id);
+              } else {
+                console.error('Ratchet decryption returned null for message:', msg.id);
+                content = '[Unable to decrypt ratchet]';
+              }
+            } else {
+              console.error('Missing keys for ratchet decryption:', {
+                hasMyKey: !!myEdgeSecretKey,
+                hasCounterpartyKey: !!counterpartyEdgePublicKey,
+              });
+              content = '[Unable to decrypt - missing edge key]';
+            }
+          } catch (error) {
+            console.error('Ratchet decryption error for message:', msg.id, error);
+            content = '[Unable to decrypt ratchet]';
+          }
+        } else if (msg.ciphertext && msg.ephemeralPubkey && msg.nonce) {
+          // Legacy NaCl box decryption (for older messages)
+          try {
+            const myEncryptionKeys = deriveEncryptionKeyPair(unlockedIdentity!.secretKey);
+            
+            const decrypted = decryptMessage(
+              msg.ciphertext,
+              msg.nonce,
+              fromBase64(msg.ephemeralPubkey),
+              myEncryptionKeys.secretKey
+            );
+            
+            if (decrypted) {
+              content = decrypted;
+              console.log('Decrypted legacy message:', msg.id);
+            } else {
+              console.error('Failed to decrypt legacy message:', msg.id);
+              content = '[Unable to decrypt message]';
+            }
+          } catch (error) {
+            console.error('Legacy decryption error for message:', msg.id, error);
+            content = '[Unable to decrypt]';
+          }
         } else if (msg.encryptedContent) {
           // Decrypt encrypted email payload from worker (zero-knowledge)
           const encryptionKeyPair = deriveEncryptionKeyPair(unlockedIdentity!.secretKey);
@@ -622,7 +1065,6 @@ async function getMessages(
           
           try {
             const emailData = JSON.parse(decryptedJson);
-            // Format email as readable content
             const from = emailData.fromName || emailData.from || 'Unknown Sender';
             const subject = emailData.subject || '(no subject)';
             const body = emailData.textBody || emailData.htmlBody || '(empty message)';
@@ -905,12 +1347,182 @@ async function sendEmail(
 }
 
 // ============================================
+// Native Messaging
+// ============================================
+
+async function sendNativeMessage(
+  recipientHandle: string,
+  senderHandle: string,
+  content: string
+): Promise<{
+  success: boolean;
+  conversationId?: string;
+  messageId?: string;
+  error?: string;
+}> {
+  if (!unlockedIdentity) {
+    return { success: false, error: 'Wallet is locked' };
+  }
+
+  try {
+    const apiUrl = await getApiUrl();
+    
+    // 1. Resolve recipient handle to get their edge public key and edge ID
+    // Use POST endpoint to avoid handle appearing in URL/logs
+    const resolveRes = await fetch(`${apiUrl}/v1/handles/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handle: recipientHandle }),
+    });
+    if (!resolveRes.ok) {
+      return { success: false, error: 'Recipient handle not found' };
+    }
+    const resolveData = await resolveRes.json();
+    const recipientEdgeId = resolveData.edgeId;
+    const recipientX25519PublicKey = resolveData.x25519PublicKey;
+    
+    if (!recipientX25519PublicKey) {
+      return { success: false, error: 'Recipient has no encryption key' };
+    }
+    
+    console.log('Resolved recipient:', {
+      handle: recipientHandle,
+      edgeId: recipientEdgeId,
+      hasX25519Key: !!recipientX25519PublicKey,
+    });
+
+    // 2. Get my edge keys for this handle
+    const storage = await chrome.storage.local.get(['edgeKeys']);
+    const edgeKeys = storage.edgeKeys || {};
+    
+    // Find my edge ID for this handle (stored during createHandle)
+    let myEdgeId: string | null = null;
+    let myEdgeSecretKey: Uint8Array | null = null;
+    
+    for (const [edgeId, keys] of Object.entries(edgeKeys)) {
+      // Match edge by handle (stored in edges with address = handle)
+      myEdgeId = edgeId;
+      myEdgeSecretKey = fromBase64((keys as any).secretKey);
+      break; // For now, use the first edge (TODO: match by handle)
+    }
+    
+    if (!myEdgeId || !myEdgeSecretKey) {
+      return { success: false, error: 'No edge keys found. Please recreate your handle.' };
+    }
+
+    // 3. Get or create conversation
+    const token = await getAuthToken();
+    if (!token) {
+      return { success: false, error: 'Authentication failed' };
+    }
+    
+    // Find existing conversation or create new one
+    const conversationsRes = await fetch(`${apiUrl}/v1/conversations`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    
+    let conversationId: string | null = null;
+    
+    if (conversationsRes.ok) {
+      const convData = await conversationsRes.json();
+      // Find conversation with this recipient (TODO: proper matching)
+      const existingConv = convData.conversations?.find((c: any) => 
+        c.origin === 'native' && c.counterpartyHandle === recipientHandle
+      );
+      conversationId = existingConv?.id || null;
+    }
+
+    // 4. Build conversation object for unified messaging
+    const conversation: RatchetConversation = {
+      id: conversationId || crypto.randomUUID(), // Will be replaced by server for new conversations
+      origin: 'native' as EdgeType,
+      security_level: 'e2ee' as SecurityLevel,
+      my_edge_id: myEdgeId,
+      counterparty_edge_id: recipientEdgeId,
+      ratchet_state: null, // Will be loaded from storage
+    };
+
+    // 5. Use unified sendMessage with Double Ratchet
+    const { envelope } = await sendUnifiedMessage(
+      conversation,
+      content,
+      'text/plain',
+      myEdgeSecretKey,
+      fromBase64(recipientX25519PublicKey),
+      ratchetStorage
+    );
+
+    // 6. Flatten ratchet message into server's expected format
+    const ratchetMsg = envelope.payload.ratchet;
+    const serverPayload = {
+      // For new conversations, use recipient_handle instead of conversation_id
+      ...(conversationId ? { conversation_id: conversationId } : { recipient_handle: recipientHandle }),
+      edge_id: myEdgeId,
+      origin: 'native',
+      security_level: 'e2ee',
+      payload: {
+        content_type: envelope.payload.content_type || 'text/plain',
+        ciphertext: ratchetMsg.ciphertext,
+        ephemeral_pubkey: ratchetMsg.dh, // DH public key serves as ephemeral key
+        nonce: ratchetMsg.nonce,
+        // Ratchet-specific fields
+        dh: ratchetMsg.dh,
+        pn: ratchetMsg.pn,
+        n: ratchetMsg.n,
+      },
+      // Sign the ciphertext for verification
+      signature: signString(`relay-msg:${recipientHandle}:${ratchetMsg.nonce}`, unlockedIdentity.secretKey),
+    };
+
+    // 7. Send to server via unified endpoint
+    const res = await fetch(`${apiUrl}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(serverPayload),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      return { success: false, error: err.error || 'Failed to send message' };
+    }
+
+    const data = await res.json();
+    
+    // If this was a new conversation, update the ratchet storage key to use the server's conversation_id
+    if (!conversationId && data.conversation_id) {
+      // Move ratchet state from temp ID to real ID
+      const tempId = conversation.id;
+      const realId = data.conversation_id;
+      const tempState = await ratchetStorage.load(tempId);
+      if (tempState) {
+        await ratchetStorage.save(realId, tempState);
+        // Note: We leave the temp state for now as chrome.storage.local doesn't have a delete API
+      }
+    }
+    
+    return {
+      success: true,
+      conversationId: data.conversation_id,
+      messageId: data.message_id,
+    };
+  } catch (error) {
+    console.error('Send native message error:', error);
+    return { success: false, error: 'Network error' };
+  }
+}
+
+// ============================================
 // Edge Management
 // ============================================
 
 async function createEdge(
-  type: 'email' | 'contact_link',
-  label?: string
+  type: 'native' | 'email' | 'contact_link',
+  label?: string,
+  customAddress?: string,
+  displayName?: string
 ): Promise<{
   success: boolean;
   edge?: {
@@ -933,7 +1545,7 @@ async function createEdge(
     const messageToSign = `relay-create-edge:${type}:${nonce}`;
     const signature = signString(messageToSign, unlockedIdentity.secretKey);
 
-    // Derive X25519 encryption key for email encryption
+    // Derive X25519 encryption key for edge encryption
     const encryptionKeys = deriveEncryptionKeyPair(unlockedIdentity.secretKey);
 
     const res = await fetch(`${apiUrl}/v1/edge`, {
@@ -946,6 +1558,8 @@ async function createEdge(
         nonce,
         signature,
         label,
+        customAddress,
+        displayName,
       }),
     });
 
@@ -955,9 +1569,50 @@ async function createEdge(
     }
 
     const edge = await res.json();
+    
+    // Store edge keypair locally for encryption
+    if (edge.id) {
+      const edgeKeys = {
+        [edge.id]: {
+          publicKey: toBase64(encryptionKeys.publicKey),
+          secretKey: toBase64(encryptionKeys.secretKey),
+        },
+      };
+      
+      const storage = await chrome.storage.local.get(['edgeKeys']);
+      const existingKeys = storage.edgeKeys || {};
+      await chrome.storage.local.set({
+        edgeKeys: { ...existingKeys, ...edgeKeys },
+      });
+      
+      console.log('Stored edge keypair for edge:', edge.id);
+    }
+    
     return { success: true, edge };
   } catch (error) {
     console.error('Create edge error:', error);
+    return { success: false, error: 'Network error' };
+  }
+}
+
+async function getEdgeTypes(): Promise<{
+  success: boolean;
+  types?: any[];
+  error?: string;
+}> {
+  try {
+    const apiUrl = await getApiUrl();
+    const res = await fetch(`${apiUrl}/v1/edge/types`);
+
+    if (!res.ok) {
+      const err = await res.json();
+      return { success: false, error: err.message || 'Failed to fetch edge types' };
+    }
+
+    const data = await res.json();
+    return { success: true, types: data.types };
+  } catch (error) {
+    console.error('Get edge types error:', error);
     return { success: false, error: 'Network error' };
   }
 }
@@ -1008,7 +1663,7 @@ async function getEdges(): Promise<{
   }
 }
 
-async function disableEdge(edgeId: string): Promise<{
+async function burnEdge(edgeId: string): Promise<{
   success: boolean;
   error?: string;
 }> {
@@ -1019,11 +1674,18 @@ async function disableEdge(edgeId: string): Promise<{
   try {
     const apiUrl = await getApiUrl();
     const nonce = crypto.randomUUID();
-    const messageToSign = `relay-disable-edge:${edgeId}:${nonce}`;
+    const messageToSign = `relay-burn-edge:${edgeId}:${nonce}`;
     const signature = signString(messageToSign, unlockedIdentity.secretKey);
 
-    const res = await fetch(`${apiUrl}/v1/edge/${edgeId}`, {
-      method: 'DELETE',
+    console.log('[DEBUG] Burning edge:');
+    console.log('  edgeId:', edgeId);
+    console.log('  nonce:', nonce);
+    console.log('  messageToSign:', messageToSign);
+    console.log('  publicKey (base64):', toBase64(unlockedIdentity.publicKey));
+    console.log('  signature (base64):', signature);
+
+    const res = await fetch(`${apiUrl}/v1/edge/${edgeId}/burn`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         publicKey: toBase64(unlockedIdentity.publicKey),
@@ -1034,67 +1696,13 @@ async function disableEdge(edgeId: string): Promise<{
 
     if (!res.ok) {
       const err = await res.json();
-      return { success: false, error: err.message || 'Failed to disable edge' };
+      return { success: false, error: err.message || 'Failed to burn edge' };
     }
 
     return { success: true };
   } catch (error) {
-    console.error('Disable edge error:', error);
+    console.error('Burn edge error:', error);
     return { success: false, error: 'Network error' };
-  }
-}
-
-// ============================================
-// Authentication
-// ============================================
-
-async function getAuthToken(): Promise<string | null> {
-  if (!unlockedIdentity) return null;
-  
-  // Check if we have a valid session
-  if (session.token && session.expiresAt && session.expiresAt > Date.now()) {
-    return session.token;
-  }
-  
-  try {
-    const apiUrl = await getApiUrl();
-    
-    // Request nonce
-    const nonceRes = await fetch(`${apiUrl}/v1/auth/nonce`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identityId: unlockedIdentity.fingerprint }),
-    });
-    
-    if (!nonceRes.ok) return null;
-    const { nonce } = await nonceRes.json();
-    
-    // Sign the nonce
-    const signature = signString(`relay-auth:${nonce}`, unlockedIdentity.secretKey);
-    
-    // Verify and get token
-    const verifyRes = await fetch(`${apiUrl}/v1/auth/verify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        publicKey: toBase64(unlockedIdentity.publicKey),
-        nonce,
-        signature,
-      }),
-    });
-    
-    if (!verifyRes.ok) return null;
-    
-    const { token, expiresAt } = await verifyRes.json();
-    session = { 
-      token, 
-      expiresAt: new Date(expiresAt).getTime() 
-    };
-    
-    return token;
-  } catch (error) {
-    console.error('Auth error:', error);
-    return null;
   }
 }
 
@@ -1102,7 +1710,7 @@ async function getAuthToken(): Promise<string | null> {
 // Background Polling
 // ============================================
 
-const POLL_INTERVAL_MS = 30 * 1000; // 30 seconds
+const POLL_INTERVAL_MS = 15 * 1000; // 15 seconds
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let lastPollTime = 0;
 
@@ -1195,5 +1803,26 @@ function onLock() {
 // ============================================
 // Initialization
 // ============================================
+
+// Set up message listener
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  handleMessage(message)
+    .then(sendResponse)
+    .catch(error => {
+      console.error('Background message error:', error);
+      sendResponse({ error: error.message || 'Unknown error' });
+    });
+  return true; // Keep message channel open for async response
+});
+
+// Enable side panel to open on action click (Chrome MV3)
+try {
+  // @ts-ignore - sidePanel API may not be in all type definitions
+  if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  }
+} catch (e) {
+  console.log('Side panel behavior setup skipped');
+}
 
 console.log('Relay background service worker started');

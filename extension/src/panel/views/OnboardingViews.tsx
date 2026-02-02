@@ -1,5 +1,5 @@
-import { useState } from 'preact/hooks';
-import { onboardingStep, createIdentity, claimHandle, isLoading, showToast, completeOnboarding, currentIdentity, pendingPassphrase } from '../state';
+import { useState, useEffect } from 'preact/hooks';
+import { onboardingStep, createIdentity, isLoading, showToast, completeOnboarding, currentIdentity, pendingPassphrase, edgeTypes, loadEdgeTypes, createEdge, sendMessage, handles } from '../state';
 
 // ============================================
 // Icons
@@ -73,6 +73,32 @@ function DiceIcon({ size = 16 }: { size?: number }) {
   );
 }
 
+function RelayGlyphIcon({ size = 64 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="65 58 145 138" fill="none" role="img" aria-label="Relay glyph">
+      <defs>
+        <linearGradient id="relayGradientOnboarding" x1="44" y1="28" x2="212" y2="232" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#22D3EE"/>
+          <stop offset="0.55" stop-color="#8B5CF6"/>
+          <stop offset="1" stop-color="#10B981"/>
+        </linearGradient>
+      </defs>
+      <path d="M92 176V86c0-10 8-18 18-18h30c22 0 40 18 40 40s-18 40-40 40h-22"
+            fill="none"
+            stroke="url(#relayGradientOnboarding)"
+            stroke-width="18"
+            stroke-linecap="round"
+            stroke-linejoin="round"/>
+      <path d="M118 148l52 28"
+            fill="none"
+            stroke="url(#relayGradientOnboarding)"
+            stroke-width="18"
+            stroke-linecap="round"/>
+      <circle cx="188" cy="176" r="10" fill="url(#relayGradientOnboarding)"/>
+    </svg>
+  );
+}
+
 // ============================================
 // Passphrase Generator (cryptographically secure)
 // ============================================
@@ -123,60 +149,50 @@ function generateSecurePassphrase(wordCount: number = 4): string {
 
 export function WelcomeScreen() {
   return (
-    <div class="onboarding-screen welcome-screen">
-      <div class="onboarding-logo">
-        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
-          <circle cx="32" cy="32" r="30" stroke="var(--accent)" stroke-width="2" />
-          <path
-            d="M20 32 L28 40 L44 24"
-            stroke="var(--accent)"
-            stroke-width="3"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            fill="none"
-          />
-        </svg>
+    <div class="flex flex-col items-center justify-center min-h-screen bg-stone-50 px-6 py-12">
+      <div class="mb-8">
+        <RelayGlyphIcon size={80} />
       </div>
 
-      <h1 class="onboarding-title">Welcome to Relay</h1>
+      <h1 class="text-3xl font-bold text-stone-900 mb-3">Welcome to Relay</h1>
       
-      <p class="onboarding-subtitle">
-        Private, handle-based communication that you control.
+      <p class="text-base text-stone-600 mb-10 text-center max-w-md">
+        One identity. Every conversation. Zero exposure.
       </p>
 
-      <div class="feature-list">
-        <div class="feature-item">
-          <span class="feature-icon"><LockIcon size={20} /></span>
-          <div class="feature-text">
-            <strong>End-to-end encrypted</strong>
-            <span>Messages are encrypted on your device</span>
+      <div class="w-full max-w-md space-y-4 mb-10">
+        <div class="flex items-start gap-3 p-4 bg-white rounded-lg border border-stone-200">
+          <span class="text-purple-600 mt-0.5"><LockIcon size={20} /></span>
+          <div class="flex flex-col gap-1">
+            <strong class="text-sm font-semibold text-stone-900">Zero-knowledge encryption</strong>
+            <span class="text-sm text-stone-600">Your messages never touch our servers unencrypted</span>
           </div>
         </div>
-        <div class="feature-item">
-          <span class="feature-icon"><MailIcon size={20} /></span>
-          <div class="feature-text">
-            <strong>Email aliases</strong>
-            <span>Generate disposable addresses</span>
+        <div class="flex items-start gap-3 p-4 bg-white rounded-lg border border-stone-200">
+          <span class="text-purple-600 mt-0.5"><MailIcon size={20} /></span>
+          <div class="flex flex-col gap-1">
+            <strong class="text-sm font-semibold text-stone-900">Disposable edges</strong>
+            <span class="text-sm text-stone-600">Email, links, and more — each connection is isolated</span>
           </div>
         </div>
-        <div class="feature-item">
-          <span class="feature-icon"><UserIcon size={20} /></span>
-          <div class="feature-text">
-            <strong>Your handle, your identity</strong>
-            <span>Claim a unique &handle</span>
+        <div class="flex items-start gap-3 p-4 bg-white rounded-lg border border-stone-200">
+          <span class="text-purple-600 mt-0.5"><UserIcon size={20} /></span>
+          <div class="flex flex-col gap-1">
+            <strong class="text-sm font-semibold text-stone-900">Claim your &handle</strong>
+            <span class="text-sm text-stone-600">A portable identity you own forever</span>
           </div>
         </div>
       </div>
 
       <button
-        class="btn btn-primary btn-lg"
+        class="w-full max-w-md px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors text-base"
         onClick={() => { onboardingStep.value = 'create-passphrase'; }}
       >
         Get Started
       </button>
 
-      <p class="onboarding-footer">
-        Already have an identity? <a href="#" onClick={(e) => {
+      <p class="text-sm text-stone-600 mt-6">
+        Already have an identity? <a href="#" class="text-purple-600 hover:text-purple-700 font-medium" onClick={(e) => {
           e.preventDefault();
           // TODO: Import flow
           showToast('Import coming soon');
@@ -213,90 +229,92 @@ export function CreatePassphraseScreen() {
   }
 
   return (
-    <div class="onboarding-screen passphrase-screen">
+    <div class="flex flex-col min-h-screen bg-stone-50 px-6 py-8">
       <button 
-        class="back-btn"
+        class="self-start mb-6 px-3 py-1.5 text-sm text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded transition-colors"
         onClick={() => { onboardingStep.value = 'welcome'; }}
       >
         ← Back
       </button>
 
-      <h1 class="onboarding-title">Create Passphrase</h1>
-      
-      <p class="onboarding-subtitle">
-        Your passphrase encrypts your identity. You'll need it to unlock Relay.
-      </p>
+      <div class="flex-1 flex flex-col justify-center max-w-md mx-auto w-full">
+        <h1 class="text-3xl font-bold text-stone-900 mb-3">Create Passphrase</h1>
+        
+        <p class="text-base text-stone-600 mb-8">
+          Your passphrase encrypts your identity. You'll need it to unlock Relay.
+        </p>
 
-      <div class="form-group">
-        <div class="label-row">
-          <label class="form-label">Passphrase</label>
-          <button 
-            type="button" 
-            class="generate-btn"
-            onClick={handleGeneratePassphrase}
-            title="Generate a secure random passphrase"
-          >
-            <DiceIcon size={14} />
-            <span>Generate</span>
-          </button>
+        <div class="mb-6">
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-sm font-medium text-stone-700">Passphrase</label>
+            <button 
+              type="button" 
+              class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded transition-colors"
+              onClick={handleGeneratePassphrase}
+              title="Generate a secure random passphrase"
+            >
+              <DiceIcon size={14} />
+              <span>Generate</span>
+            </button>
+          </div>
+          <div class="relative">
+            <input
+              type={showPassphrase ? 'text' : 'password'}
+              class="w-full px-3 py-2.5 pr-10 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              placeholder="Enter a strong passphrase"
+              value={passphrase}
+              onInput={(e) => setPassphrase((e.target as HTMLInputElement).value)}
+              autoFocus
+            />
+            <button
+              type="button"
+              class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-stone-400 hover:text-stone-600 rounded transition-colors"
+              onClick={() => setShowPassphrase(!showPassphrase)}
+            >
+              {showPassphrase ? <EyeOffIcon /> : <EyeIcon />}
+            </button>
+          </div>
+          <div class="mt-1.5 min-h-[20px]">
+            {passphrase.length > 0 && passphrase.length < 8 && (
+              <span class="text-xs text-red-600">At least 8 characters required</span>
+            )}
+          </div>
         </div>
-        <div class="input-wrapper">
+
+        <div class="mb-6">
+          <label class="block text-sm font-medium text-stone-700 mb-2">Confirm Passphrase</label>
           <input
             type={showPassphrase ? 'text' : 'password'}
-            class="form-input"
-            placeholder="Enter a strong passphrase"
-            value={passphrase}
-            onInput={(e) => setPassphrase((e.target as HTMLInputElement).value)}
-            autoFocus
+            class="w-full px-3 py-2.5 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            placeholder="Confirm your passphrase"
+            value={confirmPassphrase}
+            onInput={(e) => setConfirmPassphrase((e.target as HTMLInputElement).value)}
           />
-          <button
-            type="button"
-            class="input-toggle"
-            onClick={() => setShowPassphrase(!showPassphrase)}
-          >
-            {showPassphrase ? <EyeOffIcon /> : <EyeIcon />}
-          </button>
+          <div class="mt-1.5 min-h-[20px]">
+            {confirmPassphrase.length > 0 && passphrase !== confirmPassphrase && (
+              <span class="text-xs text-red-600">Passphrases don't match</span>
+            )}
+          </div>
         </div>
-        <div class="input-hint">
-          {passphrase.length > 0 && passphrase.length < 8 && (
-            <span class="hint-error">At least 8 characters required</span>
-          )}
+
+        {error && <div class="mb-6 p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded-lg">{error}</div>}
+
+        <div class="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-lg flex gap-3">
+          <div class="text-amber-600 mt-0.5"><AlertIcon size={20} /></div>
+          <div class="flex-1">
+            <strong class="text-sm font-semibold text-amber-900 block mb-1">Important</strong>
+            <p class="text-sm text-amber-800">There's no way to recover your passphrase. If you forget it, you'll lose access to this identity forever—but you can always create a new one.</p>
+          </div>
         </div>
+
+        <button
+          class="w-full px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors text-base"
+          onClick={handleCreate}
+          disabled={!isValid || isLoading.value}
+        >
+          {isLoading.value ? 'Creating...' : 'Create Identity'}
+        </button>
       </div>
-
-      <div class="form-group">
-        <label class="form-label">Confirm Passphrase</label>
-        <input
-          type={showPassphrase ? 'text' : 'password'}
-          class="form-input"
-          placeholder="Confirm your passphrase"
-          value={confirmPassphrase}
-          onInput={(e) => setConfirmPassphrase((e.target as HTMLInputElement).value)}
-        />
-        <div class="input-hint">
-          {confirmPassphrase.length > 0 && passphrase !== confirmPassphrase && (
-            <span class="hint-error">Passphrases don't match</span>
-          )}
-        </div>
-      </div>
-
-      {error && <div class="error-message">{error}</div>}
-
-      <div class="warning-box">
-        <div class="warning-box-icon"><AlertIcon size={20} /></div>
-        <div class="warning-box-content">
-          <strong>Important</strong>
-          <p>There's no way to recover your passphrase. If you forget it, you'll lose access to this identity forever—but you can always create a new one.</p>
-        </div>
-      </div>
-
-      <button
-        class="btn btn-primary btn-lg"
-        onClick={handleCreate}
-        disabled={!isValid || isLoading.value}
-      >
-        {isLoading.value ? 'Creating...' : 'Create Identity'}
-      </button>
     </div>
   );
 }
@@ -379,178 +397,369 @@ export function BackupIdentityScreen() {
   function handleContinue() {
     // Clear the pending passphrase from memory
     pendingPassphrase.value = null;
-    onboardingStep.value = 'claim-handle';
+    onboardingStep.value = 'create-edge';
   }
 
   return (
-    <div class="onboarding-screen backup-screen">
-      <div class="backup-icon">
-        <ShieldIcon />
-      </div>
-
-      <h1 class="onboarding-title">Save Your Backup</h1>
-      
-      <p class="onboarding-subtitle">
-        Download your recovery file now. This is the <strong>only way</strong> to recover your identity if you forget your passphrase.
-      </p>
-
-      <div class="backup-card">
-        <div class="backup-card-header">
-          <span>Recovery File</span>
-          {hasDownloaded && (
-            <span class="backup-downloaded-badge">
-              <CheckCircleIcon size={14} /> Saved
-            </span>
-          )}
+    <div class="flex flex-col min-h-screen bg-stone-50 px-6 py-8">
+      <div class="flex-1 flex flex-col items-center justify-center max-w-md mx-auto w-full">
+        <div class="mb-8 text-purple-600">
+          <ShieldIcon />
         </div>
-        <div class="backup-card-content">
-          <div class="backup-info-row">
-            <span class="backup-label">Fingerprint</span>
-            <code class="backup-value">{identity?.id?.slice(0, 16)}...</code>
-          </div>
-          <div class="backup-info-row">
-            <span class="backup-label">Passphrase</span>
-            <code class="backup-value passphrase-preview">{passphrase?.slice(0, 20)}{(passphrase?.length || 0) > 20 ? '...' : ''}</code>
-          </div>
-        </div>
-        <button
-          class="btn btn-secondary backup-download-btn"
-          onClick={handleDownload}
-        >
-          <DownloadIcon size={18} />
-          <span>{hasDownloaded ? 'Download Again' : 'Download Backup'}</span>
-        </button>
-      </div>
 
-      <div class="warning-box">
-        <div class="warning-box-icon"><AlertIcon size={20} /></div>
-        <div class="warning-box-content">
-          <strong>Store this file safely</strong>
-          <p>Keep it in a secure location like a password manager or encrypted drive. Anyone with this file can access your Relay identity.</p>
-        </div>
-      </div>
-
-      <button
-        class="btn btn-primary btn-lg"
-        onClick={handleContinue}
-        disabled={!hasDownloaded}
-      >
-        {hasDownloaded ? 'Continue' : 'Download backup to continue'}
-      </button>
-
-      {!hasDownloaded && (
-        <p class="skip-backup-note">
-          <button class="link-btn" onClick={() => {
-            if (confirm('Are you sure? Without a backup, you cannot recover your identity if you forget your passphrase.')) {
-              pendingPassphrase.value = null;
-              onboardingStep.value = 'claim-handle';
-            }
-          }}>
-            I understand the risks, skip backup
-          </button>
+        <h1 class="text-3xl font-bold text-stone-900 mb-3 text-center">Save Your Backup</h1>
+        
+        <p class="text-base text-stone-600 mb-8 text-center">
+          Download your recovery file now. This is the <strong class="font-semibold text-stone-900">only way</strong> to recover your identity if you forget your passphrase.
         </p>
-      )}
+
+        <div class="w-full bg-white border border-stone-200 rounded-lg overflow-hidden mb-6">
+          <div class="px-4 py-3 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
+            <span class="text-sm font-medium text-stone-700">Recovery File</span>
+            {hasDownloaded && (
+              <span class="flex items-center gap-1.5 text-xs font-medium text-emerald-600">
+                <CheckCircleIcon size={14} /> Saved
+              </span>
+            )}
+          </div>
+          <div class="px-4 py-3 space-y-3">
+            <div class="flex justify-between items-center">
+              <span class="text-xs font-medium text-stone-600">Fingerprint</span>
+              <code class="text-xs font-mono text-stone-900 bg-stone-100 px-2 py-1 rounded">{identity?.id?.slice(0, 16)}...</code>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-xs font-medium text-stone-600">Passphrase</span>
+              <code class="text-xs font-mono text-stone-900 bg-stone-100 px-2 py-1 rounded max-w-[180px] truncate">{passphrase?.slice(0, 20)}{(passphrase?.length || 0) > 20 ? '...' : ''}</code>
+            </div>
+          </div>
+          <button
+            class="w-full px-4 py-3 bg-stone-100 hover:bg-stone-200 text-stone-900 font-medium text-sm flex items-center justify-center gap-2 transition-colors"
+            onClick={handleDownload}
+          >
+            <DownloadIcon size={18} />
+            <span>{hasDownloaded ? 'Download Again' : 'Download Backup'}</span>
+          </button>
+        </div>
+
+        <div class="w-full p-4 bg-amber-50 border border-amber-200 rounded-lg flex gap-3 mb-8">
+          <div class="text-amber-600 mt-0.5"><AlertIcon size={20} /></div>
+          <div class="flex-1">
+            <strong class="text-sm font-semibold text-amber-900 block mb-1">Store this file safely</strong>
+            <p class="text-sm text-amber-800">Keep it in a secure location like a password manager or encrypted drive. Anyone with this file can access your Relay identity.</p>
+          </div>
+        </div>
+
+        <button
+          class="w-full px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors text-base mb-4"
+          onClick={handleContinue}
+          disabled={!hasDownloaded}
+        >
+          {hasDownloaded ? 'Continue' : 'Download backup to continue'}
+        </button>
+
+        {!hasDownloaded && (
+          <p class="text-sm text-center">
+            <button class="text-stone-600 hover:text-stone-900 underline" onClick={() => {
+              if (confirm('Are you sure? Without a backup, you cannot recover your identity if you forget your passphrase.')) {
+                pendingPassphrase.value = null;
+                onboardingStep.value = 'create-edge';
+              }
+            }}>
+              I understand the risks, skip backup
+            </button>
+          </p>
+        )}
+      </div>
     </div>
   );
 }
 
-export function ClaimHandleScreen() {
-  const [handle, setHandle] = useState('');
+// Icons for edge types
+function LinkIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
+
+function AtSignIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94" />
+    </svg>
+  );
+}
+
+function HandleIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
+export function CreateFirstEdgeScreen() {
+  const [selectedEdgeType, setSelectedEdgeType] = useState<string>('email');
+  const [handleName, setHandleName] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [label, setLabel] = useState('');
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [checking, setChecking] = useState(false);
 
-  // Handle validation
-  const cleanHandle = handle.toLowerCase().replace(/^&/, '').trim();
-  const isValidFormat = /^[a-z][a-z0-9_]{2,23}$/.test(cleanHandle);
+  // Load edge types on mount
+  useEffect(() => {
+    loadEdgeTypes();
+  }, []);
 
-  async function handleClaim() {
-    if (!isValidFormat) return;
+  const availableEdgeTypes = edgeTypes.value;
+  const selectedType = availableEdgeTypes.find(t => t.id === selectedEdgeType);
 
+  // Handle validation for native edges
+  const cleanHandle = handleName.toLowerCase().replace(/^&/, '').trim();
+  const isValidHandle = /^[a-z][a-z0-9_]{2,23}$/.test(cleanHandle);
+
+  async function handleCreateNativeEdge() {
+    if (!isValidHandle) {
+      setError('Invalid handle format');
+      return;
+    }
+
+    setLoading(true);
     setError(null);
-    setChecking(true);
 
-    const result = await claimHandle(cleanHandle);
+    const result = await createEdge(
+      'native',
+      undefined, // label not used for handles
+      cleanHandle, // customAddress = the handle name
+      displayName.trim() || undefined
+    );
     
-    setChecking(false);
+    setLoading(false);
 
-    if (!result.success) {
-      setError(result.error || 'Failed to claim handle');
+    if (result.success) {
+      showToast(`Handle &${cleanHandle} created!`);
+      onboardingStep.value = 'complete';
+    } else {
+      setError(result.error || 'Failed to create handle');
+    }
+  }
+
+  async function handleCreateEmailEdge() {
+    setLoading(true);
+    setError(null);
+
+    const result = await createEdge('email', label || undefined);
+    
+    setLoading(false);
+
+    if (result.success) {
+      showToast(`Email edge created: ${result.edge.address}`);
+      onboardingStep.value = 'complete';
+    } else {
+      setError(result.error || 'Failed to create email edge');
+    }
+  }
+
+  function handleCreate() {
+    if (selectedEdgeType === 'native') {
+      handleCreateNativeEdge();
+    } else {
+      handleCreateEmailEdge();
     }
   }
 
   function handleSkip() {
-    onboardingStep.value = 'complete';
+    completeOnboarding();
   }
 
+  // Default edge type descriptions if not loaded from server
+  const edgeTypeInfo = [
+    {
+      id: 'native',
+      icon: <HandleIcon size={22} />,
+      name: 'Native Handle',
+      description: 'Claim a unique &handle for private, end-to-end encrypted messaging with other Relay users.',
+      securityBadge: 'E2E Encrypted',
+      example: '&yourname',
+    },
+    {
+      id: 'email',
+      icon: <AtSignIcon size={22} />,
+      name: 'Email Edge',
+      description: 'Generate a disposable email address. Forward emails through Relay while keeping your real address private.',
+      securityBadge: 'Gateway Secured',
+      example: 'abc123@rlymsg.com',
+    },
+  ];
+
   return (
-    <div class="onboarding-screen handle-screen">
-      <h1 class="onboarding-title">Claim Your Handle</h1>
-      
-      <p class="onboarding-subtitle">
-        Your handle is your public identity on Relay. Others can message you at &amp;{cleanHandle || 'yourname'}.
-      </p>
+    <div class="flex flex-col min-h-screen bg-stone-50 px-6 py-8">
+      <div class="flex-1 flex flex-col justify-center max-w-md mx-auto w-full">
+        <div class="mb-6 text-purple-600 flex justify-center">
+          <LinkIcon size={48} />
+        </div>
 
-      <div class="form-group">
-        <label class="form-label">Handle</label>
-        <div class="handle-input-wrapper">
-          <span class="handle-prefix">&amp;</span>
-          <input
-            type="text"
-            class="form-input handle-input"
-            placeholder="yourname"
-            value={handle}
-            onInput={(e) => {
-              setHandle((e.target as HTMLInputElement).value);
-              setError(null);
-            }}
-            autoFocus
-          />
+        <h1 class="text-3xl font-bold text-stone-900 mb-3 text-center">Create Your First Edge</h1>
+        
+        <p class="text-base text-stone-600 mb-6 text-center">
+          Edges are your communication surfaces — each one is isolated and disposable, protecting your core identity.
+        </p>
+
+        {/* Educational blurb */}
+        <div class="mb-6 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+          <h3 class="text-sm font-semibold text-purple-900 mb-2">What are edges?</h3>
+          <p class="text-sm text-purple-800">
+            Think of edges as aliases that connect you to the outside world. You can create unlimited edges, share them freely, and burn them anytime — all without exposing your true identity.
+          </p>
         </div>
-        <div class="input-hint">
-          {handle.length > 0 && !isValidFormat && (
-            <span class="hint-error">
-              3-24 characters, starts with letter, letters/numbers/underscores only
-            </span>
-          )}
-          {isValidFormat && (
-            <span class="hint-success">✓ Valid format</span>
-          )}
+
+        {/* Edge type selection */}
+        <div class="space-y-3 mb-6">
+          {edgeTypeInfo.map(edgeType => (
+            <label 
+              key={edgeType.id}
+              class={`flex items-start gap-4 p-4 border-2 rounded-xl cursor-pointer transition-all duration-150 ${
+                selectedEdgeType === edgeType.id
+                  ? 'border-purple-600 bg-purple-50' 
+                  : 'border-stone-200 bg-white hover:border-purple-400 hover:bg-stone-50'
+              }`}
+            >
+              <input
+                type="radio"
+                name="edgeType"
+                value={edgeType.id}
+                checked={selectedEdgeType === edgeType.id}
+                onChange={() => {
+                  setSelectedEdgeType(edgeType.id);
+                  setError(null);
+                }}
+                class="mt-1 cursor-pointer w-[18px] h-[18px] flex-shrink-0"
+              />
+              <div class="flex-1">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class={selectedEdgeType === edgeType.id ? 'text-purple-600' : 'text-stone-600'}>
+                    {edgeType.icon}
+                  </span>
+                  <span class={`font-semibold ${selectedEdgeType === edgeType.id ? 'text-purple-600' : 'text-stone-900'}`}>
+                    {edgeType.name}
+                  </span>
+                  <span class={`text-xs px-2 py-0.5 rounded-full ${
+                    edgeType.securityBadge === 'E2E Encrypted' 
+                      ? 'bg-emerald-100 text-emerald-700' 
+                      : 'bg-blue-100 text-blue-700'
+                  }`}>
+                    {edgeType.securityBadge}
+                  </span>
+                </div>
+                <p class="text-sm text-stone-600 mb-2">{edgeType.description}</p>
+                <code class="text-xs font-mono bg-stone-100 px-2 py-1 rounded text-stone-700">{edgeType.example}</code>
+              </div>
+            </label>
+          ))}
         </div>
+
+        {/* Dynamic input based on edge type */}
+        {selectedEdgeType === 'native' && (
+          <div class="space-y-4 mb-6">
+            <div>
+              <label class="block text-sm font-medium text-stone-700 mb-2">Your Handle</label>
+              <div class="flex border border-stone-300 rounded-lg overflow-hidden">
+                <span class="px-3 py-2.5 bg-stone-100 text-stone-600 font-semibold border-r border-stone-300">&</span>
+                <input
+                  type="text"
+                  value={handleName}
+                  onInput={(e) => {
+                    setHandleName((e.target as HTMLInputElement).value);
+                    setError(null);
+                  }}
+                  placeholder="yourname"
+                  pattern="[a-z0-9_]{3,24}"
+                  maxLength={24}
+                  class="flex-1 px-3 py-2.5 text-sm bg-white text-stone-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  autoFocus
+                />
+              </div>
+              <div class="mt-1.5 min-h-[20px]">
+                {handleName.length > 0 && !isValidHandle && (
+                  <span class="text-xs text-red-600">
+                    3-24 characters, starts with letter, letters/numbers/underscores only
+                  </span>
+                )}
+                {isValidHandle && (
+                  <span class="text-xs text-emerald-600">✓ Valid handle</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-stone-700 mb-2">Display Name <span class="text-stone-400">(optional)</span></label>
+              <input
+                type="text"
+                value={displayName}
+                onInput={(e) => setDisplayName((e.target as HTMLInputElement).value)}
+                placeholder="Your Name"
+                maxLength={50}
+                class="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white text-stone-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+          </div>
+        )}
+
+        {selectedEdgeType === 'email' && (
+          <div class="mb-6">
+            <label class="block text-sm font-medium text-stone-700 mb-2">Label <span class="text-stone-400">(optional)</span></label>
+            <input
+              type="text"
+              value={label}
+              onInput={(e) => setLabel((e.target as HTMLInputElement).value)}
+              placeholder="e.g., Shopping, Newsletters"
+              class="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white text-stone-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            />
+            <p class="text-xs text-stone-500 mt-2">
+              A random email address will be generated for you.
+            </p>
+          </div>
+        )}
+
+        {error && <div class="mb-4 p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded-lg">{error}</div>}
+
+        <button
+          class="w-full px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors text-base mb-3"
+          onClick={handleCreate}
+          disabled={loading || (selectedEdgeType === 'native' && !isValidHandle)}
+        >
+          {loading ? 'Creating...' : `Create ${selectedEdgeType === 'native' ? 'Handle' : 'Email Edge'}`}
+        </button>
+
+        <button
+          class="w-full px-6 py-3 bg-stone-200 text-stone-700 font-semibold rounded-lg hover:bg-stone-300 transition-colors text-base"
+          onClick={handleSkip}
+        >
+          Skip for now
+        </button>
+
+        <p class="text-sm text-stone-600 text-center mt-6">
+          You can create more edges anytime from the Edges tab.
+        </p>
       </div>
-
-      {error && <div class="error-message">{error}</div>}
-
-      <button
-        class="btn btn-primary btn-lg"
-        onClick={handleClaim}
-        disabled={!isValidFormat || checking || isLoading.value}
-      >
-        {checking || isLoading.value ? 'Claiming...' : 'Claim Handle'}
-      </button>
-
-      <button
-        class="btn btn-secondary"
-        onClick={handleSkip}
-      >
-        Skip for now
-      </button>
-
-      <p class="onboarding-footer">
-        You can claim a handle later from your wallet.
-      </p>
     </div>
   );
 }
 
 export function CompleteScreen() {
   return (
-    <div class="onboarding-screen complete-screen">
-      <div class="success-animation">
+    <div class="flex flex-col items-center justify-center min-h-screen bg-stone-50 px-6 py-12">
+      <div class="mb-6">
         <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
-          <circle cx="40" cy="40" r="38" stroke="var(--success)" stroke-width="2" />
+          <circle cx="40" cy="40" r="38" stroke="#10B981" stroke-width="2" />
           <path
             d="M24 40 L35 51 L56 30"
-            stroke="var(--success)"
+            stroke="#10B981"
             stroke-width="4"
             stroke-linecap="round"
             stroke-linejoin="round"
@@ -559,27 +768,60 @@ export function CompleteScreen() {
         </svg>
       </div>
 
-      <h1 class="onboarding-title">You're All Set!</h1>
+      <h1 class="text-3xl font-bold text-stone-900 mb-3">You're All Set!</h1>
       
-      <p class="onboarding-subtitle">
-        Your Relay identity is ready.
+      <p class="text-base text-stone-600 mb-6 text-center max-w-sm">
+        Your Relay identity is ready. You're now in control.
       </p>
 
-      <div class="identity-summary">
+      {/* Security highlights */}
+      <div class="w-full max-w-md bg-gradient-to-br from-purple-50 to-emerald-50 border border-purple-200 rounded-xl p-5 mb-6">
+        <h3 class="text-sm font-semibold text-purple-900 mb-3 flex items-center gap-2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          Your privacy, by design
+        </h3>
+        <div class="space-y-3 text-sm">
+          <div class="flex items-start gap-3">
+            <span class="text-emerald-600 mt-0.5">✓</span>
+            <div>
+              <strong class="text-stone-900">Zero-knowledge architecture</strong>
+              <p class="text-stone-600 text-xs mt-0.5">We can't read your messages — ever. All encryption happens on your device.</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-3">
+            <span class="text-emerald-600 mt-0.5">✓</span>
+            <div>
+              <strong class="text-stone-900">Disposable edges</strong>
+              <p class="text-stone-600 text-xs mt-0.5">Every handle and email alias is isolated. Burn one, keep the rest.</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-3">
+            <span class="text-emerald-600 mt-0.5">✓</span>
+            <div>
+              <strong class="text-stone-900">You own your identity</strong>
+              <p class="text-stone-600 text-xs mt-0.5">Your cryptographic keys live on your device. No accounts, no passwords stored with us.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="w-full max-w-md bg-white border border-stone-200 rounded-lg p-4 space-y-3 mb-8">
         {currentIdentity.value?.handle && (
-          <div class="summary-item">
-            <span class="summary-label">Handle</span>
-            <span class="summary-value">&amp;{currentIdentity.value.handle}</span>
+          <div class="flex justify-between items-center">
+            <span class="text-sm font-medium text-stone-600">Handle</span>
+            <span class="text-sm font-semibold text-stone-900">&amp;{currentIdentity.value.handle}</span>
           </div>
         )}
-        <div class="summary-item">
-          <span class="summary-label">Fingerprint</span>
-          <span class="summary-value fingerprint">{currentIdentity.value?.id.slice(0, 16)}...</span>
+        <div class="flex justify-between items-center">
+          <span class="text-sm font-medium text-stone-600">Fingerprint</span>
+          <span class="text-xs font-mono text-stone-900 bg-stone-100 px-2 py-1 rounded">{currentIdentity.value?.id.slice(0, 16)}...</span>
         </div>
       </div>
 
       <button
-        class="btn btn-primary btn-lg"
+        class="w-full max-w-md px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors text-base"
         onClick={() => completeOnboarding()}
       >
         Start Using Relay

@@ -70,25 +70,28 @@ export interface EmailAlias {
 // ============================================
 
 class ApiClient {
-  private baseUrl: string = 'http://localhost:3000';
+  private baseUrl: string = 'https://api.rlymsg.com';
   private session: AuthSession | null = null;
 
   // Signing function - will be set by background worker
   private signFn: ((message: string) => Promise<string>) | null = null;
   private fingerprint: string | null = null;
+  private publicKey: string | null = null;
 
   setBaseUrl(url: string) {
     this.baseUrl = url;
   }
 
-  setAuth(fingerprint: string, signFn: (message: string) => Promise<string>) {
+  setAuth(fingerprint: string, publicKey: string, signFn: (message: string) => Promise<string>) {
     this.fingerprint = fingerprint;
+    this.publicKey = publicKey;
     this.signFn = signFn;
   }
 
   clearAuth() {
     this.session = null;
     this.fingerprint = null;
+    this.publicKey = null;
     this.signFn = null;
   }
 
@@ -132,7 +135,7 @@ class ApiClient {
     }
 
     // Need to authenticate
-    if (!this.fingerprint || !this.signFn) {
+    if (!this.fingerprint || !this.publicKey || !this.signFn) {
       return null;
     }
 
@@ -141,7 +144,7 @@ class ApiClient {
       const { nonce } = await this.request<{ nonce: string }>(
         'POST',
         '/v1/auth/nonce',
-        { pubkeyFingerprint: this.fingerprint }
+        { identityId: this.fingerprint }
       );
 
       // Sign the nonce
@@ -152,7 +155,7 @@ class ApiClient {
         'POST',
         '/v1/auth/verify',
         {
-          pubkeyFingerprint: this.fingerprint,
+          publicKey: this.publicKey,
           nonce,
           signature,
         }

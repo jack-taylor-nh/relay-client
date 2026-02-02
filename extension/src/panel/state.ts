@@ -2,6 +2,26 @@ import { signal, computed } from '@preact/signals';
 import type { Conversation, Identity, EmailAlias } from '../types';
 
 // ============================================
+// Rate Limiter - Prevents API spam when switching tabs
+// ============================================
+
+const apiCallTimestamps = new Map<string, number>();
+const MIN_CALL_INTERVAL_MS = 2000; // Minimum 2 seconds between same API calls
+
+function shouldThrottle(apiKey: string): boolean {
+  const lastCall = apiCallTimestamps.get(apiKey);
+  const now = Date.now();
+  
+  if (lastCall && (now - lastCall) < MIN_CALL_INTERVAL_MS) {
+    console.log(`[Rate Limiter] Throttling ${apiKey}, called ${now - lastCall}ms ago`);
+    return true;
+  }
+  
+  apiCallTimestamps.set(apiKey, now);
+  return false;
+}
+
+// ============================================
 // App State
 // ============================================
 
@@ -20,7 +40,7 @@ export type OnboardingStep =
   | 'welcome'
   | 'create-passphrase'
   | 'backup-identity'
-  | 'claim-handle'
+  | 'create-edge'
   | 'complete';
 
 export const onboardingStep = signal<OnboardingStep>('welcome');
@@ -36,6 +56,21 @@ export const pendingPassphrase = signal<string | null>(null);
 // Conversations, Edges & Messages
 // ============================================
 
+// Edge Type Definitions (fetched from server)
+export interface EdgeTypeDefinition {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  addressFormat: string;
+  securityLevel: 'e2ee' | 'gateway_secured';
+  requiresCustomAddress: boolean;
+  addressPlaceholder?: string;
+  enabled: boolean;
+}
+
+export const edgeTypes = signal<EdgeTypeDefinition[]>([]);
+
 export const conversations = signal<Conversation[]>([]);
 export const selectedConversationId = signal<string | null>(null);
 export const aliases = signal<EmailAlias[]>([]); // Legacy - will be replaced by edges
@@ -45,15 +80,19 @@ export const handles = signal<Array<{
   displayName: string | null;
   createdAt: string;
   updatedAt: string;
+  nativeEdgeId: string | null;
 }>>([]);
 export const edges = signal<Array<{
   id: string;
   type: string;
   address: string;
-  label?: string;
-  status: 'active' | 'disabled' | 'rotated';
+  label: string | null;
+  status: string;
+  securityLevel: string;
   messageCount: number;
+  metadata?: any; // Includes handle/displayName for native edges
   createdAt: string;
+  lastActivityAt: string | null;
 }>>([]);
 
 // ============================================
@@ -61,6 +100,7 @@ export const edges = signal<Array<{
 // ============================================
 
 export const isLoading = signal(false);
+export const isRefreshing = signal(false);
 export const toastMessage = signal<string | null>(null);
 
 // Show toast
@@ -88,6 +128,10 @@ export async function checkIdentityState() {
       fingerprint: string | null;
     }>({ type: 'GET_STATE' });
 
+    // Check if user has completed onboarding (persisted flag)
+    const storage = await chrome.storage.local.get(['onboardingCompleted']);
+    const hasCompletedOnboarding = storage.onboardingCompleted === true;
+
     if (!state.exists) {
       appState.value = 'onboarding';
       onboardingStep.value = 'welcome';
@@ -114,15 +158,34 @@ export async function checkIdentityState() {
           createdAt: '',
         };
       }
-      // If unlocked but no handle, go to claim step
-      if (!state.handle) {
+      // Only force to create-edge if user hasn't completed onboarding yet
+      if (!state.handle && !hasCompletedOnboarding) {
         appState.value = 'onboarding';
-        onboardingStep.value = 'claim-handle';
+        onboardingStep.value = 'create-edge';
       }
     }
   } catch (error) {
     console.error('Failed to check identity state:', error);
     appState.value = 'onboarding';
+  }
+}
+
+/**
+ * Load available edge types from server (dynamic configuration)
+ */
+export async function loadEdgeTypes() {
+  try {
+    const result = await sendMessage<{
+      success: boolean;
+      types?: EdgeTypeDefinition[];
+      error?: string;
+    }>({ type: 'GET_EDGE_TYPES' });
+
+    if (result.success && result.types) {
+      edgeTypes.value = result.types;
+    }
+  } catch (error) {
+    console.error('Failed to load edge types:', error);
   }
 }
 
@@ -186,6 +249,19 @@ export async function lockWallet(): Promise<void> {
   selectedConversationId.value = null;
 }
 
+export async function logoutIdentity(): Promise<void> {
+  await sendMessage({ type: 'LOGOUT' });
+  // Clear all local state
+  appState.value = 'onboarding';
+  onboardingStep.value = 'welcome';
+  currentIdentity.value = null;
+  conversations.value = [];
+  selectedConversationId.value = null;
+  aliases.value = [];
+  handles.value = [];
+  edges.value = [];
+}
+
 export async function claimHandle(handle: string): Promise<{ success: boolean; error?: string }> {
   isLoading.value = true;
   try {
@@ -215,6 +291,8 @@ export async function claimHandle(handle: string): Promise<{ success: boolean; e
 }
 
 export function completeOnboarding() {
+  // Persist that onboarding is complete
+  chrome.storage.local.set({ onboardingCompleted: true });
   appState.value = 'unlocked';
   onboardingStep.value = 'welcome';
   loadData(); // Load real data from API
@@ -246,6 +324,7 @@ export async function loadData() {
           identityId?: string;
           externalId?: string;
           displayName?: string;
+          handle?: string;
         };
         lastActivityAt: string;
         createdAt: string;
@@ -261,7 +340,12 @@ export async function loadData() {
 
         // Build counterparty name
         let counterpartyName = 'Unknown';
-        if (conv.counterparty?.displayName) {
+        if (conv.counterparty?.handle) {
+          // For native conversations, show handle with & prefix
+          counterpartyName = conv.counterparty.handle.startsWith('&') 
+            ? conv.counterparty.handle 
+            : `&${conv.counterparty.handle}`;
+        } else if (conv.counterparty?.displayName) {
           counterpartyName = conv.counterparty.displayName;
         } else if (conv.edge?.address) {
           // For email/contact endpoints without display name, use edge address
@@ -310,16 +394,6 @@ export async function loadData() {
   } finally {
     isLoading.value = false;
   }
-}
-
-export async function resolveHandle(handle: string): Promise<{
-  success: boolean;
-  handle?: string;
-  publicKey?: string;
-  fingerprint?: string;
-  error?: string;
-}> {
-  return sendMessage({ type: 'RESOLVE_HANDLE', payload: { handle } });
 }
 
 export async function sendNewMessage(
@@ -416,14 +490,19 @@ export function loadMockData() {
 // Edge Management
 // ============================================
 
-export async function createEdge(type: string, label?: string): Promise<{ success: boolean; edge?: any; error?: string }> {
+export async function createEdge(
+  type: 'native' | 'email' | 'contact_link', 
+  label?: string,
+  customAddress?: string,
+  displayName?: string
+): Promise<{ success: boolean; edge?: any; error?: string }> {
   isLoading.value = true;
   try {
     const result = await sendMessage<{
       success: boolean;
       edge?: any;
       error?: string;
-    }>({ type: 'CREATE_EDGE', payload: { type, label } });
+    }>({ type: 'CREATE_EDGE', payload: { type, label, customAddress, displayName } });
 
     if (result.success && result.edge) {
       // Add to local state
@@ -440,6 +519,8 @@ export async function createEdge(type: string, label?: string): Promise<{ succes
 }
 
 export async function loadEdges(): Promise<void> {
+  if (shouldThrottle('GET_EDGES')) return;
+  
   try {
     const result = await sendMessage<{
       success: boolean;
@@ -455,25 +536,103 @@ export async function loadEdges(): Promise<void> {
   }
 }
 
-export async function disableEdge(edgeId: string): Promise<{ success: boolean; error?: string }> {
+export async function loadConversations(): Promise<void> {
+  if (shouldThrottle('GET_CONVERSATIONS')) return;
+  
+  isRefreshing.value = true;
+  try {
+    const convResult = await sendMessage<{
+      success: boolean;
+      conversations?: Array<{
+        id: string;
+        origin: string;
+        securityLevel: string;
+        channelLabel?: string;
+        edge?: {
+          type: string;
+          address: string;
+          label?: string;
+          status: string;
+        };
+        counterparty?: {
+          identityId?: string;
+          externalId?: string;
+          displayName?: string;
+          handle?: string;
+        };
+        lastActivityAt: string;
+        createdAt: string;
+      }>;
+    }>({ type: 'GET_CONVERSATIONS' });
+
+    if (convResult.success && convResult.conversations) {
+      conversations.value = convResult.conversations.map(conv => {
+        let type: 'native' | 'email' | 'contact_endpoint' = 'native';
+        if (conv.origin === 'email_inbound') type = 'email';
+        else if (conv.origin === 'contact_link_inbound') type = 'contact_endpoint';
+
+        let counterpartyName = 'Unknown';
+        if (conv.counterparty?.handle) {
+          counterpartyName = conv.counterparty.handle.startsWith('&') 
+            ? conv.counterparty.handle 
+            : `&${conv.counterparty.handle}`;
+        } else if (conv.counterparty?.displayName) {
+          counterpartyName = conv.counterparty.displayName;
+        } else if (conv.edge?.address) {
+          counterpartyName = `Contact via ${conv.edge.address.split('@')[0]}`;
+        }
+
+        return {
+          id: conv.id,
+          type,
+          securityLevel: conv.securityLevel as 'e2ee' | 'gateway_secured',
+          participants: [conv.counterparty?.identityId || conv.counterparty?.externalId || 'unknown'],
+          counterpartyName,
+          lastMessagePreview: conv.channelLabel || 'No messages yet',
+          lastActivityAt: conv.lastActivityAt,
+          createdAt: conv.createdAt,
+          unreadCount: 0,
+        };
+      });
+    }
+  } catch (error) {
+    console.error('Load conversations error:', error);
+  } finally {
+    isRefreshing.value = false;
+  }
+}
+
+export async function resolveHandle(handle: string): Promise<{
+  success: boolean;
+  handle?: string;
+  publicKey?: string;
+  fingerprint?: string;
+  x25519PublicKey?: string;
+  edgeId?: string;
+  error?: string;
+}> {
+  return sendMessage({ type: 'RESOLVE_HANDLE', payload: { handle } });
+}
+
+export async function burnEdge(edgeId: string): Promise<{ success: boolean; error?: string }> {
   isLoading.value = true;
   try {
     const result = await sendMessage<{
       success: boolean;
       error?: string;
-    }>({ type: 'DISABLE_EDGE', payload: { edgeId } });
+    }>({ type: 'BURN_EDGE', payload: { edgeId } });
 
     if (result.success) {
-      // Update local state
+      // Update local state - mark as burned
       edges.value = edges.value.map(e => 
-        e.id === edgeId ? { ...e, status: 'disabled' as const } : e
+        e.id === edgeId ? { ...e, status: 'burned' as const } : e
       );
       return { success: true };
     }
-    return { success: false, error: result.error || 'Failed to disable edge' };
+    return { success: false, error: result.error || 'Failed to burn edge' };
   } catch (error) {
-    console.error('Disable edge error:', error);
-    return { success: false, error: 'Failed to disable edge' };
+    console.error('Burn edge error:', error);
+    return { success: false, error: 'Failed to burn edge' };
   } finally {
     isLoading.value = false;
   }

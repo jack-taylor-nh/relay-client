@@ -35,19 +35,19 @@ function SecurityBadge({ level }: { level: SecurityLevel }) {
   switch (level) {
     case 'e2ee':
       return (
-        <span class="security-badge e2ee" title="End-to-end encrypted">
+        <span class="text-xs text-emerald-600 opacity-70" title="End-to-end encrypted">
           E2EE
         </span>
       );
     case 'gateway_secured':
       return (
-        <span class="security-badge gateway" title="Relayed (gateway secured)">
+        <span class="text-xs text-cyan-600 opacity-70" title="Relayed (gateway secured)">
           Relayed
         </span>
       );
     case 'mixed':
       return (
-        <span class="security-badge mixed" title="Mixed security levels">
+        <span class="text-xs text-amber-600 opacity-90" title="Mixed security levels">
           Mixed
         </span>
       );
@@ -72,139 +72,37 @@ function formatTime(isoString: string): string {
 export function ConversationItem({ conversation, isSelected, onClick }: Props) {
   const hasUnread = (conversation.unreadCount ?? 0) > 0;
   const securityLevel = conversation.securityLevel || 'e2ee';
+  const hasPreview = conversation.lastMessagePreview && conversation.lastMessagePreview.trim().length > 0;
 
   return (
-    <button class={`conversation-item ${isSelected ? 'selected' : ''}`} onClick={onClick}>
-      <div class="conversation-icon">
-        <OriginIcon type={conversation.type} />
+    <button 
+      class={`flex items-center gap-3 w-full px-4 py-3 text-left transition-colors duration-150 ${
+        isSelected ? 'bg-stone-200' : 'hover:bg-stone-100'
+      }`}
+      onClick={onClick}
+    >
+      <div class="flex-shrink-0 w-7 h-7 flex items-center justify-center bg-stone-100 rounded-full text-stone-600">
+        <div class="w-4 h-4">
+          <OriginIcon type={conversation.type} />
+        </div>
       </div>
-      <div class="conversation-content">
-        <div class="conversation-header">
-          <span class={`conversation-name ${hasUnread ? 'unread' : ''}`}>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center justify-between gap-2 mb-0.5">
+          <span class={`text-sm ${hasUnread ? 'font-semibold' : 'font-medium'} text-stone-900 whitespace-nowrap overflow-hidden text-ellipsis`}>
             {conversation.counterpartyName || 'Unknown'}
           </span>
-          <div class="conversation-meta">
+          <div class="flex items-center gap-1 flex-shrink-0">
             <SecurityBadge level={securityLevel} />
-            <span class="conversation-time">{formatTime(conversation.lastActivityAt)}</span>
+            <span class="flex-shrink-0 text-xs text-stone-400">{formatTime(conversation.lastActivityAt)}</span>
           </div>
         </div>
-        <div class="conversation-preview">
-          {conversation.lastMessagePreview || 'No messages yet'}
-        </div>
+        {hasPreview && (
+          <div class="text-xs text-stone-600 whitespace-nowrap overflow-hidden text-ellipsis">
+            {conversation.lastMessagePreview}
+          </div>
+        )}
       </div>
-      {hasUnread && <div class="unread-dot" />}
-      <style>{`
-        .conversation-item {
-          display: flex;
-          align-items: center;
-          gap: var(--space-3);
-          width: 100%;
-          padding: var(--space-3) var(--space-4);
-          background: none;
-          border: none;
-          cursor: pointer;
-          text-align: left;
-          transition: background-color var(--transition-fast);
-        }
-        
-        .conversation-item:hover {
-          background-color: var(--color-bg-hover);
-        }
-        
-        .conversation-item.selected {
-          background-color: var(--color-bg-active);
-        }
-        
-        .conversation-icon {
-          flex-shrink: 0;
-          width: 36px;
-          height: 36px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background-color: var(--color-bg-hover);
-          border-radius: var(--radius-full);
-          color: var(--color-text-secondary);
-        }
-        
-        .conversation-icon svg {
-          width: 18px;
-          height: 18px;
-        }
-        
-        .conversation-content {
-          flex: 1;
-          min-width: 0;
-        }
-        
-        .conversation-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: var(--space-2);
-          margin-bottom: var(--space-1);
-        }
-        
-        .conversation-meta {
-          display: flex;
-          align-items: center;
-          gap: var(--space-1);
-          flex-shrink: 0;
-        }
-        
-        .security-badge {
-          font-size: 12px;
-          line-height: 1;
-          cursor: help;
-        }
-        
-        .security-badge.e2ee {
-          opacity: 0.7;
-        }
-        
-        .security-badge.gateway {
-          opacity: 0.7;
-        }
-        
-        .security-badge.mixed {
-          opacity: 0.9;
-        }
-        
-        .conversation-name {
-          font-size: var(--text-sm);
-          font-weight: 500;
-          color: var(--color-text-primary);
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-        
-        .conversation-name.unread {
-          font-weight: 600;
-        }
-        
-        .conversation-time {
-          flex-shrink: 0;
-          font-size: var(--text-xs);
-          color: var(--color-text-tertiary);
-        }
-        
-        .conversation-preview {
-          font-size: var(--text-xs);
-          color: var(--color-text-secondary);
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-        
-        .unread-dot {
-          flex-shrink: 0;
-          width: 8px;
-          height: 8px;
-          background-color: var(--color-accent);
-          border-radius: var(--radius-full);
-        }
-      `}</style>
+      {hasUnread && <div class="flex-shrink-0 w-2 h-2 bg-cyan-400 rounded-full" />}
     </button>
   );
 }

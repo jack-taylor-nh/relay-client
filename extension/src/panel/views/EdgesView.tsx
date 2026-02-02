@@ -1,33 +1,23 @@
-import { edges, handles, createEdge, disableEdge, showToast, loadEdges } from '../state';
+import { edges, createEdge, burnEdge, showToast, loadEdges, sendMessage, edgeTypes } from '../state';
 import { useState, useEffect } from 'preact/hooks';
-import { api } from '../../lib/api';
-
-type EdgeTab = 'handles' | 'aliases' | 'links';
+import { EdgeCard } from '../components/EdgeCard';
 
 export function EdgesView() {
-  const [activeTab, setActiveTab] = useState<EdgeTab>('handles');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedEdgeTypeId, setSelectedEdgeTypeId] = useState<string>('native');
   const [label, setLabel] = useState('');
   const [handleName, setHandleName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [disposalModal, setDisposalModal] = useState<{ edgeId: string; edgeType: string; address: string } | null>(null);
 
   const edgeList = edges.value;
-  const handleList = handles.value;
+  const availableEdgeTypes = edgeTypes.value;
+  const selectedEdgeType = availableEdgeTypes.find(t => t.id === selectedEdgeTypeId);
 
   useEffect(() => {
     loadEdges();
-    loadHandles();
   }, []);
-
-  async function loadHandles() {
-    try {
-      const result = await api.getHandles();
-      handles.value = result.handles;
-    } catch (error) {
-      console.error('Failed to load handles:', error);
-    }
-  }
 
   async function handleCreateHandle() {
     if (!handleName.trim()) {
@@ -35,22 +25,34 @@ export function EdgesView() {
       return;
     }
 
-    const handleRegex = /^[a-z0-9_-]{3,32}$/;
-    if (!handleRegex.test(handleName)) {
+    const cleanHandle = handleName.toLowerCase().replace(/^&/, '').trim();
+    const handleRegex = /^[a-z][a-z0-9_]{2,23}$/;
+    if (!handleRegex.test(cleanHandle)) {
       showToast('Invalid handle format');
       return;
     }
 
     setLoading(true);
     try {
-      const handle = await api.createHandle(handleName.toLowerCase(), displayName.trim() || undefined);
-      handles.value = [...handles.value, handle];
-      showToast(`Handle @${handle.handle} created!`);
-      setHandleName('');
-      setDisplayName('');
-      setShowCreateModal(false);
+      const result = await createEdge(
+        'native',
+        undefined, // label not used for handles
+        cleanHandle, // customAddress = the handle name
+        displayName.trim() || undefined
+      );
+
+      if (result.success && result.edge) {
+        showToast(`Handle &${cleanHandle} created!`);
+        setHandleName('');
+        setDisplayName('');
+        setShowCreateModal(false);
+        // Reload edges to get the new handle
+        loadEdges();
+      } else {
+        showToast(result.error || 'Failed to create handle');
+      }
     } catch (error: any) {
-      showToast(error.message.includes('already taken') ? 'Handle already taken' : 'Failed to create handle');
+      showToast('Failed to create handle');
     } finally {
       setLoading(false);
     }
@@ -67,521 +69,225 @@ export function EdgesView() {
     }
   }
 
-  async function handleDisable(edgeId: string) {
-    if (confirm('Disable this edge?')) {
-      const result = await disableEdge(edgeId);
-      if (result.success) showToast('Edge disabled');
-      else showToast(`Error: ${result.error}`);
+  function openDisposalModal(edgeId: string, edgeType: string, address: string) {
+    setDisposalModal({ edgeId, edgeType, address });
+  }
+
+  async function confirmDisposal() {
+    if (!disposalModal) return;
+    
+    const result = await burnEdge(disposalModal.edgeId);
+    if (result.success) {
+      showToast('Edge disposed permanently');
+      loadEdges();
+      setDisposalModal(null);
+    } else {
+      showToast(`Error: ${result.error}`);
     }
   }
 
-  function getEdgeIcon(type: string) {
-    switch (type) {
-      case 'email': return '📧';
-      case 'contact_link': return '🔗';
-      case 'native': return '💬';
-      default: return '📎';
-    }
-  }
+  // All edges (native handles + email aliases) come from the edges list
+  const allEdges = edgeList.map(e => ({
+    id: e.id,
+    type: (e.type === 'native' ? 'native' : 'email') as 'native' | 'email',
+    address: e.type === 'native' ? (e.address.startsWith('&') ? e.address : `&${e.address}`) : e.address,
+    subtitle: e.type === 'native' ? (e.metadata?.displayName || null) : (e.label || null),
+    status: e.status,
+    messageCount: e.messageCount,
+    createdAt: e.createdAt
+  }));
 
   return (
-    <div class="edges-view">
-      <div class="edges-header">
-        <h2>Edges</h2>
-        <button class="btn-create" onClick={() => setShowCreateModal(true)}>
-          + New
+    <div class="h-full flex flex-col">
+      <div class="flex items-center justify-between px-4 py-4 border-b border-stone-200">
+        <h2 class="text-lg font-semibold text-stone-900">Edges</h2>
+        <button 
+          class="px-4 py-2 text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-md shadow-sm hover:shadow-md transition-all duration-150 transform hover:-translate-y-0.5"
+          onClick={() => setShowCreateModal(true)}
+        >
+          + New Edge
         </button>
       </div>
 
-      <p class="edges-description">
-        Edges are your communication surfaces. Create handles for native messaging, email aliases, or contact links.
+      <p class="px-4 py-3 text-sm text-stone-600 bg-white border-b border-stone-200 m-0">
+        Edges are your communication surfaces. Create handles for native messaging or email aliases.
       </p>
 
-      <div class="edge-tabs">
-        <button class={`tab ${activeTab === 'handles' ? 'active' : ''}`} onClick={() => setActiveTab('handles')}>
-          Handles ({handleList.length})
-        </button>
-        <button class={`tab ${activeTab === 'aliases' ? 'active' : ''}`} onClick={() => setActiveTab('aliases')}>
-          Email ({edgeList.filter(e => e.type === 'email').length})
-        </button>
-        <button class={`tab ${activeTab === 'links' ? 'active' : ''}`} onClick={() => setActiveTab('links')}>
-          Links ({edgeList.filter(e => e.type === 'contact_link').length})
-        </button>
+      <div class="flex-1 overflow-y-auto p-4">
+        {allEdges.length === 0 ? (
+          <div class="text-center py-10 px-5 text-stone-600">
+            <p>No edges yet. Create a handle or email alias to get started!</p>
+          </div>
+        ) : (
+          allEdges.map(edge => (
+            <EdgeCard
+              key={edge.id}
+              id={edge.id}
+              type={edge.type}
+              address={edge.address}
+              subtitle={edge.subtitle}
+              status={edge.status}
+              messageCount={edge.messageCount}
+              createdAt={edge.createdAt}
+              onCopy={() => {
+                navigator.clipboard.writeText(edge.address);
+                showToast('Copied!');
+              }}
+              onDispose={() => openDisposalModal(edge.id, edge.type, edge.address)}
+              expandable={true}
+            />
+          ))
+        )}
       </div>
 
-      {activeTab === 'handles' && (
-        <div class="edges-content">
-          {handleList.length === 0 ? (
-            <div class="empty-state">
-              <p>No handles yet. Create one for native Relay-to-Relay messaging!</p>
-            </div>
-          ) : (
-            handleList.map(handle => (
-              <div key={handle.id} class="edge-card">
-                <div class="edge-main">
-                  <div class="edge-info">
-                    <div class="edge-title">
-                      @{handle.handle}
-                      <span class="edge-tag">Native</span>
-                    </div>
-                    {handle.displayName && <div class="edge-subtitle">{handle.displayName}</div>}
-                    <div class="edge-meta">
-                      Created {new Date(handle.createdAt).toLocaleDateString()}
-                    </div>
-                  </div>
-                  <div class="edge-actions">
-                    <button class="btn-action" onClick={() => {
-                      navigator.clipboard.writeText(`@${handle.handle}`);
-                      showToast('Copied!');
-                    }}>
-                      Copy
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      {activeTab === 'aliases' && (
-        <div class="edges-content">
-          {edgeList.filter(e => e.type === 'email').length === 0 ? (
-            <div class="empty-state">
-              <p>No email aliases yet. Create one to get a private @rlymsg.com address!</p>
-            </div>
-          ) : (
-            edgeList.filter(e => e.type === 'email').map(edge => (
-              <div key={edge.id} class={`edge-card ${edge.status !== 'active' ? 'disabled' : ''}`}>
-                <div class="edge-main">
-                  <div class="edge-info">
-                    <div class="edge-title">
-                      {edge.address}
-                      <span class="edge-tag email">Email</span>
-                      {edge.status !== 'active' && <span class="edge-tag status-disabled">{edge.status}</span>}
-                    </div>
-                    {edge.label && <div class="edge-subtitle">{edge.label}</div>}
-                    <div class="edge-meta">
-                      {edge.messageCount} messages
-                    </div>
-                  </div>
-                  {edge.status === 'active' && (
-                    <div class="edge-actions">
-                      <button class="btn-action" onClick={() => {
-                        navigator.clipboard.writeText(edge.address);
-                        showToast('Copied!');
-                      }}>
-                        Copy
-                      </button>
-                      <button class="btn-action btn-secondary" onClick={() => handleDisable(edge.id)}>
-                        Dispose
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      {activeTab === 'links' && (
-        <div class="edges-content">
-          {edgeList.filter(e => e.type === 'contact_link').length === 0 ? (
-            <div class="empty-state">
-              <p>No contact links yet.</p>
-            </div>
-          ) : (
-            edgeList.filter(e => e.type === 'contact_link').map(edge => (
-              <div key={edge.id} class={`edge-card ${edge.status !== 'active' ? 'disabled' : ''}`}>
-                <div class="edge-icon">{getEdgeIcon(edge.type)}</div>
-                <div class="edge-info">
-                  <div class="edge-address">{edge.address}</div>
-                  {edge.label && <div class="edge-label">{edge.label}</div>}
-                  <div class="edge-meta">
-                    {edge.messageCount} messages • {edge.status}
-                  </div>
-                </div>
-                {edge.status === 'active' && (
-                  <button class="btn-action btn-danger" onClick={() => handleDisable(edge.id)}>
-                    Disable
-                  </button>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
       {showCreateModal && (
-        <div class="modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div class="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Create New {activeTab === 'handles' ? 'Handle' : activeTab === 'aliases' ? 'Email Alias' : 'Contact Link'}</h3>
+        <div 
+          class="fixed inset-0 bg-black/75 flex items-center justify-center z-[1000] backdrop-blur-sm"
+          onClick={() => setShowCreateModal(false)}
+        >
+          <div 
+            class="bg-white border border-stone-200 rounded-xl p-6 max-w-[440px] w-[90%] shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 class="m-0 mb-5 text-lg font-semibold text-stone-900">Create New Edge</h3>
             
-            {activeTab === 'handles' ? (
-              <div class="form">
-                <label class="form-label">Handle</label>
-                <div class="handle-input">
-                  <span class="prefix">@</span>
+            <div class="flex flex-col gap-3">
+              <label class="text-sm font-medium text-stone-600 mb-1 mt-1">Edge Type</label>
+              <div class="flex flex-col gap-2 mb-2">
+                {availableEdgeTypes.map(edgeType => (
+                  <label 
+                    key={edgeType.id}
+                    class={`flex items-center p-3 border-2 rounded-lg cursor-pointer transition-all duration-150 ${
+                      selectedEdgeTypeId === edgeType.id
+                        ? 'border-purple-600 bg-purple-50' 
+                        : 'border-stone-200 bg-stone-50 hover:border-purple-600 hover:bg-stone-100'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="edgeType"
+                      value={edgeType.id}
+                      checked={selectedEdgeTypeId === edgeType.id}
+                      onChange={() => setSelectedEdgeTypeId(edgeType.id)}
+                      class="mr-3 cursor-pointer w-[18px] h-[18px] flex-shrink-0"
+                    />
+                    <div class="flex-1">
+                      <div class={`text-sm font-semibold mb-0.5 ${selectedEdgeTypeId === edgeType.id ? 'text-purple-600' : 'text-stone-900'}`}>
+                        {edgeType.icon} {edgeType.name}
+                      </div>
+                      <div class="text-xs text-stone-600">{edgeType.description}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              {selectedEdgeType?.requiresCustomAddress && selectedEdgeType.id === 'native' ? (
+                <>
+                  <label class="text-sm font-medium text-stone-600 mb-1 mt-1">Handle</label>
+                  <div class="flex border border-stone-200 rounded-lg overflow-hidden bg-stone-50">
+                    <span class="px-3 py-2.5 bg-stone-100 text-stone-600 font-semibold">&</span>
+                    <input
+                      type="text"
+                      value={handleName}
+                      onInput={(e) => setHandleName((e.target as HTMLInputElement).value)}
+                      placeholder="username"
+                      pattern="[a-z0-9_-]{3,32}"
+                      maxLength={32}
+                      class="flex-1 border-none px-3 py-2.5 text-sm bg-stone-50 text-stone-900"
+                    />
+                  </div>
+                  <small class="text-xs text-stone-400">3-32 characters, lowercase, alphanumeric, _ or -</small>
+
+                  <label class="text-sm font-medium text-stone-600 mb-1 mt-4">Display Name (optional)</label>
                   <input
                     type="text"
-                    value={handleName}
-                    onInput={(e) => setHandleName((e.target as HTMLInputElement).value)}
-                    placeholder="username"
-                    pattern="[a-z0-9_-]{3,32}"
-                    maxLength={32}
+                    value={displayName}
+                    onInput={(e) => setDisplayName((e.target as HTMLInputElement).value)}
+                    placeholder="Your Name"
+                    maxLength={50}
+                    class="w-full px-3 py-2.5 border border-stone-200 rounded-lg text-sm bg-stone-50 text-stone-900"
                   />
-                </div>
-                <small>3-32 characters, lowercase, alphanumeric, _ or -</small>
+                </>
+              ) : (
+                <>
+                  <label class="text-sm font-medium text-stone-600 mb-1 mt-1">Label (optional)</label>
+                  <input
+                    type="text"
+                    value={label}
+                    onInput={(e) => setLabel((e.target as HTMLInputElement).value)}
+                    placeholder="e.g., Amazon, Newsletter"
+                    class="w-full px-3 py-2.5 border border-stone-200 rounded-lg text-sm bg-stone-50 text-stone-900"
+                  />
+                </>
+              )}
 
-                <label class="form-label" style="margin-top: 16px;">Display Name (optional)</label>
-                <input
-                  type="text"
-                  class="form-input"
-                  value={displayName}
-                  onInput={(e) => setDisplayName((e.target as HTMLInputElement).value)}
-                  placeholder="Your Name"
-                  maxLength={50}
-                />
-
-                <div class="modal-actions">
-                  <button class="btn-secondary" onClick={() => setShowCreateModal(false)}>
-                    Cancel
-                  </button>
-                  <button class="btn-primary" onClick={handleCreateHandle} disabled={loading}>
-                    {loading ? 'Creating...' : 'Create Handle'}
-                  </button>
-                </div>
+              <div class="flex gap-2 mt-5">
+                <button 
+                  class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-stone-100 text-stone-900 hover:bg-stone-200 transition-colors duration-150"
+                  onClick={() => setShowCreateModal(false)}
+                >
+                  Cancel
+                </button>
+                <button 
+                  class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={selectedEdgeTypeId === 'native' ? handleCreateHandle : handleCreateEdge}
+                  disabled={loading}
+                >
+                  {loading ? 'Creating...' : `Create ${selectedEdgeType?.name || 'Edge'}`}
+                </button>
               </div>
-            ) : (
-              <div class="form">
-                <label class="form-label">Label (optional)</label>
-                <input
-                  type="text"
-                  class="form-input"
-                  value={label}
-                  onInput={(e) => setLabel((e.target as HTMLInputElement).value)}
-                  placeholder="e.g., Amazon, Newsletter"
-                />
-
-                <div class="modal-actions">
-                  <button class="btn-secondary" onClick={() => setShowCreateModal(false)}>
-                    Cancel
-                  </button>
-                  <button class="btn-primary" onClick={handleCreateEdge}>
-                    Create Alias
-                  </button>
-                </div>
-              </div>
-            )}
+            </div>
           </div>
         </div>
       )}
 
-      <style>{`
-        .edges-view {
-          height: 100%;
-          display: flex;
-          flex-direction: column;
-        }
+      {/* Disposal Confirmation Modal */}
+      {disposalModal && (
+        <div 
+          class="fixed inset-0 bg-black/75 flex items-center justify-center z-[1000] backdrop-blur-sm"
+          onClick={() => setDisposalModal(null)}
+        >
+          <div 
+            class="bg-white border border-stone-200 rounded-xl p-6 max-w-[480px] w-[90%] shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 class="m-0 mb-4 text-lg font-semibold text-red-600">Permanently Dispose Edge</h3>
+            
+            <div class="mb-5 p-4 bg-stone-50 border border-stone-200 rounded-lg">
+              <div class="text-sm font-medium text-stone-900 mb-1">Edge: {disposalModal.address}</div>
+              <div class="text-xs text-stone-600">Type: {disposalModal.edgeType}</div>
+            </div>
 
-        .edges-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 16px;
-          border-bottom: 1px solid var(--border-color);
-        }
+            <div class="mb-5 space-y-2">
+              <p class="text-sm text-stone-700 m-0">This action will:</p>
+              <ul class="text-sm text-stone-600 space-y-1 ml-5 list-disc">
+                <li>Permanently dispose of this edge (cannot be recovered or reused)</li>
+                <li>Remove all connection to your Relay identity (untraceable)</li>
+                <li>Conversations remain but become read-only</li>
+              </ul>
+            </div>
 
-        .edges-header h2 {
-          margin: 0;
-          font-size: 18px;
-          font-weight: 600;
-        }
+            <div class="p-3 bg-red-50 border border-red-200 rounded-lg mb-5">
+              <p class="text-sm text-red-700 font-medium m-0">This action is irreversible.</p>
+            </div>
 
-        .btn-create {
-          padding: 8px 16px;
-          background: var(--primary-color);
-          color: white;
-          border: none;
-          border-radius: 6px;
-          font-size: 14px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-
-        .btn-create:hover {
-          background: var(--primary-hover);
-        }
-
-        .edges-description {
-          padding: 12px 16px;
-          font-size: 13px;
-          color: var(--text-secondary);
-          background: var(--bg-secondary);
-          border-bottom: 1px solid var(--border-color);
-          margin: 0;
-        }
-
-        .edge-tabs {
-          display: flex;
-          border-bottom: 1px solid var(--border-color);
-          padding: 0 16px;
-          background: var(--bg-primary);
-        }
-
-        .edge-tabs .tab {
-          padding: 12px 16px;
-          background: none;
-          border: none;
-          border-bottom: 2px solid transparent;
-          cursor: pointer;
-          font-size: 14px;
-          color: var(--text-secondary);
-          transition: all 0.2s;
-        }
-
-        .edge-tabs .tab.active {
-          color: var(--primary-color);
-          border-bottom-color: var(--primary-color);
-          font-weight: 500;
-        }
-
-        .edges-content {
-          flex: 1;
-          overflow-y: auto;
-          padding: 16px;
-        }
-
-        .edge-card {
-          background: var(--bg-secondary);
-          border: 1px solid var(--border-color);
-          border-radius: 8px;
-          margin-bottom: 12px;
-          transition: border-color 0.2s;
-        }
-
-        .edge-card:hover {
-          border-color: var(--primary-color);
-        }
-
-        .edge-card.disabled {
-          opacity: 0.6;
-        }
-
-        .edge-main {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 16px;
-          gap: 16px;
-        }
-
-        .edge-info {
-          flex: 1;
-          min-width: 0;
-        }
-
-        .edge-title {
-          font-size: 15px;
-          font-weight: 600;
-          color: var(--text-primary);
-          word-break: break-all;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-
-        .edge-subtitle {
-          font-size: 13px;
-          color: var(--text-secondary);
-          margin-top: 4px;
-        }
-
-        .edge-meta {
-          font-size: 12px;
-          color: var(--text-tertiary);
-          margin-top: 6px;
-        }
-
-        .edge-tag {
-          display: inline-flex;
-          align-items: center;
-          padding: 2px 8px;
-          border-radius: 4px;
-          font-size: 11px;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .edge-tag {
-          background: var(--primary-color);
-          color: white;
-        }
-
-        .edge-tag.email {
-          background: #3b82f6;
-          color: white;
-        }
-
-        .edge-tag.status-disabled {
-          background: var(--bg-tertiary);
-          color: var(--text-tertiary);
-        }
-
-        .edge-actions {
-          display: flex;
-          gap: 8px;
-          flex-shrink: 0;
-        }
-
-        .btn-action {
-          padding: 8px 14px;
-          border: 1px solid var(--border-color);
-          border-radius: 6px;
-          font-size: 13px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s;
-          background: var(--bg-tertiary);
-          color: var(--text-primary);
-        }
-
-        .btn-action:hover {
-          background: var(--bg-hover);
-          border-color: var(--primary-color);
-        }
-
-        .btn-action.btn-secondary:hover {
-          background: #fee;
-          color: #c00;
-          border-color: #fcc;
-        }
-
-        .empty-state {
-          text-align: center;
-          padding: 40px 20px;
-          color: var(--text-secondary);
-        }
-
-        .modal-overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(0, 0, 0, 0.6);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-          backdrop-filter: blur(4px);
-        }
-
-        .modal {
-          background: var(--bg-primary);
-          border: 1px solid var(--border-color);
-          border-radius: 12px;
-          padding: 24px;
-          max-width: 440px;
-          width: 90%;
-          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-        }
-
-        .modal h3 {
-          margin: 0 0 20px 0;
-          font-size: 18px;
-          font-weight: 600;
-          color: var(--text-primary);
-        }
-
-        .form {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .form-label {
-          font-size: 13px;
-          font-weight: 500;
-          color: var(--text-secondary);
-          margin-bottom: 4px;
-        }
-
-        .form-input, .handle-input input {
-          width: 100%;
-          padding: 10px 12px;
-          border: 1px solid var(--border-color);
-          border-radius: 6px;
-          font-size: 14px;
-          background: var(--bg-secondary);
-          color: var(--text-primary);
-        }
-
-        .handle-input {
-          display: flex;
-          border: 1px solid var(--border-color);
-          border-radius: 6px;
-          overflow: hidden;
-          background: var(--bg-secondary);
-        }
-
-        .handle-input .prefix {
-          padding: 10px 12px;
-          background: var(--bg-tertiary);
-          color: var(--text-secondary);
-          font-weight: 600;
-        }
-
-        .handle-input input {
-          border: none;
-          flex: 1;
-        }
-
-        .modal-actions {
-          display: flex;
-          gap: 8px;
-          margin-top: 20px;
-        }
-
-        .btn-primary, .btn-secondary {
-          flex: 1;
-          padding: 10px;
-          border: none;
-          border-radius: 6px;
-          font-size: 14px;
-          font-weight: 500;
-          cursor: pointer;
-        }
-
-        .btn-primary {
-          background: var(--primary-color);
-          color: white;
-        }
-
-        .btn-primary:hover:not(:disabled) {
-          background: var(--primary-hover);
-        }
-
-        .btn-primary:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .btn-secondary {
-          background: var(--bg-tertiary);
-          color: var(--text-primary);
-        }
-
-        .btn-secondary:hover {
-          background: var(--bg-hover);
-        }
-
-        small {
-          font-size: 12px;
-          color: var(--text-tertiary);
-        }
-      `}</style>
+            <div class="flex gap-3">
+              <button 
+                class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-stone-100 text-stone-900 hover:bg-stone-200 transition-colors duration-150"
+                onClick={() => setDisposalModal(null)}
+              >
+                Cancel
+              </button>
+              <button 
+                class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition-colors duration-150"
+                onClick={confirmDisposal}
+              >
+                Dispose Edge
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,6 +2,9 @@
  * Relay Protocol Types
  */
 
+// Export message types
+export * from './messages.js';
+
 // ============================================
 // Identity & Handles
 // ============================================
@@ -45,12 +48,12 @@ export interface Handle {
 }
 
 // ============================================
-// Conversations & Messages
+// Conversations & Messages (LEGACY - use types/messages.ts for new protocol)
 // ============================================
 
 export type ConversationType = 'native' | 'email' | 'contact_endpoint';
 
-export interface Conversation {
+export interface LegacyConversation {
   /** Unique conversation ID (ulid) */
   id: string;
   /** Type of conversation */
@@ -161,9 +164,9 @@ export interface HandleResolveResponse {
   claimedAt: string;
 }
 
-// Conversations
+// Conversations (LEGACY)
 export interface ConversationsListResponse {
-  conversations: Conversation[];
+  conversations: LegacyConversation[];
   cursor: string | null;
 }
 

@@ -1,0 +1,30 @@
+{
+  "name": "@relay/ui",
+  "version": "0.1.0",
+  "description": "Relay UI component library - cross-platform design system",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./tokens": {
+      "import": "./tokens/index.js",
+      "types": "./tokens/index.d.ts"
+    },
+    "./icons": {
+      "import": "./icons/index.js",
+      "types": "./icons/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": ["relay", "ui", "design-system", "tailwind", "cross-platform"],
+  "author": "Relay",
+  "license": "MIT"
+}

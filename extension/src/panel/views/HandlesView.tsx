@@ -1,6 +1,5 @@
 import { useState } from 'preact/hooks';
-import { handles, showToast } from '../state';
-import { api } from '../../lib/api';
+import { handles, showToast, sendMessage } from '../state';
 
 export function HandlesView() {
   const [isCreating, setIsCreating] = useState(false);
@@ -15,7 +14,7 @@ export function HandlesView() {
     }
 
     // Validate handle format
-    const handleRegex = /^[a-z0-9_-]{3,32}$/;
+    const handleRegex = /^[a-z0-9_\-]{3,32}$/;
     if (!handleRegex.test(newHandle)) {
       showToast('Invalid handle. Use 3-32 lowercase letters, numbers, _ or -');
       return;
@@ -23,23 +22,30 @@ export function HandlesView() {
 
     setLoading(true);
     try {
-      const handle = await api.createHandle(
-        newHandle.toLowerCase(),
-        displayName.trim() || undefined
-      );
+      const result = await sendMessage<{
+        success: boolean;
+        handle?: any;
+        error?: string;
+      }>({
+        type: 'CREATE_HANDLE',
+        payload: {
+          handle: newHandle.toLowerCase(),
+          displayName: displayName.trim() || undefined,
+        },
+      });
 
-      handles.value = [...handles.value, handle];
-      showToast(`Handle @${handle.handle} created!`);
-      
-      setNewHandle('');
-      setDisplayName('');
-      setIsCreating(false);
-    } catch (error: any) {
-      if (error.message.includes('already taken')) {
-        showToast('Handle already taken');
+      if (result.success && result.handle) {
+        handles.value = [...handles.value, result.handle];
+        showToast(`Handle &${result.handle.handle} created!`);
+        
+        setNewHandle('');
+        setDisplayName('');
+        setIsCreating(false);
       } else {
-        showToast('Failed to create handle: ' + error.message);
+        showToast(result.error || 'Failed to create handle');
       }
+    } catch (error: any) {
+      showToast('Failed to create handle: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -47,8 +53,15 @@ export function HandlesView() {
 
   const loadHandles = async () => {
     try {
-      const result = await api.getHandles();
-      handles.value = result.handles;
+      const result = await sendMessage<{
+        success: boolean;
+        handles?: any[];
+        error?: string;
+      }>({ type: 'GET_HANDLES' });
+
+      if (result.success && result.handles) {
+        handles.value = result.handles;
+      }
     } catch (error) {
       showToast('Failed to load handles');
     }
@@ -58,6 +71,31 @@ export function HandlesView() {
   if (handles.value.length === 0) {
     loadHandles();
   }
+
+  const handleDelete = async (handleId: string, handleName: string) => {
+    if (!confirm(`Delete handle &${handleName}? This cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const result = await sendMessage<{
+        success: boolean;
+        error?: string;
+      }>({
+        type: 'DELETE_HANDLE',
+        payload: { handleId },
+      });
+
+      if (result.success) {
+        handles.value = handles.value.filter(h => h.id !== handleId);
+        showToast('Handle deleted');
+      } else {
+        showToast(result.error || 'Failed to delete handle');
+      }
+    } catch (error: any) {
+      showToast('Failed to delete handle');
+    }
+  };
 
   return (
     <div className="handles-view">
@@ -76,13 +114,13 @@ export function HandlesView() {
           <div className="form-group">
             <label>Handle</label>
             <div className="handle-input">
-              <span className="handle-prefix">@</span>
+              <span className="handle-prefix">&</span>
               <input
                 type="text"
                 value={newHandle}
                 onInput={(e) => setNewHandle((e.target as HTMLInputElement).value)}
                 placeholder="username"
-                pattern="[a-z0-9_-]{3,32}"
+                pattern="[a-z0-9_\-]{3,32}"
                 maxLength={32}
               />
             </div>
@@ -116,7 +154,7 @@ export function HandlesView() {
             <p>No handles yet. Create one to start using native messaging!</p>
             <p className="hint">
               Handles let you send E2EE messages directly to other Relay users
-              using @username addresses.
+              using &username addresses.
             </p>
           </div>
         )}
@@ -124,7 +162,7 @@ export function HandlesView() {
         {handles.value.map((handle) => (
           <div key={handle.id} className="handle-card">
             <div className="handle-info">
-              <div className="handle-name">@{handle.handle}</div>
+              <div className="handle-name">&{handle.handle}</div>
               {handle.displayName && (
                 <div className="display-name">{handle.displayName}</div>
               )}
@@ -136,11 +174,17 @@ export function HandlesView() {
               <button 
                 className="btn-secondary"
                 onClick={() => {
-                  navigator.clipboard.writeText(`@${handle.handle}`);
+                  navigator.clipboard.writeText(`&${handle.handle}`);
                   showToast('Handle copied!');
                 }}
               >
                 Copy
+              </button>
+              <button 
+                className="btn-danger"
+                onClick={() => handleDelete(handle.id, handle.handle)}
+              >
+                Delete
               </button>
             </div>
           </div>

@@ -15,10 +15,10 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "tweetnacl": "^1.0.3"
+  },
   "devDependencies": {
     "typescript": "^5.3.3"
-  },
-  "dependencies": {
-    "libsodium-wrappers-sumo": "^0.7.13"
   }
 }

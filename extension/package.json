@@ -10,13 +10,18 @@
   },
   "dependencies": {
     "@preact/signals": "^1.2.2",
+    "@relay/core": "file:../core",
     "preact": "^10.19.3",
     "tweetnacl": "^1.0.3",
     "tweetnacl-util": "^0.15.1"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.8.1",
+    "@tailwindcss/postcss": "^4.1.18",
     "@types/chrome": "^0.0.260",
+    "autoprefixer": "^10.4.24",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
     "typescript": "^5.3.3",
     "vite": "^5.0.12"
   }

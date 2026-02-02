@@ -27,3 +27,8 @@ yarn-error.log*
 # IDEs
 .vscode/
 .idea/
+
+# Documentation (generated/temporary)
+*.md
+!README.md
+!ui/README.md

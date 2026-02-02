@@ -10,7 +10,7 @@ import {
   WelcomeScreen,
   CreatePassphraseScreen,
   BackupIdentityScreen,
-  ClaimHandleScreen,
+  CreateFirstEdgeScreen,
   CompleteScreen,
 } from './views/OnboardingViews';
 import { appState, onboardingStep, toastMessage } from './state';
@@ -36,8 +36,8 @@ function OnboardingFlow() {
       return <CreatePassphraseScreen />;
     case 'backup-identity':
       return <BackupIdentityScreen />;
-    case 'claim-handle':
-      return <ClaimHandleScreen />;
+    case 'create-edge':
+      return <CreateFirstEdgeScreen />;
     case 'complete':
       return <CompleteScreen />;
     default:
@@ -47,9 +47,9 @@ function OnboardingFlow() {
 
 function MainApp() {
   return (
-    <div class="app-container">
+    <div class="flex flex-col h-screen">
       <Header />
-      <main class="app-main">
+      <main class="flex-1 overflow-y-auto">
         {activeTab.value === 'inbox' && <InboxView />}
         {activeTab.value === 'new' && <NewView />}
         {activeTab.value === 'edges' && <EdgesView />}

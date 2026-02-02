@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "type": "relay-identity-backup",
+  "createdAt": "2026-02-02T03:33:53.692Z",
+  "identity": {
+    "fingerprint": "7470ad95fcc348f55dbcf70138490564",
+    "publicKey": "d5MmO1HQnqrbrUHQ+OK/0anCkBGXYt0+L9vt8SUErpE="
+  },
+  "passphrase": "DieselMac#69",
+  "instructions": [
+    "This file contains your Relay identity backup.",
+    "Store it securely - anyone with this file can access your identity.",
+    "Your passphrase is included for recovery purposes.",
+    "To restore: Import this file in Relay settings."
+  ]
+}
