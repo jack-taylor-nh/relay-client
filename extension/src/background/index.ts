@@ -1454,7 +1454,7 @@ async function getMessages(
           });
           if (conv) {
             conversationDetails = {
-              myEdgeId: conv.edge?.id,
+              myEdgeId: conv.myEdgeId || conv.edge?.id,  // Prefer myEdgeId, fallback to edge.id
               counterpartyEdgeId: conv.counterparty?.edgeId,
               // Server now returns x25519PublicKey directly in counterparty
               counterpartyX25519Key: conv.counterparty?.x25519PublicKey,
@@ -1568,6 +1568,7 @@ async function getMessages(
                   security_level: (msg.securityLevel || 'e2ee') as SecurityLevel,
                   my_edge_id: conversationDetails?.myEdgeId || '',
                   counterparty_edge_id: conversationDetails?.counterpartyEdgeId || '',
+                  is_initiator: false, // Receiver is never the initiator
                 };
                 
                 // Build the message envelope
