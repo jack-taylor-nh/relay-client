@@ -1549,10 +1549,19 @@ async function getMessages(
               let myEdgeSecretKey: Uint8Array | null = null;
               let counterpartyEdgePublicKey: Uint8Array | null = null;
               
-              // Get my edge key
-              for (const [edgeId, keys] of Object.entries(edgeKeys)) {
-                myEdgeSecretKey = fromBase64((keys as any).secretKey);
-                break; // Use first key for now (TODO: match by conversation edge)
+              // Get my edge key - use the CORRECT edge for this conversation
+              const myEdgeId = conversationDetails?.myEdgeId;
+              if (myEdgeId && edgeKeys[myEdgeId]) {
+                myEdgeSecretKey = fromBase64((edgeKeys[myEdgeId] as any).secretKey);
+                console.log('[getMessages] Using edge key for edge:', myEdgeId);
+              } else {
+                // Fallback: try to find any matching edge (shouldn't happen)
+                console.warn('[getMessages] Edge key not found for myEdgeId:', myEdgeId, 'available:', Object.keys(edgeKeys));
+                for (const [edgeId, keys] of Object.entries(edgeKeys)) {
+                  myEdgeSecretKey = fromBase64((keys as any).secretKey);
+                  console.log('[getMessages] Falling back to first available edge:', edgeId);
+                  break;
+                }
               }
               
               // Get counterparty edge public key
@@ -1561,6 +1570,12 @@ async function getMessages(
               }
               
               if (myEdgeSecretKey && counterpartyEdgePublicKey) {
+                // Debug: verify the public key matches
+                const myEdgeKeypair = nacl.box.keyPair.fromSecretKey(myEdgeSecretKey);
+                const myDerivedPubKey = toBase64(myEdgeKeypair.publicKey);
+                console.log('[getMessages] My edge public key derived from secret:', myDerivedPubKey);
+                console.log('[getMessages] Counterparty should have encrypted to this key');
+                
                 // Build conversation object for ratchet
                 const conversation: RatchetConversation = {
                   id: conversationId,
@@ -2158,7 +2173,7 @@ async function sendNativeMessage(
     console.log('Resolved recipient edge:', {
       handle: recipientHandle,
       edgeId: recipientEdgeId,
-      hasX25519Key: !!recipientX25519PublicKey,
+      x25519PublicKey: recipientX25519PublicKey, // Log actual key for debugging
     });
 
     // 2. Get my edge keys for this handle

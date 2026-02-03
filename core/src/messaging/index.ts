@@ -16,6 +16,7 @@ import {
   type RatchetState,
   type EncryptedRatchetMessage,
 } from '../crypto/ratchet.js';
+import { toBase64 } from '../utils/encoding.js';
 import type { MessageEnvelope, Conversation, MessageResult } from '../types/messages.js';
 
 /**
@@ -163,6 +164,17 @@ export async function receiveMessage(
   storage: RatchetStorage
 ): Promise<{ plaintext: string; newState: RatchetState } | null> {
   
+  console.log('[receiveMessage] Starting decryption:', {
+    messageId: envelope.message_id,
+    conversationId: conversation.id,
+    myEdgeId: conversation.my_edge_id,
+    counterpartyEdgeId: conversation.counterparty_edge_id,
+    isInitiator: conversation.is_initiator,
+    mySecretKeyLen: myEdgeSecretKey?.length,
+    counterpartyPubKeyLen: counterpartyEdgePublicKey?.length,
+    counterpartyPubKeyB64: counterpartyEdgePublicKey ? toBase64(counterpartyEdgePublicKey) : null,
+  });
+  
   // 1. Get ratchet state
   const ratchetState = await getRatchetState(
     conversation,
@@ -170,6 +182,23 @@ export async function receiveMessage(
     counterpartyEdgePublicKey,
     storage
   );
+  
+  console.log('[receiveMessage] Ratchet state:', {
+    hasState: !!ratchetState,
+    DHsPublicKey: ratchetState?.DHs?.publicKey ? toBase64(ratchetState.DHs.publicKey) : null,
+    DHr: ratchetState?.DHr ? toBase64(ratchetState.DHr) : null,
+    CKs: ratchetState?.CKs ? 'present' : null,
+    CKr: ratchetState?.CKr ? 'present' : null,
+    Ns: ratchetState?.Ns,
+    Nr: ratchetState?.Nr,
+  });
+  
+  console.log('[receiveMessage] Message ratchet payload:', {
+    dh: envelope.payload.ratchet.dh,
+    pn: envelope.payload.ratchet.pn,
+    n: envelope.payload.ratchet.n,
+    ciphertextLen: envelope.payload.ratchet.ciphertext?.length,
+  });
   
   // 2. Decrypt with Double Ratchet
   const result = RatchetDecrypt(ratchetState, envelope.payload.ratchet);
