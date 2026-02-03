@@ -27,9 +27,10 @@ export function EdgeCard({
 }: EdgeCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const bgColor = type === 'native' ? 'bg-purple-100' : 'bg-cyan-100';
-  const textColor = type === 'native' ? 'text-purple-600' : 'text-cyan-600';
-  const badgeColor = type === 'native' ? 'bg-purple-600' : 'bg-blue-500';
+  // Neutral color scheme - native handles use slate, email uses sky (from brand gradient)
+  const bgColor = type === 'native' ? 'bg-slate-100' : 'bg-sky-100';
+  const textColor = type === 'native' ? 'text-slate-600' : 'text-sky-600';
+  const badgeColor = type === 'native' ? 'bg-slate-600' : 'bg-sky-500';
 
   const icon = type === 'native' ? (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -47,7 +48,7 @@ export function EdgeCard({
     // Simple card for selection (New tab)
     return (
       <button
-        class={`w-full flex items-center gap-3 p-3 bg-white border border-stone-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 transition-all mb-2 ${
+        class={`w-full flex items-center gap-3 p-3 bg-white border border-stone-200 rounded-lg hover:border-slate-300 hover:bg-slate-50 transition-all mb-2 ${
           status !== 'active' ? 'opacity-60' : ''
         }`}
       >
@@ -71,7 +72,7 @@ export function EdgeCard({
   // Expandable card for management (Edges tab)
   return (
     <div 
-      class={`bg-white border-2 border-stone-200 rounded-lg mb-3 overflow-hidden transition-all duration-200 shadow-sm hover:border-purple-300 ${
+      class={`bg-white border-2 border-stone-200 rounded-lg mb-3 overflow-hidden transition-all duration-200 shadow-sm hover:border-slate-300 ${
         status !== 'active' ? 'opacity-60' : ''
       }`}
     >
@@ -118,7 +119,7 @@ export function EdgeCard({
           {status === 'active' && (
             <div class="flex gap-2">
               <button 
-                class="flex-1 px-4 py-2 border border-stone-300 rounded-lg text-sm font-medium bg-white text-stone-900 hover:bg-stone-100 hover:border-purple-600 transition-all duration-150"
+                class="flex-1 px-4 py-2 border border-stone-300 rounded-lg text-sm font-medium bg-white text-stone-900 hover:bg-stone-100 hover:border-slate-400 transition-all duration-150"
                 onClick={(e) => {
                   e.stopPropagation();
                   onCopy();

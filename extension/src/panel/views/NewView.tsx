@@ -93,7 +93,7 @@ export function NewView() {
               <h3 class="text-base font-semibold text-stone-900 mb-1">No identities yet</h3>
               <p class="text-sm text-stone-600 mb-4">Claim a handle or create an alias in the Edges tab</p>
               <button
-                class="px-4 py-2 text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-md transition-colors"
+                class="px-4 py-2 text-sm font-semibold text-white bg-slate-700 hover:bg-slate-800 rounded-md transition-colors"
                 onClick={() => { activeTab.value = 'edges'; }}
               >
                 Go to Edges
@@ -238,7 +238,7 @@ export function NewView() {
                   <span class="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500 font-medium">&</span>
                   <input
                     type="text"
-                    class="w-full pl-7 pr-3 py-2.5 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    class="w-full pl-7 pr-3 py-2.5 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
                     placeholder="username"
                     value={recipientHandle}
                     onInput={(e) => {
@@ -254,7 +254,7 @@ export function NewView() {
                   />
                 </div>
                 <button
-                  class="px-4 py-2.5 text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 disabled:bg-stone-300 rounded-lg transition-colors"
+                  class="px-4 py-2.5 text-sm font-semibold text-white bg-slate-700 hover:bg-slate-800 disabled:bg-stone-300 rounded-lg transition-colors"
                   onClick={handleResolve}
                   disabled={isResolving || cleanHandle.length < 3}
                 >
@@ -273,7 +273,7 @@ export function NewView() {
                   <div class="text-xs font-mono text-stone-500">{resolvedUser.fingerprint.slice(0, 16)}...</div>
                 </div>
                 <button
-                  class="text-xs text-purple-600 hover:text-purple-700 font-medium"
+                  class="text-xs text-slate-600 hover:text-slate-800 font-medium"
                   onClick={() => {
                     setResolvedUser(null);
                     setError(null);
@@ -287,7 +287,7 @@ export function NewView() {
             <div>
               <label class="block text-sm font-medium text-stone-700 mb-2">Message</label>
               <textarea
-                class="w-full px-3 py-2.5 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
+                class="w-full px-3 py-2.5 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent resize-none"
                 placeholder="Type your message..."
                 rows={6}
                 value={message}
@@ -298,7 +298,7 @@ export function NewView() {
             {error && <div class="p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded-lg">{error}</div>}
 
             <button
-              class="w-full px-6 py-3 text-base font-semibold text-white bg-purple-600 hover:bg-purple-700 disabled:bg-stone-300 disabled:cursor-not-allowed rounded-lg transition-colors"
+              class="w-full px-6 py-3 text-base font-semibold text-white bg-slate-700 hover:bg-slate-800 disabled:bg-stone-300 disabled:cursor-not-allowed rounded-lg transition-colors"
               onClick={handleSend}
               disabled={isSending || !message.trim()}
             >

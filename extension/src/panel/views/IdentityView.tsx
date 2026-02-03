@@ -98,7 +98,7 @@ export function IdentityView() {
               <div class="mb-0">
                 <label class="block text-xs font-medium text-stone-600 mb-1.5 uppercase tracking-wider">Primary Handle</label>
                 <div class="flex items-center gap-2">
-                  <span class="text-base font-semibold text-purple-600">&{identity.handle}</span>
+                  <span class="text-base font-semibold text-slate-700">&{identity.handle}</span>
                 </div>
                 <small class="block mt-1 text-xs text-stone-400">Manage all handles in the Edges tab</small>
               </div>
@@ -107,8 +107,8 @@ export function IdentityView() {
         </div>
 
         {/* Security highlights - same as onboarding complete screen */}
-        <div class="w-full bg-gradient-to-br from-purple-50 to-emerald-50 border border-purple-200 rounded-xl p-5 mb-6">
-          <h3 class="text-sm font-semibold text-purple-900 mb-3 flex items-center gap-2">
+        <div class="w-full bg-gradient-to-br from-slate-50 to-sky-50 border border-slate-200 rounded-xl p-5 mb-6">
+          <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
             </svg>

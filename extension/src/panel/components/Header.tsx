@@ -16,27 +16,30 @@ export function Header() {
   return (
     <header class="flex items-center justify-between px-4 py-3 bg-white border-b border-stone-200">
       <div class="flex items-center">
-        <svg width="28" height="28" viewBox="65 58 145 138" fill="none" xmlns="http://www.w3.org/2000/svg">
+        {/* Relay glyph - brand gradient */}
+        <svg width="28" height="28" viewBox="20 20 216 216" fill="none" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <linearGradient id="relay-gradient-header" x1="44" y1="28" x2="212" y2="232" gradientUnits="userSpaceOnUse">
-              <stop offset="0" stop-color="#22D3EE"/>
-              <stop offset="0.55" stop-color="#8B5CF6"/>
-              <stop offset="1" stop-color="#10B981"/>
+              <stop offset="0" stop-color="#38BDF8"/>
+              <stop offset="0.55" stop-color="#60A5FA"/>
+              <stop offset="1" stop-color="#A5B4FC"/>
             </linearGradient>
           </defs>
-          <path d="M92 176V86c0-10 8-18 18-18h30c22 0 40 18 40 40s-18 40-40 40h-22"
-                fill="none" stroke="url(#relay-gradient-header)" stroke-width="18"
-                stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M118 148l52 28" fill="none" stroke="url(#relay-gradient-header)"
-                stroke-width="18" stroke-linecap="round"/>
-          <circle cx="188" cy="176" r="10" fill="url(#relay-gradient-header)"/>
+          <g transform="translate(128 128) scale(1.14) translate(-128 -128)">
+            <path d="M92 176V86c0-10 8-18 18-18h30c22 0 40 18 40 40s-18 40-40 40h-22"
+                  fill="none" stroke="url(#relay-gradient-header)" stroke-width="18"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M118 148l52 28" fill="none" stroke="url(#relay-gradient-header)"
+                  stroke-width="18" stroke-linecap="round"/>
+            <circle cx="188" cy="176" r="10" fill="url(#relay-gradient-header)"/>
+          </g>
         </svg>
       </div>
       
       <div class="flex items-center gap-2">
         {handle && (
           <button 
-            class="px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-md hover:bg-purple-100 hover:border-purple-300 transition-all duration-150 cursor-pointer"
+            class="px-3 py-1.5 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-md hover:bg-slate-100 hover:border-slate-300 transition-all duration-150 cursor-pointer"
             onClick={() => {
               navigator.clipboard.writeText(formatHandle(handle));
               showToast('Handle copied!');
@@ -48,7 +51,7 @@ export function Header() {
         )}
         
         <button
-          class="p-2 text-stone-600 hover:text-purple-600 hover:bg-stone-100 rounded-md transition-all duration-150 cursor-pointer"
+          class="p-2 text-stone-600 hover:text-slate-700 hover:bg-stone-100 rounded-md transition-all duration-150 cursor-pointer"
           onClick={handleLock}
           title="Lock Relay"
         >

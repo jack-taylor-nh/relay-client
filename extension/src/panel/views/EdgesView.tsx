@@ -102,7 +102,7 @@ export function EdgesView() {
       <div class="flex items-center justify-between px-4 py-4 border-b border-stone-200">
         <h2 class="text-lg font-semibold text-stone-900">Edges</h2>
         <button 
-          class="px-4 py-2 text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-md shadow-sm hover:shadow-md transition-all duration-150 transform hover:-translate-y-0.5"
+          class="px-4 py-2 text-sm font-semibold text-white bg-slate-700 hover:bg-slate-800 rounded-md shadow-sm hover:shadow-md transition-all duration-150 transform hover:-translate-y-0.5"
           onClick={() => setShowCreateModal(true)}
         >
           + New Edge
@@ -159,8 +159,8 @@ export function EdgesView() {
                     key={edgeType.id}
                     class={`flex items-center p-3 border-2 rounded-lg cursor-pointer transition-all duration-150 ${
                       selectedEdgeTypeId === edgeType.id
-                        ? 'border-purple-600 bg-purple-50' 
-                        : 'border-stone-200 bg-stone-50 hover:border-purple-600 hover:bg-stone-100'
+                        ? 'border-slate-600 bg-slate-50' 
+                        : 'border-stone-200 bg-stone-50 hover:border-slate-400 hover:bg-stone-100'
                     }`}
                   >
                     <input
@@ -172,7 +172,7 @@ export function EdgesView() {
                       class="mr-3 cursor-pointer w-[18px] h-[18px] flex-shrink-0"
                     />
                     <div class="flex-1">
-                      <div class={`text-sm font-semibold mb-0.5 ${selectedEdgeTypeId === edgeType.id ? 'text-purple-600' : 'text-stone-900'}`}>
+                      <div class={`text-sm font-semibold mb-0.5 ${selectedEdgeTypeId === edgeType.id ? 'text-slate-700' : 'text-stone-900'}`}>
                         {edgeType.icon} {edgeType.name}
                       </div>
                       <div class="text-xs text-stone-600">{edgeType.description}</div>
@@ -229,7 +229,7 @@ export function EdgesView() {
                   Cancel
                 </button>
                 <button 
-                  class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+                  class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-slate-700 text-white hover:bg-slate-800 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={selectedEdgeTypeId === 'native' ? handleCreateHandle : handleCreateEdge}
                   disabled={loading}
                 >

@@ -50,15 +50,15 @@ export function TabBar() {
           key={tab.id}
           class={`flex-1 flex flex-col items-center justify-center gap-1 py-3 text-sm font-medium transition-all duration-150 relative ${
             activeTab.value === tab.id
-              ? 'text-purple-600 bg-purple-50'
-              : 'text-stone-600 hover:text-purple-600 hover:bg-stone-50'
+              ? 'text-slate-800 bg-slate-50'
+              : 'text-stone-500 hover:text-slate-700 hover:bg-stone-50'
           }`}
           onClick={() => (activeTab.value = tab.id)}
         >
           {activeTab.value === tab.id && (
-            <span class="absolute top-0 left-0 right-0 h-0.5 bg-purple-600" />
+            <span class="absolute top-0 left-0 right-0 h-0.5 bg-sky-500" />
           )}
-          <span class={activeTab.value === tab.id ? 'text-purple-600' : 'text-stone-500'}>
+          <span class={activeTab.value === tab.id ? 'text-slate-700' : 'text-stone-400'}>
             <TabIcon icon={tab.icon} />
           </span>
           <span>{tab.label}</span>

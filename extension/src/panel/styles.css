@@ -4,21 +4,22 @@
  * Relay Panel - Design System
  * 
  * Powered by Tailwind CSS v4 (CSS-first configuration)
- * Brand colors from iconpack: #22D3EE (cyan), #8B5CF6 (purple), #10B981 (emerald), #0B1020 (navy)
- * Designed for cross-platform consistency (extension, web, mobile, desktop)
+ * Brand gradient: #38BDF8 (sky) → #60A5FA (blue) → #A5B4FC (indigo)
+ * System UI: Neutral slate/stone - brand color used sparingly
+ * Design goal: Trust, security, infrastructure - not startup-y fun
  */
 
 @theme {
-  /* Brand colors from SVG iconpack */
-  --color-relay-cyan: #22D3EE;
-  --color-relay-purple: #8B5CF6;
-  --color-relay-emerald: #10B981;
+  /* Brand gradient colors (from glyph SVG) */
+  --color-relay-sky: #38BDF8;
+  --color-relay-blue: #60A5FA;
+  --color-relay-indigo: #A5B4FC;
   --color-relay-navy: #0B1020;
   
-  /* Semantic tokens */
-  --color-primary: var(--color-relay-purple);
-  --color-primary-hover: #7C3AED;
-  --color-primary-subtle: #EDE9FE;
+  /* Semantic tokens - neutral system UI with restrained accent */
+  --color-primary: #475569;           /* slate-600 - neutral primary */
+  --color-primary-hover: #334155;     /* slate-700 */
+  --color-primary-subtle: #f1f5f9;    /* slate-100 */
   
   --color-background: #fafaf9;
   --color-background-elevated: #ffffff;
