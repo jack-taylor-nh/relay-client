@@ -194,6 +194,97 @@ async function loadMessagesFromCache(messageIds: string[]): Promise<Map<string, 
 }
 
 // ============================================
+// Encrypted Edge Metadata (Zero-Knowledge Storage)
+// ============================================
+
+/**
+ * Encrypt metadata (label, displayName) using edge's secret key
+ * Server stores opaque encrypted blob - cannot read contents
+ */
+function encryptEdgeMetadata(
+  data: { label?: string; displayName?: string },
+  edgeSecretKey: Uint8Array
+): { encryptedLabel?: string; encryptedMetadata?: string } {
+  const result: { encryptedLabel?: string; encryptedMetadata?: string } = {};
+  
+  // Derive symmetric key from edge secret key
+  const encryptionKey = nacl.hash(edgeSecretKey).slice(0, nacl.secretbox.keyLength);
+  
+  // Encrypt label if provided
+  if (data.label) {
+    const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
+    const ciphertext = nacl.secretbox(
+      new TextEncoder().encode(data.label),
+      nonce,
+      encryptionKey
+    );
+    // Format: base64(nonce):base64(ciphertext)
+    result.encryptedLabel = `${toBase64(nonce)}:${toBase64(ciphertext)}`;
+  }
+  
+  // Encrypt metadata (displayName, etc.) if provided
+  if (data.displayName) {
+    const metadata = { displayName: data.displayName };
+    const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
+    const ciphertext = nacl.secretbox(
+      new TextEncoder().encode(JSON.stringify(metadata)),
+      nonce,
+      encryptionKey
+    );
+    result.encryptedMetadata = `${toBase64(nonce)}:${toBase64(ciphertext)}`;
+  }
+  
+  return result;
+}
+
+/**
+ * Decrypt metadata using edge's secret key
+ */
+function decryptEdgeMetadata(
+  encryptedLabel: string | null | undefined,
+  encryptedMetadata: string | null | undefined,
+  edgeSecretKey: Uint8Array
+): { label?: string; displayName?: string } {
+  const result: { label?: string; displayName?: string } = {};
+  
+  // Derive symmetric key from edge secret key
+  const encryptionKey = nacl.hash(edgeSecretKey).slice(0, nacl.secretbox.keyLength);
+  
+  // Decrypt label
+  if (encryptedLabel && encryptedLabel.includes(':')) {
+    try {
+      const [nonceB64, ciphertextB64] = encryptedLabel.split(':');
+      const nonce = fromBase64(nonceB64);
+      const ciphertext = fromBase64(ciphertextB64);
+      const plaintext = nacl.secretbox.open(ciphertext, nonce, encryptionKey);
+      if (plaintext) {
+        result.label = new TextDecoder().decode(plaintext);
+      }
+    } catch (e) {
+      console.warn('Failed to decrypt edge label:', e);
+    }
+  }
+  
+  // Decrypt metadata
+  if (encryptedMetadata && encryptedMetadata.includes(':')) {
+    try {
+      const [nonceB64, ciphertextB64] = encryptedMetadata.split(':');
+      const nonce = fromBase64(nonceB64);
+      const ciphertext = fromBase64(ciphertextB64);
+      const plaintext = nacl.secretbox.open(ciphertext, nonce, encryptionKey);
+      if (plaintext) {
+        const metadata = JSON.parse(new TextDecoder().decode(plaintext));
+        result.displayName = metadata.displayName;
+      }
+    } catch (e) {
+      console.warn('Failed to decrypt edge metadata:', e);
+    }
+  }
+  
+  return result;
+}
+
+// ============================================
 // Chrome Extension Setup
 // ============================================
 
@@ -686,9 +777,16 @@ async function createHandle(handle: string, displayName?: string): Promise<{
     const edgeEncryptionKeys = generateEdgeKeyPair();
     const edgeX25519PublicKey = toBase64(edgeEncryptionKeys.publicKey);
     
+    // Encrypt displayName using edge's secret key (zero-knowledge storage)
+    const encrypted = encryptEdgeMetadata(
+      { displayName },
+      edgeEncryptionKeys.secretKey
+    );
+    
     console.log('Creating handle with unique edge encryption key:', {
       handle,
       hasEdgeKey: !!edgeX25519PublicKey,
+      hasEncryptedMetadata: !!encrypted.encryptedMetadata,
     });
     
     const res = await fetch(`${apiUrl}/v1/handles`, {
@@ -699,7 +797,8 @@ async function createHandle(handle: string, displayName?: string): Promise<{
       },
       body: JSON.stringify({ 
         handle, 
-        displayName,
+        // Send encrypted metadata instead of plaintext
+        encryptedMetadata: encrypted.encryptedMetadata,
         x25519PublicKey: edgeX25519PublicKey,
       }),
     });
@@ -720,6 +819,8 @@ async function createHandle(handle: string, displayName?: string): Promise<{
           secretKey: toBase64(edgeEncryptionKeys.secretKey),
           address: handle,  // Store handle for lookup
           type: 'native',
+          // Store plaintext locally (only encrypted on server)
+          displayName: displayName,
           createdAt: new Date().toISOString(),
         },
       };
@@ -2203,6 +2304,12 @@ async function createEdge(
 
     // Generate random X25519 keypair for this edge (unique, unlinkable)
     const encryptionKeys = generateEdgeKeyPair();
+    
+    // Encrypt label and displayName using edge's secret key (zero-knowledge storage)
+    const encrypted = encryptEdgeMetadata(
+      { label, displayName },
+      encryptionKeys.secretKey
+    );
 
     const res = await fetch(`${apiUrl}/v1/edge`, {
       method: 'POST',
@@ -2213,9 +2320,10 @@ async function createEdge(
         x25519PublicKey: toBase64(encryptionKeys.publicKey),
         nonce,
         signature,
-        label,
+        // Send encrypted label/metadata instead of plaintext
+        encryptedLabel: encrypted.encryptedLabel,
+        encryptedMetadata: encrypted.encryptedMetadata,
         customAddress,
-        displayName,
       }),
     });
 
@@ -2234,6 +2342,9 @@ async function createEdge(
           secretKey: toBase64(encryptionKeys.secretKey),
           address: edge.address || customAddress,  // Store address for lookup
           type: type,
+          // Store plaintext locally (only encrypted on server)
+          label: label,
+          displayName: displayName,
           createdAt: new Date().toISOString(),
         },
       };
@@ -2377,8 +2488,37 @@ async function getEdges(): Promise<{
 
     const data = await res.json();
     
+    // Get local edge keys for decryption
+    const storage = await chrome.storage.local.get(['edgeKeys']);
+    const edgeKeys = storage.edgeKeys || {};
+    
+    // Decrypt label/metadata for each edge using local keys
+    const decryptedEdges = data.edges.map((edge: any) => {
+      const localKeys = edgeKeys[edge.id];
+      
+      // If we have local keys, decrypt the metadata
+      if (localKeys?.secretKey) {
+        const secretKey = fromBase64(localKeys.secretKey);
+        const decrypted = decryptEdgeMetadata(
+          edge.encryptedLabel,
+          edge.encryptedMetadata,
+          secretKey
+        );
+        
+        return {
+          ...edge,
+          // Use decrypted values, fall back to local cache, then server values
+          label: decrypted.label || localKeys.label || edge.label,
+          displayName: decrypted.displayName || localKeys.displayName,
+        };
+      }
+      
+      // No local keys - edge might be from before encryption or different device
+      return edge;
+    });
+    
     // Migrate edges missing X25519 key (one-time migration for old edges)
-    const edgesNeedingMigration = data.edges.filter(
+    const edgesNeedingMigration = decryptedEdges.filter(
       (e: { hasX25519?: boolean; status: string }) => !e.hasX25519 && e.status === 'active'
     );
     
@@ -2390,7 +2530,7 @@ async function getEdges(): Promise<{
       }
     }
     
-    return { success: true, edges: data.edges };
+    return { success: true, edges: decryptedEdges };
   } catch (error) {
     console.error('Get edges error:', error);
     return { success: false, error: 'Network error' };
