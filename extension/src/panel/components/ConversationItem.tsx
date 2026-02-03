@@ -37,27 +37,59 @@ function OriginIcon({ type }: { type: ConversationType }) {
   }
 }
 
+// Security level descriptions for tooltips
+const SECURITY_DESCRIPTIONS = {
+  e2ee: 'End-to-End Encrypted: Messages are encrypted on your device and can only be decrypted by the recipient. No server, including Relay, can read your messages.',
+  gateway_secured: 'Relayed: Messages are encrypted in transit (TLS) and at rest, but pass through a bridge gateway. The bridge can process message content to enable cross-platform messaging (e.g., Discord, Email).',
+  mixed: 'Mixed Security: This conversation contains messages with different security levels. Some messages may be E2EE while others are relayed through a bridge.',
+};
+
 function SecurityBadge({ level }: { level: SecurityLevel }) {
   switch (level) {
     case 'e2ee':
       return (
-        <span class="text-xs text-emerald-600 opacity-70" title="End-to-end encrypted">
+        <span 
+          class="text-xs text-emerald-600 opacity-70 cursor-help border-b border-dotted border-emerald-400" 
+          title={SECURITY_DESCRIPTIONS.e2ee}
+        >
           E2EE
         </span>
       );
     case 'gateway_secured':
       return (
-        <span class="text-xs text-cyan-600 opacity-70" title="Relayed (gateway secured)">
+        <span 
+          class="text-xs text-cyan-600 opacity-70 cursor-help border-b border-dotted border-cyan-400" 
+          title={SECURITY_DESCRIPTIONS.gateway_secured}
+        >
           Relayed
         </span>
       );
     case 'mixed':
       return (
-        <span class="text-xs text-amber-600 opacity-90" title="Mixed security levels">
+        <span 
+          class="text-xs text-amber-600 opacity-90 cursor-help border-b border-dotted border-amber-400" 
+          title={SECURITY_DESCRIPTIONS.mixed}
+        >
           Mixed
         </span>
       );
   }
+}
+
+function EdgeBadge({ address }: { address: string }) {
+  // For email addresses, show just the local part (before @)
+  const displayAddress = address.includes('@') 
+    ? address.split('@')[0] 
+    : address;
+  
+  return (
+    <span 
+      class="text-xs text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded" 
+      title={`Received via ${address}`}
+    >
+      via {displayAddress}
+    </span>
+  );
 }
 
 function formatTime(isoString: string): string {
@@ -79,6 +111,7 @@ export function ConversationItem({ conversation, isSelected, onClick }: Props) {
   const isUnread = conversation.isUnread ?? (conversation.unreadCount ?? 0) > 0;
   const securityLevel = conversation.securityLevel || 'e2ee';
   const hasPreview = conversation.lastMessagePreview && conversation.lastMessagePreview.trim().length > 0;
+  const showEdgeBadge = conversation.edgeAddress && conversation.type !== 'native';
 
   return (
     <button 
@@ -99,7 +132,8 @@ export function ConversationItem({ conversation, isSelected, onClick }: Props) {
           <span class={`text-sm ${isUnread ? 'font-semibold' : 'font-medium'} text-stone-900 whitespace-nowrap overflow-hidden text-ellipsis`}>
             {conversation.counterpartyName || 'Unknown'}
           </span>
-          <div class="flex items-center gap-1 flex-shrink-0">
+          <div class="flex items-center gap-1.5 flex-shrink-0">
+            {showEdgeBadge && <EdgeBadge address={conversation.edgeAddress!} />}
             <SecurityBadge level={securityLevel} />
             <span class={`flex-shrink-0 text-xs ${isUnread ? 'text-stone-600 font-medium' : 'text-stone-400'}`}>
               {formatTime(conversation.lastActivityAt)}

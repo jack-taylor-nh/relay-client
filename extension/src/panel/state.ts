@@ -379,6 +379,7 @@ export async function loadData() {
           myEdgeId: conv.myEdgeId || conv.edge?.id,
           counterpartyEdgeId: conv.counterparty?.edgeId,
           counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey,
+          edgeAddress: conv.edge?.address,
         };
       });
     }

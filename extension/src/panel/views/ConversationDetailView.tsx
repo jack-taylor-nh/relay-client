@@ -454,9 +454,34 @@ export function ConversationDetailView() {
           )}
         </div>
         
-        <div class="conversation-detail-badge">
-          {conv?.securityLevel === 'e2ee' && <span class="badge badge-encrypted"><LockIcon /> E2EE</span>}
-          {conv?.securityLevel === 'gateway_secured' && <span class="badge badge-email">Relayed</span>}
+        <div class="conversation-detail-badges">
+          {/* Edge badge - show which edge received this conversation */}
+          {conv?.edgeAddress && conv?.type !== 'native' && (
+            <span 
+              class="badge badge-edge" 
+              title={`Received via ${conv.edgeAddress}`}
+            >
+              via {conv.edgeAddress.includes('@') ? conv.edgeAddress.split('@')[0] : conv.edgeAddress}
+            </span>
+          )}
+          
+          {/* Security level badge with descriptive tooltip */}
+          {conv?.securityLevel === 'e2ee' && (
+            <span 
+              class="badge badge-encrypted" 
+              title="End-to-End Encrypted: Messages are encrypted on your device and can only be decrypted by the recipient. No server, including Relay, can read your messages."
+            >
+              <LockIcon /> E2EE
+            </span>
+          )}
+          {conv?.securityLevel === 'gateway_secured' && (
+            <span 
+              class="badge badge-relayed" 
+              title="Relayed: Messages are encrypted in transit (TLS) and at rest, but pass through a bridge gateway. The bridge can process message content to enable cross-platform messaging (e.g., Discord, Email)."
+            >
+              Relayed
+            </span>
+          )}
         </div>
       </div>
       
@@ -535,9 +560,10 @@ export function ConversationDetailView() {
           color: var(--color-text-tertiary);
         }
         
-        .conversation-detail-badge {
+        .conversation-detail-badges {
           display: flex;
           align-items: center;
+          gap: 6px;
         }
         
         .badge {
@@ -549,6 +575,7 @@ export function ConversationDetailView() {
           font-weight: 600;
           border-radius: var(--radius-full);
           white-space: nowrap;
+          cursor: help;
         }
         
         .badge-encrypted {
@@ -556,9 +583,17 @@ export function ConversationDetailView() {
           color: #166534;
         }
         
-        .badge-email {
-          background-color: #dbeafe;
-          color: #1e40af;
+        .badge-relayed {
+          background-color: #cffafe;
+          color: #0e7490;
+        }
+        
+        .badge-edge {
+          background-color: #f5f5f4;
+          color: #78716c;
+          font-weight: 500;
+          padding: 4px 10px;
+          font-size: 12px;
         }
         
         .badge-contact {

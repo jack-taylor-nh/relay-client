@@ -22,6 +22,7 @@ export interface Conversation {
   myEdgeId?: string;              // My edge ID for this conversation
   counterpartyEdgeId?: string;    // Counterparty's edge ID
   counterpartyX25519PublicKey?: string; // Counterparty's encryption key
+  edgeAddress?: string;           // The edge address this conversation came through (e.g., 'taylor@rlymsg.com')
 }
 
 export interface Identity {
