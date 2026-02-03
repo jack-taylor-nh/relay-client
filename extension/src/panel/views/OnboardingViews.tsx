@@ -75,26 +75,28 @@ function DiceIcon({ size = 16 }: { size?: number }) {
 
 function RelayGlyphIcon({ size = 64 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="65 58 145 138" fill="none" role="img" aria-label="Relay glyph">
+    <svg width={size} height={size} viewBox="20 20 216 216" fill="none" role="img" aria-label="Relay glyph">
       <defs>
         <linearGradient id="relayGradientOnboarding" x1="44" y1="28" x2="212" y2="232" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stop-color="#22D3EE"/>
-          <stop offset="0.55" stop-color="#8B5CF6"/>
-          <stop offset="1" stop-color="#10B981"/>
+          <stop offset="0" stop-color="#38BDF8"/>
+          <stop offset="0.55" stop-color="#60A5FA"/>
+          <stop offset="1" stop-color="#A5B4FC"/>
         </linearGradient>
       </defs>
-      <path d="M92 176V86c0-10 8-18 18-18h30c22 0 40 18 40 40s-18 40-40 40h-22"
-            fill="none"
-            stroke="url(#relayGradientOnboarding)"
-            stroke-width="18"
-            stroke-linecap="round"
-            stroke-linejoin="round"/>
-      <path d="M118 148l52 28"
-            fill="none"
-            stroke="url(#relayGradientOnboarding)"
-            stroke-width="18"
-            stroke-linecap="round"/>
-      <circle cx="188" cy="176" r="10" fill="url(#relayGradientOnboarding)"/>
+      <g transform="translate(128 128) scale(1.14) translate(-128 -128)">
+        <path d="M92 176V86c0-10 8-18 18-18h30c22 0 40 18 40 40s-18 40-40 40h-22"
+              fill="none"
+              stroke="url(#relayGradientOnboarding)"
+              stroke-width="18"
+              stroke-linecap="round"
+              stroke-linejoin="round"/>
+        <path d="M118 148l52 28"
+              fill="none"
+              stroke="url(#relayGradientOnboarding)"
+              stroke-width="18"
+              stroke-linecap="round"/>
+        <circle cx="188" cy="176" r="10" fill="url(#relayGradientOnboarding)"/>
+      </g>
     </svg>
   );
 }
@@ -162,21 +164,21 @@ export function WelcomeScreen() {
 
       <div class="w-full max-w-md space-y-4 mb-10">
         <div class="flex items-start gap-3 p-4 bg-white rounded-lg border border-stone-200">
-          <span class="text-purple-600 mt-0.5"><LockIcon size={20} /></span>
+          <span class="text-slate-600 mt-0.5"><LockIcon size={20} /></span>
           <div class="flex flex-col gap-1">
             <strong class="text-sm font-semibold text-stone-900">Zero-knowledge encryption</strong>
             <span class="text-sm text-stone-600">Your messages never touch our servers unencrypted</span>
           </div>
         </div>
         <div class="flex items-start gap-3 p-4 bg-white rounded-lg border border-stone-200">
-          <span class="text-purple-600 mt-0.5"><MailIcon size={20} /></span>
+          <span class="text-slate-600 mt-0.5"><MailIcon size={20} /></span>
           <div class="flex flex-col gap-1">
             <strong class="text-sm font-semibold text-stone-900">Disposable edges</strong>
             <span class="text-sm text-stone-600">Email, links, and more — each connection is isolated</span>
           </div>
         </div>
         <div class="flex items-start gap-3 p-4 bg-white rounded-lg border border-stone-200">
-          <span class="text-purple-600 mt-0.5"><UserIcon size={20} /></span>
+          <span class="text-slate-600 mt-0.5"><UserIcon size={20} /></span>
           <div class="flex flex-col gap-1">
             <strong class="text-sm font-semibold text-stone-900">Claim your &handle</strong>
             <span class="text-sm text-stone-600">A portable identity you own forever</span>
@@ -185,14 +187,14 @@ export function WelcomeScreen() {
       </div>
 
       <button
-        class="w-full max-w-md px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors text-base"
+        class="w-full max-w-md px-6 py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800 transition-colors text-base"
         onClick={() => { onboardingStep.value = 'create-passphrase'; }}
       >
         Get Started
       </button>
 
       <p class="text-sm text-stone-600 mt-6">
-        Already have an identity? <a href="#" class="text-purple-600 hover:text-purple-700 font-medium" onClick={(e) => {
+        Already have an identity? <a href="#" class="text-slate-700 hover:text-slate-900 font-medium underline" onClick={(e) => {
           e.preventDefault();
           // TODO: Import flow
           showToast('Import coming soon');
@@ -249,7 +251,7 @@ export function CreatePassphraseScreen() {
             <label class="text-sm font-medium text-stone-700">Passphrase</label>
             <button 
               type="button" 
-              class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded transition-colors"
+              class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded transition-colors"
               onClick={handleGeneratePassphrase}
               title="Generate a secure random passphrase"
             >
@@ -260,7 +262,7 @@ export function CreatePassphraseScreen() {
           <div class="relative">
             <input
               type={showPassphrase ? 'text' : 'password'}
-              class="w-full px-3 py-2.5 pr-10 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              class="w-full px-3 py-2.5 pr-10 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
               placeholder="Enter a strong passphrase"
               value={passphrase}
               onInput={(e) => setPassphrase((e.target as HTMLInputElement).value)}
@@ -285,7 +287,7 @@ export function CreatePassphraseScreen() {
           <label class="block text-sm font-medium text-stone-700 mb-2">Confirm Passphrase</label>
           <input
             type={showPassphrase ? 'text' : 'password'}
-            class="w-full px-3 py-2.5 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            class="w-full px-3 py-2.5 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
             placeholder="Confirm your passphrase"
             value={confirmPassphrase}
             onInput={(e) => setConfirmPassphrase((e.target as HTMLInputElement).value)}
@@ -308,7 +310,7 @@ export function CreatePassphraseScreen() {
         </div>
 
         <button
-          class="w-full px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors text-base"
+          class="w-full px-6 py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors text-base"
           onClick={handleCreate}
           disabled={!isValid || isLoading.value}
         >
@@ -403,7 +405,7 @@ export function BackupIdentityScreen() {
   return (
     <div class="flex flex-col min-h-screen bg-stone-50 px-6 py-8">
       <div class="flex-1 flex flex-col items-center justify-center max-w-md mx-auto w-full">
-        <div class="mb-8 text-purple-600">
+        <div class="mb-8 text-slate-600">
           <ShieldIcon />
         </div>
 
@@ -450,7 +452,7 @@ export function BackupIdentityScreen() {
         </div>
 
         <button
-          class="w-full px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors text-base mb-4"
+          class="w-full px-6 py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors text-base mb-4"
           onClick={handleContinue}
           disabled={!hasDownloaded}
         >
@@ -601,7 +603,7 @@ export function CreateFirstEdgeScreen() {
   return (
     <div class="flex flex-col min-h-screen bg-stone-50 px-6 py-8">
       <div class="flex-1 flex flex-col justify-center max-w-md mx-auto w-full">
-        <div class="mb-6 text-purple-600 flex justify-center">
+        <div class="mb-6 text-slate-600 flex justify-center">
           <LinkIcon size={48} />
         </div>
 
@@ -612,9 +614,9 @@ export function CreateFirstEdgeScreen() {
         </p>
 
         {/* Educational blurb */}
-        <div class="mb-6 p-4 bg-purple-50 border border-purple-200 rounded-lg">
-          <h3 class="text-sm font-semibold text-purple-900 mb-2">What are edges?</h3>
-          <p class="text-sm text-purple-800">
+        <div class="mb-6 p-4 bg-sky-50 border border-sky-200 rounded-lg">
+          <h3 class="text-sm font-semibold text-sky-900 mb-2">What are edges?</h3>
+          <p class="text-sm text-sky-800">
             Think of edges as aliases that connect you to the outside world. You can create unlimited edges, share them freely, and burn them anytime — all without exposing your true identity.
           </p>
         </div>
@@ -626,8 +628,8 @@ export function CreateFirstEdgeScreen() {
               key={edgeType.id}
               class={`flex items-start gap-4 p-4 border-2 rounded-xl cursor-pointer transition-all duration-150 ${
                 selectedEdgeType === edgeType.id
-                  ? 'border-purple-600 bg-purple-50' 
-                  : 'border-stone-200 bg-white hover:border-purple-400 hover:bg-stone-50'
+                  ? 'border-slate-600 bg-slate-50' 
+                  : 'border-stone-200 bg-white hover:border-slate-400 hover:bg-stone-50'
               }`}
             >
               <input
@@ -643,10 +645,10 @@ export function CreateFirstEdgeScreen() {
               />
               <div class="flex-1">
                 <div class="flex items-center gap-2 mb-1">
-                  <span class={selectedEdgeType === edgeType.id ? 'text-purple-600' : 'text-stone-600'}>
+                  <span class={selectedEdgeType === edgeType.id ? 'text-slate-700' : 'text-stone-600'}>
                     {edgeType.icon}
                   </span>
-                  <span class={`font-semibold ${selectedEdgeType === edgeType.id ? 'text-purple-600' : 'text-stone-900'}`}>
+                  <span class={`font-semibold ${selectedEdgeType === edgeType.id ? 'text-slate-800' : 'text-stone-900'}`}>
                     {edgeType.name}
                   </span>
                   <span class={`text-xs px-2 py-0.5 rounded-full ${
@@ -681,7 +683,7 @@ export function CreateFirstEdgeScreen() {
                   placeholder="yourname"
                   pattern="[a-z0-9_]{3,24}"
                   maxLength={24}
-                  class="flex-1 px-3 py-2.5 text-sm bg-white text-stone-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  class="flex-1 px-3 py-2.5 text-sm bg-white text-stone-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
                   autoFocus
                 />
               </div>
@@ -704,7 +706,7 @@ export function CreateFirstEdgeScreen() {
                 onInput={(e) => setDisplayName((e.target as HTMLInputElement).value)}
                 placeholder="Your Name"
                 maxLength={50}
-                class="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white text-stone-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                class="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white text-stone-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
               />
             </div>
           </div>
@@ -718,7 +720,7 @@ export function CreateFirstEdgeScreen() {
               value={label}
               onInput={(e) => setLabel((e.target as HTMLInputElement).value)}
               placeholder="e.g., Shopping, Newsletters"
-              class="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white text-stone-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              class="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white text-stone-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
             />
             <p class="text-xs text-stone-500 mt-2">
               A random email address will be generated for you.
@@ -729,7 +731,7 @@ export function CreateFirstEdgeScreen() {
         {error && <div class="mb-4 p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded-lg">{error}</div>}
 
         <button
-          class="w-full px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors text-base mb-3"
+          class="w-full px-6 py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors text-base mb-3"
           onClick={handleCreate}
           disabled={loading || (selectedEdgeType === 'native' && !isValidHandle)}
         >
@@ -775,8 +777,8 @@ export function CompleteScreen() {
       </p>
 
       {/* Security highlights */}
-      <div class="w-full max-w-md bg-gradient-to-br from-purple-50 to-emerald-50 border border-purple-200 rounded-xl p-5 mb-6">
-        <h3 class="text-sm font-semibold text-purple-900 mb-3 flex items-center gap-2">
+      <div class="w-full max-w-md bg-gradient-to-br from-slate-50 to-sky-50 border border-slate-200 rounded-xl p-5 mb-6">
+        <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
           </svg>
@@ -821,7 +823,7 @@ export function CompleteScreen() {
       </div>
 
       <button
-        class="w-full max-w-md px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors text-base"
+        class="w-full max-w-md px-6 py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800 transition-colors text-base"
         onClick={() => completeOnboarding()}
       >
         Start Using Relay

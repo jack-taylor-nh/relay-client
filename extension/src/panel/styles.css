@@ -1,47 +1,78 @@
 @import "tailwindcss";
 
 /**
- * Relay Panel - Design System
+ * Relay Panel - Design System v2
  * 
  * Powered by Tailwind CSS v4 (CSS-first configuration)
- * Brand gradient: #38BDF8 (sky) → #60A5FA (blue) → #A5B4FC (indigo)
- * System UI: Neutral slate/stone - brand color used sparingly
- * Design goal: Trust, security, infrastructure - not startup-y fun
+ * 
+ * DESIGN PHILOSOPHY:
+ * - Neutral system UI (slate/stone) - trust, security, infrastructure
+ * - Brand gradient used sparingly as accent only
+ * - NOT startup-y purple - clean like Stripe/Linear
+ * 
+ * BRAND GRADIENT (from glyph SVG):
+ * Sky #38BDF8 → Blue #60A5FA → Indigo #A5B4FC
  */
 
 @theme {
-  /* Brand gradient colors (from glyph SVG) */
+  /* ============================================
+   * BRAND COLORS - Use sparingly for accent only
+   * ============================================ */
   --color-relay-sky: #38BDF8;
   --color-relay-blue: #60A5FA;
   --color-relay-indigo: #A5B4FC;
-  --color-relay-navy: #0B1020;
+  --color-relay-navy: #0F172A;
   
-  /* Semantic tokens - neutral system UI with restrained accent */
-  --color-primary: #475569;           /* slate-600 - neutral primary */
+  /* ============================================
+   * SEMANTIC SYSTEM COLORS
+   * Primary = slate (neutral, trustworthy)
+   * Accent = sky/blue (from brand, used sparingly)
+   * ============================================ */
+  
+  /* Primary actions - neutral slate */
+  --color-primary: #475569;           /* slate-600 */
   --color-primary-hover: #334155;     /* slate-700 */
+  --color-primary-active: #1e293b;    /* slate-800 */
   --color-primary-subtle: #f1f5f9;    /* slate-100 */
   
-  --color-background: #fafaf9;
+  /* Accent - brand sky/blue for highlights */
+  --color-accent: #0ea5e9;            /* sky-500 */
+  --color-accent-hover: #0284c7;      /* sky-600 */
+  --color-accent-subtle: #e0f2fe;     /* sky-100 */
+  
+  /* Backgrounds */
+  --color-background: #fafaf9;        /* stone-50 */
   --color-background-elevated: #ffffff;
-  --color-background-hover: #f5f5f4;
-  --color-background-active: #e7e5e4;
+  --color-background-hover: #f5f5f4;  /* stone-100 */
+  --color-background-active: #e7e5e4; /* stone-200 */
   
-  --color-text-primary: #1c1917;
-  --color-text-secondary: #57534e;
-  --color-text-tertiary: #a8a29e;
+  /* Text */
+  --color-text-primary: #1c1917;      /* stone-900 */
+  --color-text-secondary: #57534e;    /* stone-600 */
+  --color-text-tertiary: #a8a29e;     /* stone-400 */
   
-  --color-border: #e7e5e4;
-  --color-border-subtle: #f5f5f4;
+  /* Borders */
+  --color-border: #e7e5e4;            /* stone-200 */
+  --color-border-subtle: #f5f5f4;     /* stone-100 */
+  --color-border-strong: #d6d3d1;     /* stone-300 */
   
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-error: #dc2626;
+  /* Status colors */
+  --color-success: #16a34a;           /* green-600 */
+  --color-success-subtle: #dcfce7;    /* green-100 */
+  --color-warning: #d97706;           /* amber-600 */
+  --color-warning-subtle: #fef3c7;    /* amber-100 */
+  --color-error: #dc2626;             /* red-600 */
+  --color-error-subtle: #fee2e2;      /* red-100 */
   
-  /* Typography */
+  /* ============================================
+   * TYPOGRAPHY
+   * ============================================ */
   --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-family-mono: 'SF Mono', 'Fira Code', 'Menlo', monospace;
   
-  /* 8px grid spacing system */
+  /* ============================================
+   * SPACING (8px grid)
+   * ============================================ */
   --spacing-0\.5: 0.125rem;
   --spacing-1: 0.25rem;
   --spacing-1\.5: 0.375rem;
@@ -54,15 +85,19 @@
   --spacing-10: 2.5rem;
   --spacing-12: 3rem;
   
-  /* Border radius */
+  /* ============================================
+   * BORDER RADIUS
+   * ============================================ */
   --radius-sm: 4px;
-  --radius: 8px;
+  --radius: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
   --radius-full: 9999px;
   
-  /* Shadows */
+  /* ============================================
+   * SHADOWS
+   * ============================================ */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
@@ -70,7 +105,10 @@
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
 }
 
-/* Base styles */
+/* ============================================
+ * BASE STYLES
+ * ============================================ */
+
 html {
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
@@ -94,7 +132,217 @@ body {
   min-height: 100vh;
 }
 
-/* Loading screen */
+/* ============================================
+ * COMPONENT: BUTTONS
+ * Usage: class="btn btn-primary" or "btn btn-secondary"
+ * ============================================ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Primary button - slate (neutral, trustworthy) */
+.btn-primary {
+  background-color: var(--color-primary);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--color-primary-hover);
+}
+
+.btn-primary:active:not(:disabled) {
+  background-color: var(--color-primary-active);
+}
+
+/* Secondary button - outlined */
+.btn-secondary {
+  background-color: var(--color-background-elevated);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-strong);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--color-background-hover);
+  border-color: var(--color-primary);
+}
+
+/* Ghost button - minimal */
+.btn-ghost {
+  background-color: transparent;
+  color: var(--color-text-secondary);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background-color: var(--color-background-hover);
+  color: var(--color-text-primary);
+}
+
+/* Danger button */
+.btn-danger {
+  background-color: var(--color-error);
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: #b91c1c;
+}
+
+/* Button sizes */
+.btn-sm {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+.btn-lg {
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+}
+
+.btn-full {
+  width: 100%;
+}
+
+/* ============================================
+ * COMPONENT: INPUTS
+ * Usage: class="input" or "input input-error"
+ * ============================================ */
+
+.input {
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+  background-color: var(--color-background-elevated);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  transition: all 0.15s ease;
+}
+
+.input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+
+.input-error {
+  border-color: var(--color-error);
+}
+
+.input-error:focus {
+  box-shadow: 0 0 0 3px var(--color-error-subtle);
+}
+
+/* ============================================
+ * COMPONENT: CARDS
+ * Usage: class="card" with optional "card-interactive"
+ * ============================================ */
+
+.card {
+  background-color: var(--color-background-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+}
+
+.card-interactive {
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.card-interactive:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.card-selected {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-subtle);
+}
+
+/* ============================================
+ * COMPONENT: FEATURE ICONS (for onboarding etc)
+ * Usage: class="feature-icon"
+ * ============================================ */
+
+.feature-icon {
+  color: var(--color-primary);
+}
+
+/* ============================================
+ * COMPONENT: INFO BOXES
+ * Usage: class="info-box info-box-accent" etc
+ * ============================================ */
+
+.info-box {
+  padding: 1rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid;
+}
+
+.info-box-accent {
+  background-color: var(--color-accent-subtle);
+  border-color: #bae6fd; /* sky-200 */
+  color: #0c4a6e; /* sky-900 */
+}
+
+.info-box-warning {
+  background-color: var(--color-warning-subtle);
+  border-color: #fcd34d; /* amber-300 */
+  color: #78350f; /* amber-900 */
+}
+
+.info-box-success {
+  background-color: var(--color-success-subtle);
+  border-color: #86efac; /* green-300 */
+  color: #14532d; /* green-900 */
+}
+
+.info-box-error {
+  background-color: var(--color-error-subtle);
+  border-color: #fca5a5; /* red-300 */
+  color: #7f1d1d; /* red-900 */
+}
+
+/* ============================================
+ * COMPONENT: LINKS
+ * ============================================ */
+
+.link {
+  color: var(--color-primary);
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.link:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+/* ============================================
+ * UTILITY: LOADING
+ * ============================================ */
+
 .loading-screen {
   display: flex;
   flex-direction: column;
@@ -108,7 +356,7 @@ body {
   width: 2rem;
   height: 2rem;
   border: 3px solid var(--color-border);
-  border-top-color: var(--color-primary);
+  border-top-color: var(--color-accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -117,7 +365,10 @@ body {
   to { transform: rotate(360deg); }
 }
 
-/* Toast notifications */
+/* ============================================
+ * COMPONENT: TOAST
+ * ============================================ */
+
 .toast {
   position: fixed;
   bottom: 1.5rem;
@@ -144,7 +395,10 @@ body {
   }
 }
 
-/* Empty states */
+/* ============================================
+ * UTILITY: EMPTY STATES
+ * ============================================ */
+
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -164,44 +418,5 @@ body {
   font-size: 0.875rem;
   color: var(--color-text-secondary);
   margin: 0 0 1rem 0;
-}
-
-/* Utility classes for legacy components */
-.btn {
-  padding: 0.625rem 1rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  border-radius: var(--radius-md);
-  border: none;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn-primary {
-  background-color: var(--color-primary);
-  color: white;
-}
-
-.btn-primary:hover {
-  background-color: var(--color-primary-dark);
-}
-
-.btn-secondary {
-  background-color: var(--color-surface);
-  color: var(--color-text-primary);
-  border: 1px solid var(--color-border);
-}
-
-.btn-secondary:hover {
-  background-color: var(--color-surface-hover);
-}
-
-.btn-danger {
-  background-color: #dc2626;
-  color: white;
-}
-
-.btn-danger:hover {
-  background-color: #b91c1c;
 }
 
