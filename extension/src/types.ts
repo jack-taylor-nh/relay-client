@@ -17,6 +17,7 @@ export interface Conversation {
   lastActivityAt: string;
   createdAt: string;
   unreadCount?: number;
+  isUnread?: boolean;  // True if lastActivityAt > lastSeenAt
   // Phase 4: Edge-to-edge messaging info
   myEdgeId?: string;              // My edge ID for this conversation
   counterpartyEdgeId?: string;    // Counterparty's edge ID

@@ -30,7 +30,7 @@ export function InboxView() {
         <h3 class="text-lg font-semibold text-stone-900 mb-2">No conversations yet</h3>
         <p class="text-sm text-stone-600 mb-4">Start a chat with another handle or create an email alias to receive messages.</p>
         <button 
-          class="px-4 py-2.5 text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-md transition-colors duration-150"
+          class="px-4 py-2.5 text-sm font-semibold text-white bg-slate-700 hover:bg-slate-800 rounded-md transition-colors duration-150"
           onClick={() => { activeTab.value = 'new'; }}
         >
           Start a chat
@@ -45,7 +45,7 @@ export function InboxView() {
       <div class="flex items-center justify-between px-4 py-3 border-b border-stone-200 bg-white">
         <h2 class="text-lg font-semibold text-stone-900">Inbox</h2>
         <button
-          class={`p-2 rounded-md transition-all duration-150 ${refreshing ? 'text-purple-600' : 'text-stone-500 hover:text-stone-700 hover:bg-stone-100'}`}
+          class={`p-2 rounded-md transition-all duration-150 ${refreshing ? 'text-sky-600' : 'text-stone-500 hover:text-stone-700 hover:bg-stone-100'}`}
           onClick={() => loadConversations()}
           disabled={refreshing}
           title="Refresh conversations"

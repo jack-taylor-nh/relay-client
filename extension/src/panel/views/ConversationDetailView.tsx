@@ -231,6 +231,16 @@ export function ConversationDetailView() {
     if (conversationId) {
       loadMessages(conversationId, false);
       
+      // Mark conversation as seen (for notification badge)
+      sendMessage({ type: 'MARK_CONVERSATION_SEEN', payload: { conversationId } })
+        .then(() => {
+          // Update local state immediately so UI reflects read status
+          conversations.value = conversations.value.map(c =>
+            c.id === conversationId ? { ...c, isUnread: false, unreadCount: 0 } : c
+          );
+        })
+        .catch(() => {}); // Ignore errors
+      
       // Set up polling for new messages
       pollIntervalRef.current = setInterval(() => {
         loadMessages(conversationId, true);
@@ -564,7 +574,7 @@ export function ConversationDetailView() {
         
         .message-bubble.mine {
           align-self: flex-end;
-          background-color: #6366f1;
+          background-color: #0ea5e9;
           color: white;
           border-bottom-right-radius: 6px;
           margin-left: 20%;
@@ -639,7 +649,7 @@ export function ConversationDetailView() {
           width: 40px;
           height: 40px;
           border: none;
-          background-color: #6366f1;
+          background-color: #475569;
           color: white;
           border-radius: 8px;
           cursor: pointer;
@@ -648,11 +658,11 @@ export function ConversationDetailView() {
         }
         
         .send-button:hover:not(:disabled) {
-          background-color: #4f46e5;
+          background-color: #334155;
         }
         
         .send-button:active:not(:disabled) {
-          background-color: #4338ca;
+          background-color: #1e293b;
         }
         
         .send-button:disabled {

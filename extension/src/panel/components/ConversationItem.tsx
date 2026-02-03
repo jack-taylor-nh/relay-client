@@ -70,7 +70,7 @@ function formatTime(isoString: string): string {
 }
 
 export function ConversationItem({ conversation, isSelected, onClick }: Props) {
-  const hasUnread = (conversation.unreadCount ?? 0) > 0;
+  const isUnread = conversation.isUnread ?? (conversation.unreadCount ?? 0) > 0;
   const securityLevel = conversation.securityLevel || 'e2ee';
   const hasPreview = conversation.lastMessagePreview && conversation.lastMessagePreview.trim().length > 0;
 
@@ -81,28 +81,33 @@ export function ConversationItem({ conversation, isSelected, onClick }: Props) {
       }`}
       onClick={onClick}
     >
-      <div class="flex-shrink-0 w-7 h-7 flex items-center justify-center bg-stone-100 rounded-full text-stone-600">
+      <div class={`flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full ${
+        isUnread ? 'bg-sky-500 text-white' : 'bg-stone-100 text-stone-600'
+      }`}>
         <div class="w-4 h-4">
           <OriginIcon type={conversation.type} />
         </div>
       </div>
       <div class="flex-1 min-w-0">
         <div class="flex items-center justify-between gap-2 mb-0.5">
-          <span class={`text-sm ${hasUnread ? 'font-semibold' : 'font-medium'} text-stone-900 whitespace-nowrap overflow-hidden text-ellipsis`}>
+          <span class={`text-sm ${isUnread ? 'font-semibold' : 'font-medium'} text-stone-900 whitespace-nowrap overflow-hidden text-ellipsis`}>
             {conversation.counterpartyName || 'Unknown'}
           </span>
           <div class="flex items-center gap-1 flex-shrink-0">
             <SecurityBadge level={securityLevel} />
-            <span class="flex-shrink-0 text-xs text-stone-400">{formatTime(conversation.lastActivityAt)}</span>
+            <span class={`flex-shrink-0 text-xs ${isUnread ? 'text-stone-600 font-medium' : 'text-stone-400'}`}>
+              {formatTime(conversation.lastActivityAt)}
+            </span>
           </div>
         </div>
         {hasPreview && (
-          <div class="text-xs text-stone-600 whitespace-nowrap overflow-hidden text-ellipsis">
+          <div class={`text-xs whitespace-nowrap overflow-hidden text-ellipsis ${
+            isUnread ? 'text-stone-700' : 'text-stone-500'
+          }`}>
             {conversation.lastMessagePreview}
           </div>
         )}
       </div>
-      {hasUnread && <div class="flex-shrink-0 w-2 h-2 bg-cyan-400 rounded-full" />}
     </button>
   );
 }

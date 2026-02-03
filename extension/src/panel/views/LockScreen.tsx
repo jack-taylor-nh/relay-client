@@ -66,14 +66,14 @@ export function LockScreen() {
         <h1 class="text-2xl font-semibold text-stone-900 mb-2">Relay is Locked</h1>
         
         {currentIdentity.value?.handle && (
-          <p class="text-sm text-purple-600 font-medium mb-6">&{currentIdentity.value.handle}</p>
+          <p class="text-sm text-sky-600 font-medium mb-6">&{currentIdentity.value.handle}</p>
         )}
 
         <div class="w-full mb-4">
           <div class="relative">
             <input
               type={showPassphrase ? 'text' : 'password'}
-              class="w-full px-4 py-3 pr-12 border border-stone-200 rounded-lg text-sm bg-white text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+              class="w-full px-4 py-3 pr-12 border border-stone-200 rounded-lg text-sm bg-white text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
               placeholder="Enter passphrase"
               value={passphrase}
               onInput={(e) => {
@@ -96,7 +96,7 @@ export function LockScreen() {
         {error && <div class="w-full px-4 py-3 mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg">{error}</div>}
 
         <button
-          class="w-full px-6 py-3 text-base font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          class="w-full px-6 py-3 text-base font-semibold text-white bg-slate-700 hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={handleUnlock}
           disabled={!passphrase || isLoading.value}
         >

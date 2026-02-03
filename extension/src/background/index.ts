@@ -74,16 +74,129 @@ let storageKey: Uint8Array | null = null;
 // This is populated from encrypted chrome.storage.local on demand
 const decryptedMessageCache: Map<string, string> = new Map();
 
-// Auto-lock timer
-let lockTimer: ReturnType<typeof setTimeout> | null = null;
-const LOCK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+// Auto-lock configuration
+const LOCK_ALARM_NAME = 'relay-auto-lock';
+const LOCK_TIMEOUT_MINUTES = 30; // 30 minutes of inactivity
 
-function resetLockTimer() {
-  if (lockTimer) clearTimeout(lockTimer);
-  lockTimer = setTimeout(() => {
-    lock();
+// Session state key (stored in chrome.storage.session to survive service worker restarts)
+const SESSION_STATE_KEY = 'unlockedSession';
+
+interface SessionPersistence {
+  secretKeyBase64: string;
+  publicKeyBase64: string;
+  fingerprint: string;
+  handle: string | null;
+  unlockedAt: number;
+}
+
+/**
+ * Reset the auto-lock timer using chrome.alarms (survives service worker restarts)
+ */
+async function resetLockTimer(): Promise<void> {
+  // Clear existing alarm
+  await chrome.alarms.clear(LOCK_ALARM_NAME);
+  
+  // Create new alarm
+  await chrome.alarms.create(LOCK_ALARM_NAME, {
+    delayInMinutes: LOCK_TIMEOUT_MINUTES,
+  });
+  
+  console.log(`[AutoLock] Timer reset - will lock in ${LOCK_TIMEOUT_MINUTES} minutes`);
+}
+
+/**
+ * Handle auto-lock alarm
+ */
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === LOCK_ALARM_NAME) {
+    console.log('[AutoLock] Timer expired, locking...');
+    await lockAndClearSession();
     notifyPanel({ type: 'LOCKED' });
-  }, LOCK_TIMEOUT_MS);
+  }
+});
+
+/**
+ * Persist unlocked state to session storage (survives service worker restarts)
+ */
+async function persistSessionState(): Promise<void> {
+  if (!unlockedIdentity) return;
+  
+  const sessionData: SessionPersistence = {
+    secretKeyBase64: toBase64(unlockedIdentity.secretKey),
+    publicKeyBase64: toBase64(unlockedIdentity.publicKey),
+    fingerprint: unlockedIdentity.fingerprint,
+    handle: unlockedIdentity.handle,
+    unlockedAt: Date.now(),
+  };
+  
+  await chrome.storage.session.set({ [SESSION_STATE_KEY]: sessionData });
+  console.log('[Session] Persisted unlocked state to session storage');
+}
+
+/**
+ * Restore unlocked state from session storage (on service worker restart)
+ */
+async function restoreSessionState(): Promise<boolean> {
+  try {
+    const result = await chrome.storage.session.get(SESSION_STATE_KEY);
+    const sessionData = result[SESSION_STATE_KEY] as SessionPersistence | undefined;
+    
+    if (!sessionData) {
+      console.log('[Session] No persisted session found');
+      return false;
+    }
+    
+    // Restore unlocked identity
+    unlockedIdentity = {
+      secretKey: fromBase64(sessionData.secretKeyBase64),
+      publicKey: fromBase64(sessionData.publicKeyBase64),
+      fingerprint: sessionData.fingerprint,
+      handle: sessionData.handle,
+    };
+    
+    // Derive storage key
+    storageKey = deriveStorageKey(unlockedIdentity.secretKey);
+    
+    console.log('[Session] Restored unlocked state from session storage');
+    
+    // Restart polling
+    onUnlock();
+    
+    return true;
+  } catch (error) {
+    console.error('[Session] Failed to restore session:', error);
+    return false;
+  }
+}
+
+/**
+ * Clear session state (on lock or logout)
+ */
+async function clearSessionState(): Promise<void> {
+  await chrome.storage.session.remove(SESSION_STATE_KEY);
+  await chrome.alarms.clear(LOCK_ALARM_NAME);
+  console.log('[Session] Cleared session state');
+}
+
+/**
+ * Lock and clear session (internal use)
+ */
+async function lockAndClearSession(): Promise<void> {
+  // Zero out secrets in memory
+  if (unlockedIdentity?.secretKey) {
+    unlockedIdentity.secretKey.fill(0);
+  }
+  if (storageKey) {
+    storageKey.fill(0);
+    storageKey = null;
+  }
+  
+  decryptedMessageCache.clear();
+  unlockedIdentity = null;
+  session = { token: null, expiresAt: null };
+  
+  await clearSessionState();
+  onLock();
 }
 
 // ============================================
@@ -345,7 +458,14 @@ type MessageType =
   | { type: 'GET_EDGES' }
   | { type: 'BURN_EDGE'; payload: { edgeId: string } }
   | { type: 'GET_ALIASES' }
-  | { type: 'CREATE_ALIAS'; payload: { label?: string } };
+  | { type: 'CREATE_ALIAS'; payload: { label?: string } }
+  // Notification system
+  | { type: 'GET_NOTIFICATION_PREFS' }
+  | { type: 'SET_NOTIFICATION_PREFS'; payload: { enabled?: boolean; showDesktopNotifications?: boolean; showBadgeCount?: boolean } }
+  | { type: 'MARK_CONVERSATION_SEEN'; payload: { conversationId: string } }
+  | { type: 'GET_UNREAD_COUNT' }
+  | { type: 'GET_LAST_SEEN_STATE' }
+  | { type: 'FORCE_POLL' };
 
 async function handleMessage(message: MessageType): Promise<unknown> {
   // Reset lock timer on activity
@@ -442,6 +562,37 @@ async function handleMessage(message: MessageType): Promise<unknown> {
     case 'CREATE_ALIAS':
       // Aliases are now edges - redirect to createEdge with email type
       return createEdge('email', message.payload.label);
+
+    // ============================================
+    // Notification Preferences
+    // ============================================
+    
+    case 'GET_NOTIFICATION_PREFS':
+      return getNotificationPrefs();
+
+    case 'SET_NOTIFICATION_PREFS':
+      await setNotificationPrefs(message.payload);
+      return { success: true };
+
+    case 'MARK_CONVERSATION_SEEN':
+      await markConversationSeen(message.payload.conversationId);
+      return { success: true };
+
+    case 'GET_UNREAD_COUNT':
+      const unreadState = await getLastSeenState();
+      // Count conversations with activity after last seen
+      // Note: This is a simplified count - full accuracy requires API call
+      return { 
+        count: Object.keys(unreadState.conversations).length > 0 ? 0 : -1,
+        lastCheck: unreadState.globalLastCheck,
+      };
+
+    case 'GET_LAST_SEEN_STATE':
+      return getLastSeenState();
+
+    case 'FORCE_POLL':
+      await pollForNewMessages();
+      return { success: true };
 
     default:
       throw new Error(`Unknown message type: ${(message as { type: string }).type}`);
@@ -552,6 +703,9 @@ async function createIdentity(passphrase: string): Promise<{
     // Continue anyway - local identity is created
   }
 
+  // Persist session state (survives service worker restarts)
+  await persistSessionState();
+  await resetLockTimer();
   onUnlock(); // Start background polling
 
   return {
@@ -593,43 +747,23 @@ async function unlock(passphrase: string): Promise<{ success: boolean; error?: s
   storageKey = deriveStorageKey(secretKey);
   console.log('[unlock] Derived storage encryption key');
 
-  resetLockTimer();
+  // Persist session state (survives service worker restarts)
+  await persistSessionState();
+  
+  await resetLockTimer();
   onUnlock(); // Start background polling
 
   return { success: true };
 }
 
-function lock(): { success: boolean } {
-  if (unlockedIdentity?.secretKey) {
-    // Zero out secret key in memory
-    unlockedIdentity.secretKey.fill(0);
-  }
-  
-  // Zero out storage key
-  if (storageKey) {
-    storageKey.fill(0);
-    storageKey = null;
-  }
-  
-  // Clear memory cache (encrypted cache in storage remains)
-  decryptedMessageCache.clear();
-  
-  unlockedIdentity = null;
-  session = { token: null, expiresAt: null };
-  
-  if (lockTimer) {
-    clearTimeout(lockTimer);
-    lockTimer = null;
-  }
-  
-  onLock(); // Stop background polling
-
+async function lock(): Promise<{ success: boolean }> {
+  await lockAndClearSession();
   return { success: true };
 }
 
 async function logout(): Promise<{ success: boolean }> {
-  // First lock to clear memory
-  lock();
+  // First lock to clear memory and session
+  await lock();
   
   // Clear all stored data including encrypted message cache
   await chrome.storage.local.remove([
@@ -637,6 +771,8 @@ async function logout(): Promise<{ success: boolean }> {
     'edgeKeys',
     'session',
     MESSAGE_CACHE_KEY,
+    'lastSeenState',
+    'notificationPrefs',
   ]);
   
   return { success: true };
@@ -1319,8 +1455,12 @@ async function getMessages(
         securityLevel?: string;
         createdAt: string;
       }) => {
-        // Determine if this is my message by checking if senderEdgeId is one of my edges
-        const isMine = msg.senderEdgeId ? myEdgeIds.has(msg.senderEdgeId) : false;
+        // Determine if this is my message:
+        // - If senderExternalId exists, it's from an external sender (NOT mine)
+        // - Otherwise, check if senderEdgeId is one of my edges
+        const isMine = msg.senderExternalId 
+          ? false  // External sender = not mine
+          : (msg.senderEdgeId ? myEdgeIds.has(msg.senderEdgeId) : false);
         
         let content: string;
         
@@ -2088,6 +2228,12 @@ async function sendNativeMessage(
       }
     }
     
+    // Save the sent message to encrypted cache so we can display it later
+    if (data.message_id) {
+      await saveMessageToCache(data.message_id, content);
+      console.log('[sendNativeMessage] Saved sent message to encrypted cache:', data.message_id);
+    }
+    
     // Clear pending send lock
     pendingNativeSends.delete(sendKey);
     
@@ -2581,97 +2727,318 @@ async function burnEdge(edgeId: string): Promise<{
 }
 
 // ============================================
-// Background Polling
+// Notification & Polling System (chrome.alarms)
 // ============================================
 
-const POLL_INTERVAL_MS = 15 * 1000; // 15 seconds
-let pollTimer: ReturnType<typeof setTimeout> | null = null;
-let lastPollTime = 0;
+const POLL_ALARM_NAME = 'relay-poll';
+const POLL_INTERVAL_MINUTES = 1; // Check every 1 minute
 
-async function startPolling() {
-  if (pollTimer) return; // Already polling
+// Notification preferences (stored in chrome.storage.local)
+interface NotificationPrefs {
+  enabled: boolean;
+  showDesktopNotifications: boolean;
+  showBadgeCount: boolean;
+}
+
+const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
+  enabled: true,
+  showDesktopNotifications: true,
+  showBadgeCount: true,
+};
+
+// Track last seen activity per conversation (stored in chrome.storage.local)
+interface LastSeenState {
+  conversations: Record<string, string>; // conversationId -> lastSeenAt ISO string
+  globalLastCheck: string; // Last time we checked for new messages
+}
+
+async function getNotificationPrefs(): Promise<NotificationPrefs> {
+  const storage = await chrome.storage.local.get(['notificationPrefs']);
+  return storage.notificationPrefs || DEFAULT_NOTIFICATION_PREFS;
+}
+
+async function setNotificationPrefs(prefs: Partial<NotificationPrefs>): Promise<void> {
+  const current = await getNotificationPrefs();
+  await chrome.storage.local.set({ 
+    notificationPrefs: { ...current, ...prefs } 
+  });
+}
+
+async function getLastSeenState(): Promise<LastSeenState> {
+  const storage = await chrome.storage.local.get(['lastSeenState']);
+  return storage.lastSeenState || { 
+    conversations: {}, 
+    globalLastCheck: new Date(0).toISOString() 
+  };
+}
+
+async function setLastSeenState(state: LastSeenState): Promise<void> {
+  await chrome.storage.local.set({ lastSeenState: state });
+}
+
+async function markConversationSeen(conversationId: string): Promise<void> {
+  const state = await getLastSeenState();
+  state.conversations[conversationId] = new Date().toISOString();
+  await setLastSeenState(state);
   
-  console.log('Starting background poll...');
-  pollTimer = setInterval(async () => {
-    if (!unlockedIdentity) {
-      stopPolling();
-      return;
-    }
-    
-    await pollForNewMessages();
-  }, POLL_INTERVAL_MS);
+  // Recalculate badge
+  await updateBadgeCount();
+}
+
+async function startAlarmPolling(): Promise<void> {
+  // Clear any existing alarm
+  await chrome.alarms.clear(POLL_ALARM_NAME);
+  
+  // Create recurring alarm
+  await chrome.alarms.create(POLL_ALARM_NAME, {
+    periodInMinutes: POLL_INTERVAL_MINUTES,
+    delayInMinutes: 0.1, // Start almost immediately (6 seconds)
+  });
+  
+  console.log('[Notifications] Alarm polling started');
   
   // Also poll immediately
   await pollForNewMessages();
 }
 
-function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
+async function stopAlarmPolling(): Promise<void> {
+  await chrome.alarms.clear(POLL_ALARM_NAME);
+  console.log('[Notifications] Alarm polling stopped');
 }
 
-async function pollForNewMessages() {
-  if (!unlockedIdentity) return;
+// Handle alarm events (service worker wakes up for this)
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === POLL_ALARM_NAME) {
+    console.log('[Notifications] Alarm fired, checking for messages...');
+    await pollForNewMessages();
+  }
+});
+
+async function pollForNewMessages(): Promise<void> {
+  // Check if we're unlocked
+  if (!unlockedIdentity) {
+    console.log('[Notifications] Wallet locked, skipping poll');
+    return;
+  }
+  
+  const prefs = await getNotificationPrefs();
+  if (!prefs.enabled) {
+    console.log('[Notifications] Notifications disabled, skipping poll');
+    return;
+  }
   
   try {
     const apiUrl = await getApiUrl();
     const token = await getAuthToken();
     
-    if (!token) return;
+    if (!token) {
+      console.log('[Notifications] No auth token, skipping poll');
+      return;
+    }
     
-    // Fetch conversations with activity since last poll
-    const since = lastPollTime > 0 
-      ? new Date(lastPollTime).toISOString() 
-      : undefined;
-    
-    const params = new URLSearchParams();
-    if (since) params.set('since', since);
-    
-    const res = await fetch(`${apiUrl}/v1/conversations?${params}`, {
+    // Fetch all conversations
+    const res = await fetch(`${apiUrl}/v1/conversations`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     
-    if (!res.ok) return;
+    if (!res.ok) {
+      console.log('[Notifications] API error:', res.status);
+      return;
+    }
     
     const data = await res.json();
-    lastPollTime = Date.now();
+    const conversations = data.conversations || [];
     
-    // Check for new messages
-    if (data.conversations && data.conversations.length > 0) {
-      // Notify panel of updates
-      notifyPanel({ 
-        type: 'NEW_MESSAGES',
-        conversations: data.conversations,
-      });
+    // Get last seen state
+    const lastSeenState = await getLastSeenState();
+    const newMessages: Array<{ conversationId: string; counterpartyName: string; lastActivityAt: string }> = [];
+    
+    // Save previous check time BEFORE updating (for notification filtering)
+    const previousGlobalCheck = lastSeenState.globalLastCheck 
+      ? new Date(lastSeenState.globalLastCheck).getTime() 
+      : 0;
+    
+    // Check each conversation for new activity
+    for (const conv of conversations) {
+      const lastSeen = lastSeenState.conversations[conv.id];
+      const lastActivity = new Date(conv.lastActivityAt).getTime();
+      const lastSeenTime = lastSeen ? new Date(lastSeen).getTime() : 0;
       
-      // Show notification for new messages
-      const hasNewMessages = data.conversations.some((c: { lastActivityAt: string }) => 
-        new Date(c.lastActivityAt).getTime() > lastPollTime - POLL_INTERVAL_MS
-      );
-      
-      if (hasNewMessages) {
-        await chrome.action.setBadgeText({ text: '!' });
-        await chrome.action.setBadgeBackgroundColor({ color: '#6366f1' });
+      // New activity since we last saw this conversation
+      if (lastActivity > lastSeenTime) {
+        newMessages.push({
+          conversationId: conv.id,
+          counterpartyName: conv.counterpartyName || conv.counterpartyHandle || 'Unknown',
+          lastActivityAt: conv.lastActivityAt,
+        });
       }
     }
+    
+    // Update global last check time
+    lastSeenState.globalLastCheck = new Date().toISOString();
+    await setLastSeenState(lastSeenState);
+    
+    // Update badge count
+    if (prefs.showBadgeCount) {
+      await updateBadgeCount(newMessages.length);
+    }
+    
+    // Show desktop notification for new messages (only if we have some)
+    console.log('[Notifications] Check:', {
+      showDesktopNotifications: prefs.showDesktopNotifications,
+      newMessagesCount: newMessages.length,
+      previousGlobalCheck: previousGlobalCheck > 0 ? new Date(previousGlobalCheck).toISOString() : 'none',
+    });
+    
+    if (prefs.showDesktopNotifications && newMessages.length > 0) {
+      // Only notify for messages that arrived since our PREVIOUS check
+      // (prevents notification flood on first unlock)
+      const recentMessages = previousGlobalCheck > 0
+        ? newMessages.filter(m => {
+            const msgTime = new Date(m.lastActivityAt).getTime();
+            const isRecent = msgTime > previousGlobalCheck;
+            console.log('[Notifications] Filter message:', {
+              conversationId: m.conversationId,
+              lastActivityAt: m.lastActivityAt,
+              msgTime,
+              previousGlobalCheck,
+              isRecent,
+            });
+            return isRecent;
+          })
+        : []; // Don't notify on first poll (when previousGlobalCheck is 0)
+      
+      console.log('[Notifications] Recent messages to notify:', recentMessages.length);
+      
+      if (recentMessages.length > 0) {
+        console.log('[Notifications] Showing notification for', recentMessages.length, 'new messages');
+        await showNewMessageNotification(recentMessages);
+      } else {
+        console.log('[Notifications] No recent messages to notify (all older than previous check or first poll)');
+      }
+    }
+    
+    // Notify panel if open
+    notifyPanel({ 
+      type: 'NEW_MESSAGES',
+      conversations,
+      unreadCount: newMessages.length,
+    });
+    
+    console.log(`[Notifications] Poll complete: ${newMessages.length} unread conversations`);
   } catch (error) {
-    console.error('Poll error:', error);
+    console.error('[Notifications] Poll error:', error);
   }
 }
 
+async function updateBadgeCount(count?: number): Promise<void> {
+  const prefs = await getNotificationPrefs();
+  
+  if (!prefs.showBadgeCount) {
+    await chrome.action.setBadgeText({ text: '' });
+    return;
+  }
+  
+  // If count not provided, calculate from state
+  if (count === undefined) {
+    // We'd need to recalculate - for now just clear
+    // This is called when marking a conversation as seen
+    count = 0; // Will be updated on next poll
+  }
+  
+  if (count > 0) {
+    await chrome.action.setBadgeText({ text: count > 99 ? '99+' : String(count) });
+    await chrome.action.setBadgeBackgroundColor({ color: '#0ea5e9' }); // sky-500
+  } else {
+    await chrome.action.setBadgeText({ text: '' });
+  }
+}
+
+async function showNewMessageNotification(
+  messages: Array<{ conversationId: string; counterpartyName: string; lastActivityAt: string }>
+): Promise<void> {
+  try {
+    const iconUrl = chrome.runtime.getURL('icons/icon-128.png');
+    console.log('[Notifications] Creating notification with iconUrl:', iconUrl);
+    
+    if (messages.length === 1) {
+      // Single message notification
+      const msg = messages[0];
+      const notificationId = `relay-msg-${msg.conversationId}`;
+      
+      console.log('[Notifications] Creating single notification:', { 
+        notificationId, 
+        title: 'New message',
+        message: `From ${msg.counterpartyName}`,
+      });
+      
+      chrome.notifications.create(notificationId, {
+        type: 'basic',
+        iconUrl,
+        title: 'New message',
+        message: `From ${msg.counterpartyName}`,
+        priority: 2,
+        silent: false,
+      }, (createdId) => {
+        if (chrome.runtime.lastError) {
+          console.error('[Notifications] chrome.notifications.create error:', chrome.runtime.lastError.message);
+        } else {
+          console.log('[Notifications] Notification created successfully:', createdId);
+        }
+      });
+    } else {
+      // Multiple messages notification
+      const notificationId = `relay-msgs-${Date.now()}`;
+      
+      console.log('[Notifications] Creating multi notification:', { 
+        notificationId,
+        title: 'New messages',
+        message: `${messages.length} unread conversations`,
+      });
+      
+      chrome.notifications.create(notificationId, {
+        type: 'basic',
+        iconUrl,
+        title: 'New messages',
+        message: `${messages.length} unread conversations`,
+        priority: 2,
+        silent: false,
+      }, (createdId) => {
+        if (chrome.runtime.lastError) {
+          console.error('[Notifications] chrome.notifications.create error:', chrome.runtime.lastError.message);
+        } else {
+          console.log('[Notifications] Notification created successfully:', createdId);
+        }
+      });
+    }
+  } catch (error) {
+    console.error('[Notifications] Failed to show notification:', error);
+  }
+}
+
+// Handle notification click - clear notification (sidePanel.open requires direct user gesture)
+chrome.notifications.onClicked.addListener(async (notificationId) => {
+  console.log('[Notifications] Notification clicked:', notificationId);
+  
+  // Clear the notification
+  await chrome.notifications.clear(notificationId);
+  
+  // Note: We cannot programmatically open the side panel here because
+  // chrome.sidePanel.open() requires a direct user gesture (like clicking the extension icon).
+  // The user can click the Relay icon in the toolbar to open the panel.
+});
+
 // Start polling when unlocked
 function onUnlock() {
-  startPolling();
-  // Clear badge
+  startAlarmPolling();
+  // Clear badge initially
   chrome.action.setBadgeText({ text: '' });
 }
 
 // Stop polling when locked
 function onLock() {
-  stopPolling();
-  lastPollTime = 0;
+  stopAlarmPolling();
+  chrome.action.setBadgeText({ text: '' });
 }
 
 // ============================================
@@ -2688,4 +3055,16 @@ try {
   console.log('Side panel behavior setup skipped');
 }
 
-console.log('Relay background service worker started');
+// Restore session state on service worker startup
+(async () => {
+  console.log('Relay background service worker started');
+  
+  const restored = await restoreSessionState();
+  if (restored) {
+    console.log('[Init] Session restored - Relay is unlocked');
+    // Reset the lock timer since we just woke up
+    await resetLockTimer();
+  } else {
+    console.log('[Init] No active session - Relay is locked');
+  }
+})();

@@ -555,6 +555,16 @@ export async function loadConversations(): Promise<void> {
   
   isRefreshing.value = true;
   try {
+    // Fetch last seen state for unread calculation
+    const lastSeenResult = await sendMessage<{
+      conversations: Record<string, string>;
+      globalLastCheck: string;
+    }>({ type: 'GET_LAST_SEEN_STATE' }).catch(() => ({
+      conversations: {},
+      globalLastCheck: new Date(0).toISOString(),
+    }));
+    const lastSeenConversations = (lastSeenResult as any)?.conversations || {};
+    
     const convResult = await sendMessage<{
       success: boolean;
       conversations?: Array<{
@@ -607,6 +617,12 @@ export async function loadConversations(): Promise<void> {
           counterpartyName = conv.channelLabel;
         }
 
+        // Calculate if conversation is unread
+        const lastSeenAt = lastSeenConversations[conv.id];
+        const lastActivityTime = new Date(conv.lastActivityAt).getTime();
+        const lastSeenTime = lastSeenAt ? new Date(lastSeenAt).getTime() : 0;
+        const isUnread = lastActivityTime > lastSeenTime;
+
         return {
           id: conv.id,
           type,
@@ -616,7 +632,8 @@ export async function loadConversations(): Promise<void> {
           lastMessagePreview: conv.channelLabel || 'No messages yet',
           lastActivityAt: conv.lastActivityAt,
           createdAt: conv.createdAt,
-          unreadCount: 0,
+          unreadCount: isUnread ? 1 : 0,
+          isUnread,
           // Phase 4: Edge-to-edge messaging info
           myEdgeId: conv.myEdgeId || conv.edge?.id,
           counterpartyEdgeId: conv.counterparty?.edgeId,
