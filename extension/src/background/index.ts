@@ -452,6 +452,7 @@ type MessageType =
   | { type: 'SEND_MESSAGE'; payload: { recipientIdentityId: string; recipientPublicKey: string; content: string; conversationId?: string } }
   | { type: 'SEND_NATIVE_MESSAGE'; payload: { recipientHandle: string; senderHandle: string; content: string } }
   | { type: 'SEND_EMAIL'; payload: { conversationId: string; content: string } }
+  | { type: 'SEND_DISCORD'; payload: { conversationId: string; content: string } }
   | { type: 'SEND_TO_EDGE'; payload: { myEdgeId: string; recipientEdgeId: string; recipientX25519PublicKey: string; content: string; conversationId?: string; origin?: 'native' | 'email' | 'contact_link' | 'discord' | 'bridge' } }
   | { type: 'CREATE_EDGE'; payload: { type: 'native' | 'email' | 'contact_link' | 'discord'; label?: string; customAddress?: string; displayName?: string } }
   | { type: 'GET_EDGE_TYPES' }
@@ -531,6 +532,9 @@ async function handleMessage(message: MessageType): Promise<unknown> {
     case 'SEND_EMAIL':
       // DEPRECATED: Use SEND_TO_EDGE for new code (email goes via bridge edge)
       return sendEmail(message.payload.conversationId, message.payload.content);
+
+    case 'SEND_DISCORD':
+      return sendDiscord(message.payload.conversationId, message.payload.content);
 
     case 'SEND_TO_EDGE':
       // UNIFIED: Single function for all edge-to-edge messaging
@@ -2101,6 +2105,64 @@ async function sendEmail(
     };
   } catch (error) {
     console.error('Send email error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Network error' };
+  }
+}
+
+/**
+ * Send a Discord reply via the server's discord/send endpoint
+ */
+async function sendDiscord(
+  conversationId: string,
+  content: string
+): Promise<{
+  success: boolean;
+  messageId?: string;
+  error?: string;
+}> {
+  if (!unlockedIdentity) {
+    return { success: false, error: 'Wallet is locked' };
+  }
+
+  try {
+    const apiUrl = await getApiUrl();
+    const token = await getAuthToken();
+    
+    if (!token) {
+      return { success: false, error: 'Failed to authenticate' };
+    }
+
+    console.log('[sendDiscord] Sending reply to conversation:', conversationId);
+
+    // Call the server's discord send endpoint
+    // The server handles looking up the encrypted Discord ID and forwarding to the worker
+    const res = await fetch(`${apiUrl}/v1/discord/send`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        conversationId,
+        content,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      console.error('[sendDiscord] Server error:', err);
+      return { success: false, error: err.message || 'Failed to send Discord message' };
+    }
+
+    const data = await res.json();
+    console.log('[sendDiscord] Message sent:', data);
+    
+    return {
+      success: true,
+      messageId: data.messageId,
+    };
+  } catch (error) {
+    console.error('Send Discord error:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Network error' };
   }
 }

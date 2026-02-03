@@ -376,6 +376,25 @@ export function ConversationDetailView() {
           // Don't reload - the optimistic message is already correct
           // Polling will pick up any new messages from the counterparty
         }
+      } else if (conv.securityLevel === 'gateway_secured' && conv.type === 'discord') {
+        // Discord - use discord send API
+        const result = await sendMessage<{
+          success?: boolean;
+          messageId?: string;
+          error?: string;
+        }>({ 
+          type: 'SEND_DISCORD', 
+          payload: { conversationId, content }
+        });
+        
+        if (!result.success) {
+          showToast(`Failed to send: ${result.error}`);
+          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+        } else {
+          // Remove optimistic message and reload to get the server message
+          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+          await loadMessages(conversationId, false);
+        }
       } else if (conv.securityLevel === 'gateway_secured') {
         // Email or contact endpoint - use email send API
         const result = await sendMessage<{
