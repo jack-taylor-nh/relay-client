@@ -3,7 +3,7 @@
  * These mirror @relay/core types but are defined locally to avoid bundling issues
  */
 
-export type ConversationType = 'native' | 'email' | 'contact_endpoint';
+export type ConversationType = 'native' | 'email' | 'contact_endpoint' | 'discord';
 
 export type SecurityLevel = 'e2ee' | 'gateway_secured' | 'mixed';
 

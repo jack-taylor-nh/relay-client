@@ -34,8 +34,9 @@ export function EdgesView() {
 
     setLoading(true);
     try {
+      const edgeType = selectedEdgeTypeId as 'native' | 'discord';
       const result = await createEdge(
-        'native',
+        edgeType,
         undefined, // label not used for handles
         cleanHandle, // customAddress = the handle name
         displayName.trim() || undefined
@@ -59,9 +60,11 @@ export function EdgesView() {
   }
 
   async function handleCreateEdge() {
-    const result = await createEdge('email', label || undefined);
+    // For handle-based types (native, discord), use handleCreateHandle instead
+    const edgeType = selectedEdgeTypeId as 'native' | 'email' | 'contact_link' | 'discord';
+    const result = await createEdge(edgeType, label || undefined);
     if (result.success) {
-      showToast(`Email alias created: ${result.edge.address}`);
+      showToast(`Edge created: ${result.edge.address}`);
       setShowCreateModal(false);
       setLabel('');
     } else {
@@ -86,16 +89,24 @@ export function EdgesView() {
     }
   }
 
-  // All edges (native handles + email aliases) come from the edges list
-  const allEdges = edgeList.map(e => ({
-    id: e.id,
-    type: (e.type === 'native' ? 'native' : 'email') as 'native' | 'email',
-    address: e.type === 'native' ? (e.address.startsWith('&') ? e.address : `&${e.address}`) : e.address,
-    subtitle: e.type === 'native' ? (e.metadata?.displayName || null) : (e.label || null),
-    status: e.status,
-    messageCount: e.messageCount,
-    createdAt: e.createdAt
-  }));
+  // All edges (native handles + email aliases + discord) come from the edges list
+  const allEdges = edgeList.map(e => {
+    let mappedType: 'native' | 'email' | 'discord' = 'email';
+    if (e.type === 'native') mappedType = 'native';
+    else if (e.type === 'discord') mappedType = 'discord';
+    
+    return {
+      id: e.id,
+      type: mappedType,
+      address: (e.type === 'native' || e.type === 'discord') 
+        ? (e.address.startsWith('&') ? e.address : `&${e.address}`) 
+        : e.address,
+      subtitle: (e.type === 'native' || e.type === 'discord') ? (e.metadata?.displayName || null) : (e.label || null),
+      status: e.status,
+      messageCount: e.messageCount,
+      createdAt: e.createdAt
+    };
+  });
 
   return (
     <div class="h-full flex flex-col">
@@ -181,7 +192,7 @@ export function EdgesView() {
                 ))}
               </div>
 
-              {selectedEdgeType?.requiresCustomAddress && selectedEdgeType.id === 'native' ? (
+              {selectedEdgeType?.requiresCustomAddress && (selectedEdgeType.id === 'native' || selectedEdgeType.id === 'discord') ? (
                 <>
                   <label class="text-sm font-medium text-stone-600 mb-1 mt-1">Handle</label>
                   <div class="flex border border-stone-200 rounded-lg overflow-hidden bg-stone-50">
@@ -230,7 +241,7 @@ export function EdgesView() {
                 </button>
                 <button 
                   class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-slate-700 text-white hover:bg-slate-800 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={selectedEdgeTypeId === 'native' ? handleCreateHandle : handleCreateEdge}
+                  onClick={(selectedEdgeTypeId === 'native' || selectedEdgeTypeId === 'discord') ? handleCreateHandle : handleCreateEdge}
                   disabled={loading}
                 >
                   {loading ? 'Creating...' : `Create ${selectedEdgeType?.name || 'Edge'}`}

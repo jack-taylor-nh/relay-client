@@ -313,7 +313,6 @@ export async function loadData() {
         id: string;
         origin: string;
         securityLevel: string;
-        channelLabel?: string;
         edge?: {
           id: string;
           type: string;
@@ -338,28 +337,31 @@ export async function loadData() {
     if (convResult.success && convResult.conversations) {
       conversations.value = convResult.conversations.map(conv => {
         // Determine conversation type from origin
-        let type: 'native' | 'email' | 'contact_endpoint' = 'native';
-        if (conv.origin === 'email_inbound') type = 'email';
+        let type: 'native' | 'email' | 'contact_endpoint' | 'discord' = 'native';
+        if (conv.origin === 'email_inbound' || conv.origin === 'email') type = 'email';
         else if (conv.origin === 'contact_link_inbound') type = 'contact_endpoint';
+        else if (conv.origin === 'discord') type = 'discord';
 
-        // Build counterparty name
+        // Build counterparty name - prioritize decrypted metadata from bridge conversations
         let counterpartyName = 'Unknown';
-        if (conv.counterparty?.handle) {
+        
+        // Check for decrypted counterparty name from encryptedMetadata (bridge conversations)
+        if ((conv as any).decryptedCounterpartyName) {
+          counterpartyName = (conv as any).decryptedCounterpartyName;
+        } else if (conv.counterparty?.handle) {
           // For native conversations, show handle with & prefix
           counterpartyName = conv.counterparty.handle.startsWith('&') 
             ? conv.counterparty.handle 
             : `&${conv.counterparty.handle}`;
-        } else if (conv.channelLabel && conv.origin === 'native') {
-          // Fallback to channelLabel for native conversations (e.g., "&sarahtaylor")
-          counterpartyName = conv.channelLabel;
         } else if (conv.counterparty?.displayName) {
           counterpartyName = conv.counterparty.displayName;
+        } else if (conv.edge?.address && (conv.origin === 'email' || conv.origin === 'email_inbound' || conv.origin === 'discord')) {
+          // For email/discord without decrypted metadata, show a bridge-specific label
+          const bridgeLabel = conv.origin === 'discord' ? 'Discord' : 'Email';
+          counterpartyName = `${bridgeLabel} Contact`;
         } else if (conv.edge?.address && conv.origin !== 'native') {
-          // For email/contact endpoints without display name, use edge address
+          // For contact endpoints without display name, use edge address
           counterpartyName = `Contact via ${conv.edge.address.split('@')[0]}`;
-        } else if (conv.channelLabel) {
-          // General fallback to channelLabel
-          counterpartyName = conv.channelLabel;
         }
         // Note: Don't show externalId - it's encrypted data
 
@@ -505,7 +507,7 @@ export function loadMockData() {
 // ============================================
 
 export async function createEdge(
-  type: 'native' | 'email' | 'contact_link', 
+  type: 'native' | 'email' | 'contact_link' | 'discord', 
   label?: string,
   customAddress?: string,
   displayName?: string
@@ -571,7 +573,6 @@ export async function loadConversations(): Promise<void> {
         id: string;
         origin: string;
         securityLevel: string;
-        channelLabel?: string;
         edge?: {
           id: string;
           type: string;
@@ -595,26 +596,30 @@ export async function loadConversations(): Promise<void> {
 
     if (convResult.success && convResult.conversations) {
       conversations.value = convResult.conversations.map(conv => {
-        let type: 'native' | 'email' | 'contact_endpoint' = 'native';
-        if (conv.origin === 'email_inbound') type = 'email';
+        let type: 'native' | 'email' | 'contact_endpoint' | 'discord' = 'native';
+        if (conv.origin === 'email_inbound' || conv.origin === 'email') type = 'email';
         else if (conv.origin === 'contact_link_inbound') type = 'contact_endpoint';
+        else if (conv.origin === 'discord') type = 'discord';
 
+        // Build counterparty name - prioritize decrypted metadata from bridge conversations
         let counterpartyName = 'Unknown';
-        if (conv.counterparty?.handle) {
+        
+        // Check for decrypted counterparty name from encryptedMetadata (bridge conversations)
+        if ((conv as any).decryptedCounterpartyName) {
+          counterpartyName = (conv as any).decryptedCounterpartyName;
+        } else if (conv.counterparty?.handle) {
           counterpartyName = conv.counterparty.handle.startsWith('&') 
             ? conv.counterparty.handle 
             : `&${conv.counterparty.handle}`;
-        } else if (conv.channelLabel && conv.origin === 'native') {
-          // Fallback to channelLabel for native conversations (e.g., "&sarahtaylor")
-          counterpartyName = conv.channelLabel;
         } else if (conv.counterparty?.displayName) {
           counterpartyName = conv.counterparty.displayName;
+        } else if (conv.edge?.address && (conv.origin === 'email' || conv.origin === 'email_inbound' || conv.origin === 'discord')) {
+          // For email/discord without decrypted metadata, show a bridge-specific label
+          const bridgeLabel = conv.origin === 'discord' ? 'Discord' : 'Email';
+          counterpartyName = `${bridgeLabel} Contact`;
         } else if (conv.edge?.address && conv.origin !== 'native') {
-          // For email/contact endpoints without display name, use edge address
+          // For contact endpoints without display name, use edge address
           counterpartyName = `Contact via ${conv.edge.address.split('@')[0]}`;
-        } else if (conv.channelLabel) {
-          // General fallback to channelLabel
-          counterpartyName = conv.channelLabel;
         }
 
         // Calculate if conversation is unread
@@ -629,7 +634,7 @@ export async function loadConversations(): Promise<void> {
           securityLevel: conv.securityLevel as 'e2ee' | 'gateway_secured',
           participants: [conv.counterparty?.identityId || conv.counterparty?.externalId || 'unknown'],
           counterpartyName,
-          lastMessagePreview: conv.channelLabel || 'No messages yet',
+          lastMessagePreview: 'No messages yet',
           lastActivityAt: conv.lastActivityAt,
           createdAt: conv.createdAt,
           unreadCount: isUnread ? 1 : 0,

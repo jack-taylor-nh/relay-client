@@ -452,8 +452,8 @@ type MessageType =
   | { type: 'SEND_MESSAGE'; payload: { recipientIdentityId: string; recipientPublicKey: string; content: string; conversationId?: string } }
   | { type: 'SEND_NATIVE_MESSAGE'; payload: { recipientHandle: string; senderHandle: string; content: string } }
   | { type: 'SEND_EMAIL'; payload: { conversationId: string; content: string } }
-  | { type: 'SEND_TO_EDGE'; payload: { myEdgeId: string; recipientEdgeId: string; recipientX25519PublicKey: string; content: string; conversationId?: string; origin?: 'native' | 'email' | 'contact_link' | 'bridge' } }
-  | { type: 'CREATE_EDGE'; payload: { type: 'native' | 'email' | 'contact_link'; label?: string; customAddress?: string; displayName?: string } }
+  | { type: 'SEND_TO_EDGE'; payload: { myEdgeId: string; recipientEdgeId: string; recipientX25519PublicKey: string; content: string; conversationId?: string; origin?: 'native' | 'email' | 'contact_link' | 'discord' | 'bridge' } }
+  | { type: 'CREATE_EDGE'; payload: { type: 'native' | 'email' | 'contact_link' | 'discord'; label?: string; customAddress?: string; displayName?: string } }
   | { type: 'GET_EDGE_TYPES' }
   | { type: 'GET_EDGES' }
   | { type: 'BURN_EDGE'; payload: { edgeId: string } }
@@ -1263,7 +1263,8 @@ async function getConversations(): Promise<{
     id: string;
     origin: string;
     securityLevel: string;
-    channelLabel?: string;
+    encryptedMetadata?: string;
+    decryptedCounterpartyName?: string;  // Decrypted from encryptedMetadata
     edge?: {
       id: string;
       type: string;
@@ -1307,7 +1308,64 @@ async function getConversations(): Promise<{
     }
     
     const data = await res.json();
-    return { success: true, conversations: data.conversations };
+    
+    // Decrypt encryptedMetadata for each conversation that has it
+    const conversationsWithDecryptedMetadata = await Promise.all(
+      data.conversations.map(async (conv: any) => {
+        // If there's no encrypted metadata or it's a native conversation, skip decryption
+        if (!conv.encryptedMetadata || conv.origin === 'native') {
+          return conv;
+        }
+        
+        // Look up the edge's secret key to decrypt the metadata
+        const edgeId = conv.myEdgeId || conv.edge?.id;
+        if (!edgeId) {
+          return conv;
+        }
+        
+        // Get edge keys from local storage
+        const stored = await chrome.storage.local.get(['edgeKeys']);
+        const edgeKeys = stored.edgeKeys || {};
+        const edgeKeyEntry = edgeKeys[edgeId];
+        
+        if (!edgeKeyEntry?.secretKey) {
+          console.log(`[getConversations] No secret key found for edge ${edgeId}`);
+          return conv;
+        }
+        
+        try {
+          const edgeSecretKey = fromBase64(edgeKeyEntry.secretKey);
+          
+          // The encryptedMetadata is a NaCl box JSON package (same format as encrypted messages)
+          // Format: { ephemeralPubkey, nonce, ciphertext }
+          const pkg = JSON.parse(conv.encryptedMetadata);
+          const ephemeralPubkey = fromBase64(pkg.ephemeralPubkey);
+          const nonce = fromBase64(pkg.nonce);
+          const ciphertext = fromBase64(pkg.ciphertext);
+          
+          const decrypted = nacl.box.open(ciphertext, nonce, ephemeralPubkey, edgeSecretKey);
+          
+          if (decrypted) {
+            const metadata = JSON.parse(new TextDecoder().decode(decrypted));
+            // The metadata contains { counterpartyDisplayName, platform }
+            return {
+              ...conv,
+              decryptedCounterpartyName: metadata.counterpartyDisplayName,
+              counterparty: {
+                ...conv.counterparty,
+                displayName: metadata.counterpartyDisplayName,
+              },
+            };
+          }
+        } catch (e) {
+          console.warn(`[getConversations] Failed to decrypt metadata for conversation ${conv.id}:`, e);
+        }
+        
+        return conv;
+      })
+    );
+    
+    return { success: true, conversations: conversationsWithDecryptedMetadata };
   } catch (error) {
     console.error('Get conversations error:', error);
     return { success: false, error: 'Network error' };
@@ -1651,17 +1709,25 @@ async function getMessages(
             }
             
             // Try to parse as email structure (incoming emails from worker)
-            // or use as plain content (sent replies)
+            // or Discord structure, or use as plain content (sent replies)
             try {
-              const emailData = JSON.parse(decryptedContent);
-              if (emailData.from || emailData.textBody || emailData.subject) {
+              const bridgeData = JSON.parse(decryptedContent);
+              
+              if (bridgeData.from || bridgeData.textBody || bridgeData.subject) {
                 // It's a structured email payload
-                const from = emailData.fromName || emailData.from || 'Unknown Sender';
-                const subject = emailData.subject || '(no subject)';
-                const body = emailData.textBody || emailData.htmlBody || '(empty message)';
+                const from = bridgeData.fromName || bridgeData.from || 'Unknown Sender';
+                const subject = bridgeData.subject || '(no subject)';
+                const body = bridgeData.textBody || bridgeData.htmlBody || '(empty message)';
                 content = `From: ${from}\nSubject: ${subject}\n\n${body}`;
+              } else if (bridgeData.content && bridgeData.senderDisplayName) {
+                // It's a Discord message payload
+                content = bridgeData.content;
+                // Note: senderDisplayName can be used for conversation header display
+              } else if (bridgeData.content) {
+                // Simple content field (Discord or other bridge)
+                content = bridgeData.content;
               } else {
-                // JSON but not email structure - just show as content
+                // JSON but not recognized structure - show as content
                 content = decryptedContent;
               }
             } catch {
@@ -2272,7 +2338,7 @@ async function sendToEdge(
   recipientX25519PublicKey: string,
   content: string,
   conversationId?: string,
-  origin: 'native' | 'email' | 'contact_link' | 'bridge' = 'native'
+  origin: 'native' | 'email' | 'contact_link' | 'discord' | 'bridge' = 'native'
 ): Promise<{
   success: boolean;
   conversationId?: string;
@@ -2422,7 +2488,7 @@ async function sendToEdge(
 // ============================================
 
 async function createEdge(
-  type: 'native' | 'email' | 'contact_link',
+  type: 'native' | 'email' | 'contact_link' | 'discord',
   label?: string,
   customAddress?: string,
   displayName?: string
@@ -3016,16 +3082,25 @@ async function showNewMessageNotification(
   }
 }
 
-// Handle notification click - clear notification (sidePanel.open requires direct user gesture)
+// Handle notification click - open panel in popup window
 chrome.notifications.onClicked.addListener(async (notificationId) => {
   console.log('[Notifications] Notification clicked:', notificationId);
   
   // Clear the notification
   await chrome.notifications.clear(notificationId);
   
-  // Note: We cannot programmatically open the side panel here because
-  // chrome.sidePanel.open() requires a direct user gesture (like clicking the extension icon).
-  // The user can click the Relay icon in the toolbar to open the panel.
+  // Open the panel as a popup window (workaround since sidePanel.open requires user gesture)
+  try {
+    await chrome.windows.create({
+      url: chrome.runtime.getURL('panel/index.html'),
+      type: 'popup',
+      width: 400,
+      height: 600,
+      focused: true,
+    });
+  } catch (error) {
+    console.error('[Notifications] Failed to open panel window:', error);
+  }
 });
 
 // Start polling when unlocked

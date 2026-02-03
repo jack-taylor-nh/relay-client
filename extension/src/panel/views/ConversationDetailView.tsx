@@ -50,7 +50,7 @@ interface Message {
 
 interface ConversationDetails {
   id: string;
-  type: 'native' | 'email' | 'contact_endpoint';
+  type: 'native' | 'email' | 'contact_endpoint' | 'discord';
   counterpartyName: string;
   counterpartyFingerprint?: string;
 }

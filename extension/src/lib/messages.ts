@@ -34,7 +34,7 @@ export interface Conversation {
   origin: 'native' | 'email' | 'contact_link' | 'discord' | 'sms' | 'github' | 'slack' | 'other';
   edgeId?: string;
   securityLevel: 'e2ee' | 'gateway_secured' | 'mixed';
-  channelLabel?: string;
+  encryptedMetadata?: string;  // Encrypted counterparty info (client decrypts)
   createdAt: string;
   lastActivityAt: string;
   
