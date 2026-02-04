@@ -2694,11 +2694,19 @@ async function createEdge(
       console.log('Stored edge keypair for edge:', edge.id, 'address:', edge.address);
     }
     
-    // For webhook edges, construct webhook URL
+    // For webhook edges, construct webhook URL and store metadata locally
     if (type === 'webhook' && edge.id && authToken) {
       const webhookWorkerUrl = 'https://webhook.rlymsg.com';
-      edge.webhookUrl = `${webhookWorkerUrl}/w/${edge.id}`;
+      const webhookUrl = `${webhookWorkerUrl}/w/${edge.id}`;
+      edge.webhookUrl = webhookUrl;
       edge.authToken = authToken;
+      
+      // Store webhook metadata locally for persistence
+      const { webhookMetadata = {} } = await chrome.storage.local.get('webhookMetadata');
+      webhookMetadata[edge.id] = { webhookUrl, authToken };
+      await chrome.storage.local.set({ webhookMetadata });
+      
+      console.log('Stored webhook metadata for edge:', edge.id);
     }
     
     return { success: true, edge };
@@ -2832,8 +2840,9 @@ async function getEdges(): Promise<{
     const data = await res.json();
     
     // Get local edge keys for decryption
-    const storage = await chrome.storage.local.get(['edgeKeys']);
+    const storage = await chrome.storage.local.get(['edgeKeys', 'webhookMetadata']);
     const edgeKeys = storage.edgeKeys || {};
+    const webhookMetadata = storage.webhookMetadata || {};
     
     // Decrypt label/metadata for each edge using local keys
     const decryptedEdges = data.edges.map((edge: any) => {
@@ -2848,15 +2857,38 @@ async function getEdges(): Promise<{
           secretKey
         );
         
-        return {
+        // Build base edge with decrypted data
+        const decryptedEdge = {
           ...edge,
           // Use decrypted values, fall back to local cache, then server values
           label: decrypted.label || localKeys.label || edge.label,
           displayName: decrypted.displayName || localKeys.displayName,
         };
+        
+        // For webhook edges, merge in locally stored metadata (webhookUrl, authToken)
+        // This provides immediate access even before server deployment
+        if (edge.type === 'webhook' && webhookMetadata[edge.id]) {
+          decryptedEdge.metadata = {
+            ...edge.metadata,
+            ...webhookMetadata[edge.id],
+          };
+        }
+        
+        return decryptedEdge;
       }
       
       // No local keys - edge might be from before encryption or different device
+      // Still merge webhook metadata if available
+      if (edge.type === 'webhook' && webhookMetadata[edge.id]) {
+        return {
+          ...edge,
+          metadata: {
+            ...edge.metadata,
+            ...webhookMetadata[edge.id],
+          },
+        };
+      }
+      
       return edge;
     });
     
