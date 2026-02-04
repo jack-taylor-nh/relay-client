@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 
 interface EdgeCardProps {
   id: string;
-  type: 'native' | 'email' | 'discord' | 'contact_link';
+  type: 'native' | 'email' | 'discord' | 'contact_link' | 'webhook';
   address: string;
   subtitle?: string | null;
   status: string;
@@ -10,6 +10,7 @@ interface EdgeCardProps {
   createdAt: string;
   onCopy: () => void;
   onDispose: () => void;
+  onViewDocs?: () => void;
   expandable?: boolean;
 }
 
@@ -23,14 +24,15 @@ export function EdgeCard({
   createdAt, 
   onCopy, 
   onDispose,
+  onViewDocs,
   expandable = false 
 }: EdgeCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // Neutral color scheme - native handles use slate, email uses sky, discord uses indigo, contact_link uses emerald
-  const bgColor = type === 'native' ? 'bg-slate-100' : type === 'discord' ? 'bg-indigo-100' : type === 'contact_link' ? 'bg-emerald-100' : 'bg-sky-100';
-  const textColor = type === 'native' ? 'text-slate-600' : type === 'discord' ? 'text-indigo-600' : type === 'contact_link' ? 'text-emerald-600' : 'text-sky-600';
-  const badgeColor = type === 'native' ? 'bg-slate-600' : type === 'discord' ? 'bg-indigo-500' : type === 'contact_link' ? 'bg-emerald-500' : 'bg-sky-500';
+  // Neutral color scheme - native handles use slate, email uses sky, discord uses indigo, contact_link uses emerald, webhook uses purple
+  const bgColor = type === 'native' ? 'bg-slate-100' : type === 'discord' ? 'bg-indigo-100' : type === 'contact_link' ? 'bg-emerald-100' : type === 'webhook' ? 'bg-purple-100' : 'bg-sky-100';
+  const textColor = type === 'native' ? 'text-slate-600' : type === 'discord' ? 'text-indigo-600' : type === 'contact_link' ? 'text-emerald-600' : type === 'webhook' ? 'text-purple-600' : 'text-sky-600';
+  const badgeColor = type === 'native' ? 'bg-slate-600' : type === 'discord' ? 'bg-indigo-500' : type === 'contact_link' ? 'bg-emerald-500' : type === 'webhook' ? 'bg-purple-500' : 'bg-sky-500';
 
   const icon = type === 'native' ? (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -47,6 +49,12 @@ export function EdgeCard({
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
       <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+    </svg>
+  ) : type === 'webhook' ? (
+    // Webhook icon (code bracket with arrow)
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="16 18 22 12 16 6" />
+      <polyline points="8 6 2 12 8 18" />
     </svg>
   ) : (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -126,6 +134,7 @@ export function EdgeCard({
           <div class="text-xs text-stone-500 mt-3 mb-3">
             {type === 'email' && `${messageCount} messages • `}
             {type === 'contact_link' && `${messageCount} conversations • `}
+            {type === 'webhook' && `${messageCount} messages • `}
             Created {new Date(createdAt).toLocaleDateString()}
           </div>
           {type === 'contact_link' && status === 'active' && (
@@ -148,9 +157,27 @@ export function EdgeCard({
               </div>
             </div>
           )}
+          {type === 'webhook' && status === 'active' && onViewDocs && (
+            <button 
+              class="w-full mb-3 px-4 py-2 border border-purple-300 rounded-lg text-sm font-medium bg-purple-50 text-purple-700 hover:bg-purple-100 hover:border-purple-400 transition-all duration-150 flex items-center justify-center gap-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewDocs();
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
+              </svg>
+              View Documentation
+            </button>
+          )}
           {status === 'active' && (
             <div class="flex gap-2">
-              {type !== 'contact_link' && (
+              {type !== 'contact_link' && type !== 'webhook' && (
                 <button 
                   class="flex-1 px-4 py-2 border border-stone-300 rounded-lg text-sm font-medium bg-white text-stone-900 hover:bg-stone-100 hover:border-slate-400 transition-all duration-150"
                   onClick={(e) => {
@@ -162,7 +189,7 @@ export function EdgeCard({
                 </button>
               )}
               <button 
-                class={`${type !== 'contact_link' ? 'flex-1' : 'w-full'} px-4 py-2 border border-red-200 rounded-lg text-sm font-medium bg-white text-red-600 hover:bg-red-50 hover:border-red-600 transition-all duration-150`}
+                class={`${type !== 'contact_link' && type !== 'webhook' ? 'flex-1' : 'w-full'} px-4 py-2 border border-red-200 rounded-lg text-sm font-medium bg-white text-red-600 hover:bg-red-50 hover:border-red-600 transition-all duration-150`}
                 onClick={(e) => {
                   e.stopPropagation();
                   onDispose();

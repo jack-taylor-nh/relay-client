@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { signal } from '@preact/signals';
 import { selectedConversationId, currentIdentity, showToast, sendMessage, conversations } from '../state';
+import type { ConversationType } from '../../types';
 
 // ============================================
 // Icons
@@ -50,7 +51,7 @@ interface Message {
 
 interface ConversationDetails {
   id: string;
-  type: 'native' | 'email' | 'contact_endpoint' | 'discord';
+  type: ConversationType;
   counterpartyName: string;
   counterpartyFingerprint?: string;
 }

@@ -1,6 +1,7 @@
 import { edges, createEdge, burnEdge, showToast, loadEdges, edgeTypes } from '../state';
 import { useState, useEffect } from 'preact/hooks';
 import { EdgeCard } from '../components/EdgeCard';
+import { WebhookDocsView } from './WebhookDocsView';
 
 export function FullscreenEdgesView() {
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -10,6 +11,7 @@ export function FullscreenEdgesView() {
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
   const [disposalModal, setDisposalModal] = useState<{ edgeId: string; edgeType: string; address: string } | null>(null);
+  const [webhookDocsModal, setWebhookDocsModal] = useState<{ edgeId: string; webhookUrl: string; authToken: string } | null>(null);
 
   const edgeList = edges.value;
   const availableEdgeTypes = edgeTypes.value;
@@ -88,10 +90,11 @@ export function FullscreenEdgesView() {
   }
 
   const allEdges = edgeList.map(e => {
-    let mappedType: 'native' | 'email' | 'discord' | 'contact_link' = 'email';
+    let mappedType: 'native' | 'email' | 'discord' | 'contact_link' | 'webhook' = 'email';
     if (e.type === 'native') mappedType = 'native';
     else if (e.type === 'discord') mappedType = 'discord';
     else if (e.type === 'contact_link') mappedType = 'contact_link';
+    else if (e.type === 'webhook') mappedType = 'webhook';
     
     // For contact links, construct the shareable URL
     let displayAddress = e.address;
@@ -99,6 +102,9 @@ export function FullscreenEdgesView() {
       displayAddress = `link.rlymsg.com/${e.address}`;
     } else if (e.type === 'native' || e.type === 'discord') {
       displayAddress = e.address.startsWith('&') ? e.address : `&${e.address}`;
+    } else if (e.type === 'webhook') {
+      // For webhooks, display just the edge ID (first 8 chars)
+      displayAddress = `Webhook ${e.id.slice(0, 8)}`;
     }
     
     return {
@@ -153,24 +159,35 @@ export function FullscreenEdgesView() {
           </div>
         ) : (
           <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {allEdges.map(edge => (
-              <EdgeCard
-                key={edge.id}
-                id={edge.id}
-                type={edge.type}
-                address={edge.address}
-                subtitle={edge.subtitle}
-                status={edge.status}
-                messageCount={edge.messageCount}
-                createdAt={edge.createdAt}
-                onCopy={() => {
-                  navigator.clipboard.writeText(edge.address);
-                  showToast('Copied!');
-                }}
-                onDispose={() => openDisposalModal(edge.id, edge.type, edge.address)}
-                expandable={true}
-              />
-            ))}
+            {allEdges.map(edge => {
+              const rawEdge = edgeList.find(e => e.id === edge.id);
+              return (
+                <EdgeCard
+                  key={edge.id}
+                  id={edge.id}
+                  type={edge.type}
+                  address={edge.address}
+                  subtitle={edge.subtitle}
+                  status={edge.status}
+                  messageCount={edge.messageCount}
+                  createdAt={edge.createdAt}
+                  onCopy={() => {
+                    navigator.clipboard.writeText(edge.address);
+                    showToast('Copied!');
+                  }}
+                  onDispose={() => openDisposalModal(edge.id, edge.type, edge.address)}
+                  onViewDocs={edge.type === 'webhook' && rawEdge?.metadata?.webhookUrl && rawEdge?.metadata?.authToken
+                    ? () => setWebhookDocsModal({
+                        edgeId: edge.id,
+                        webhookUrl: rawEdge.metadata.webhookUrl,
+                        authToken: rawEdge.metadata.authToken
+                      })
+                    : undefined
+                  }
+                  expandable={true}
+                />
+              );
+            })}
           </div>
         )}
       </div>
@@ -323,6 +340,16 @@ export function FullscreenEdgesView() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Webhook Documentation Modal */}
+      {webhookDocsModal && (
+        <WebhookDocsView
+          edgeId={webhookDocsModal.edgeId}
+          webhookUrl={webhookDocsModal.webhookUrl}
+          authToken={webhookDocsModal.authToken}
+          onClose={() => setWebhookDocsModal(null)}
+        />
       )}
     </div>
   );

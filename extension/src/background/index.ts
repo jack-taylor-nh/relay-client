@@ -454,7 +454,7 @@ type MessageType =
   | { type: 'SEND_EMAIL'; payload: { conversationId: string; content: string } }
   | { type: 'SEND_DISCORD'; payload: { conversationId: string; content: string } }
   | { type: 'SEND_TO_EDGE'; payload: { myEdgeId: string; recipientEdgeId: string; recipientX25519PublicKey: string; content: string; conversationId?: string; origin?: 'native' | 'email' | 'contact_link' | 'discord' | 'bridge' } }
-  | { type: 'CREATE_EDGE'; payload: { type: 'native' | 'email' | 'contact_link' | 'discord'; label?: string; customAddress?: string; displayName?: string } }
+  | { type: 'CREATE_EDGE'; payload: { type: 'native' | 'email' | 'contact_link' | 'discord' | 'webhook'; label?: string; customAddress?: string; displayName?: string } }
   | { type: 'GET_EDGE_TYPES' }
   | { type: 'GET_EDGES' }
   | { type: 'BURN_EDGE'; payload: { edgeId: string } }
@@ -2598,7 +2598,7 @@ async function sendToEdge(
 // ============================================
 
 async function createEdge(
-  type: 'native' | 'email' | 'contact_link' | 'discord',
+  type: 'native' | 'email' | 'contact_link' | 'discord' | 'webhook',
   label?: string,
   customAddress?: string,
   displayName?: string
@@ -2611,6 +2611,8 @@ async function createEdge(
     label: string | null;
     status: string;
     securityLevel: string;
+    webhookUrl?: string;
+    authToken?: string;
   };
   error?: string;
 }> {
@@ -2626,6 +2628,16 @@ async function createEdge(
 
     // Generate random X25519 keypair for this edge (unique, unlinkable)
     const encryptionKeys = generateEdgeKeyPair();
+    
+    // For webhook edges, generate authToken
+    let authToken: string | undefined;
+    if (type === 'webhook') {
+      // Generate cryptographically secure token
+      const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
+      authToken = 'wh_' + Array.from(tokenBytes)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+    }
     
     // Encrypt label and displayName using edge's secret key (zero-knowledge storage)
     const encrypted = encryptEdgeMetadata(
@@ -2646,6 +2658,7 @@ async function createEdge(
         encryptedLabel: encrypted.encryptedLabel,
         encryptedMetadata: encrypted.encryptedMetadata,
         customAddress,
+        authToken, // For webhook edges only
       }),
     });
 
@@ -2667,6 +2680,7 @@ async function createEdge(
           // Store plaintext locally (only encrypted on server)
           label: label,
           displayName: displayName,
+          authToken: authToken, // For webhook edges
           createdAt: new Date().toISOString(),
         },
       };
@@ -2678,6 +2692,14 @@ async function createEdge(
       });
       
       console.log('Stored edge keypair for edge:', edge.id, 'address:', edge.address);
+    }
+    
+    // For webhook edges, construct webhook URL
+    if (type === 'webhook' && edge.id && authToken) {
+      // TODO: Replace with actual webhook worker URL from env
+      const webhookWorkerUrl = 'https://webhook-worker.relay.dev';
+      edge.webhookUrl = `${webhookWorkerUrl}/w/${edge.id}`;
+      edge.authToken = authToken;
     }
     
     return { success: true, edge };
@@ -3308,6 +3330,11 @@ async function pollForNewMessages(sseTriggered: boolean = false): Promise<void> 
     console.log('[Notifications] Poll completed:', {
       sseTriggered,
       unreadCount: unreadConversations.length,
+      unreadDetails: unreadConversations.map(c => ({
+        id: c.id,
+        counterpartyName: c.counterpartyName,
+        lastMessageWasMine: c.lastMessageWasMine,
+      })),
       panelIsActive,
       playSound: prefs.playSound,
       showDesktopNotifications: prefs.showDesktopNotifications,
