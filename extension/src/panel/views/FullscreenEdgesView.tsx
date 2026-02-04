@@ -88,17 +88,28 @@ export function FullscreenEdgesView() {
   }
 
   const allEdges = edgeList.map(e => {
-    let mappedType: 'native' | 'email' | 'discord' = 'email';
+    let mappedType: 'native' | 'email' | 'discord' | 'contact_link' = 'email';
     if (e.type === 'native') mappedType = 'native';
     else if (e.type === 'discord') mappedType = 'discord';
+    else if (e.type === 'contact_link') mappedType = 'contact_link';
+    
+    // For contact links, construct the shareable URL
+    let displayAddress = e.address;
+    if (e.type === 'contact_link') {
+      displayAddress = `link.rlymsg.com/${e.address}`;
+    } else if (e.type === 'native' || e.type === 'discord') {
+      displayAddress = e.address.startsWith('&') ? e.address : `&${e.address}`;
+    }
     
     return {
       id: e.id,
       type: mappedType,
-      address: (e.type === 'native' || e.type === 'discord') 
-        ? (e.address.startsWith('&') ? e.address : `&${e.address}`) 
-        : e.address,
-      subtitle: (e.type === 'native' || e.type === 'discord') ? (e.metadata?.displayName || null) : (e.label || null),
+      address: displayAddress,
+      subtitle: (e.type === 'native' || e.type === 'discord') 
+        ? (e.metadata?.displayName || null) 
+        : e.type === 'contact_link' 
+          ? (e.label || 'Contact Link')
+          : (e.label || null),
       status: e.status,
       messageCount: e.messageCount,
       createdAt: e.createdAt
