@@ -466,6 +466,9 @@ type MessageType =
   | { type: 'MARK_CONVERSATION_SEEN'; payload: { conversationId: string } }
   | { type: 'GET_UNREAD_COUNT' }
   | { type: 'GET_LAST_SEEN_STATE' }
+  | { type: 'GET_STORED_CONVERSATIONS' }
+  | { type: 'PANEL_OPENED' }
+  | { type: 'PANEL_CLOSED' }
   | { type: 'FORCE_POLL' };
 
 async function handleMessage(message: MessageType): Promise<unknown> {
@@ -583,16 +586,29 @@ async function handleMessage(message: MessageType): Promise<unknown> {
       return { success: true };
 
     case 'GET_UNREAD_COUNT':
-      const unreadState = await getLastSeenState();
-      // Count conversations with activity after last seen
-      // Note: This is a simplified count - full accuracy requires API call
+      const storedConvs = await getStoredConversations();
+      const unreadConvCount = storedConvs.filter(c => c.isUnread).length;
       return { 
-        count: Object.keys(unreadState.conversations).length > 0 ? 0 : -1,
-        lastCheck: unreadState.globalLastCheck,
+        count: unreadConvCount,
+        lastCheck: (await getLastSeenState()).globalLastCheck,
       };
 
     case 'GET_LAST_SEEN_STATE':
       return getLastSeenState();
+
+    case 'GET_STORED_CONVERSATIONS':
+      return { 
+        success: true, 
+        conversations: await getStoredConversations(),
+      };
+
+    case 'PANEL_OPENED':
+      await updatePollingFrequency(true);
+      return { success: true };
+
+    case 'PANEL_CLOSED':
+      await updatePollingFrequency(false);
+      return { success: true };
 
     case 'FORCE_POLL':
       await pollForNewMessages();
@@ -2875,7 +2891,11 @@ async function burnEdge(edgeId: string): Promise<{
 // ============================================
 
 const POLL_ALARM_NAME = 'relay-poll';
-const POLL_INTERVAL_MINUTES = 1; // Check every 1 minute
+const POLL_INTERVAL_BACKGROUND_SECONDS = 30; // 30s when panel closed
+const POLL_INTERVAL_ACTIVE_SECONDS = 10;     // 10s when panel open
+
+// Track if panel is currently active
+let panelIsActive = false;
 
 // Notification preferences (stored in chrome.storage.local)
 interface NotificationPrefs {
@@ -2889,6 +2909,24 @@ const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   showDesktopNotifications: true,
   showBadgeCount: true,
 };
+
+// Processed conversation for storage (matches what panel expects)
+interface ProcessedConversation {
+  id: string;
+  type: 'native' | 'email' | 'contact_endpoint' | 'discord';
+  securityLevel: 'e2ee' | 'gateway_secured';
+  participants: string[];
+  counterpartyName: string;
+  lastMessagePreview: string;
+  lastActivityAt: string;
+  createdAt: string;
+  unreadCount: number;
+  isUnread: boolean;
+  myEdgeId?: string;
+  counterpartyEdgeId?: string;
+  counterpartyX25519PublicKey?: string;
+  edgeAddress?: string;
+}
 
 // Track last seen activity per conversation (stored in chrome.storage.local)
 interface LastSeenState {
@@ -2920,10 +2958,28 @@ async function setLastSeenState(state: LastSeenState): Promise<void> {
   await chrome.storage.local.set({ lastSeenState: state });
 }
 
+// Get stored processed conversations
+async function getStoredConversations(): Promise<ProcessedConversation[]> {
+  const storage = await chrome.storage.local.get(['processedConversations']);
+  return storage.processedConversations || [];
+}
+
+// Store processed conversations
+async function setStoredConversations(conversations: ProcessedConversation[]): Promise<void> {
+  await chrome.storage.local.set({ processedConversations: conversations });
+}
+
 async function markConversationSeen(conversationId: string): Promise<void> {
   const state = await getLastSeenState();
   state.conversations[conversationId] = new Date().toISOString();
   await setLastSeenState(state);
+  
+  // Update stored conversations to reflect seen status
+  const storedConversations = await getStoredConversations();
+  const updatedConversations = storedConversations.map(c => 
+    c.id === conversationId ? { ...c, isUnread: false, unreadCount: 0 } : c
+  );
+  await setStoredConversations(updatedConversations);
   
   // Recalculate badge
   await updateBadgeCount();
@@ -2933,16 +2989,28 @@ async function startAlarmPolling(): Promise<void> {
   // Clear any existing alarm
   await chrome.alarms.clear(POLL_ALARM_NAME);
   
+  // Use appropriate interval based on panel state
+  const intervalMinutes = panelIsActive 
+    ? POLL_INTERVAL_ACTIVE_SECONDS / 60 
+    : POLL_INTERVAL_BACKGROUND_SECONDS / 60;
+  
   // Create recurring alarm
   await chrome.alarms.create(POLL_ALARM_NAME, {
-    periodInMinutes: POLL_INTERVAL_MINUTES,
+    periodInMinutes: intervalMinutes,
     delayInMinutes: 0.1, // Start almost immediately (6 seconds)
   });
   
-  console.log('[Notifications] Alarm polling started');
+  console.log(`[Notifications] Alarm polling started (${panelIsActive ? 'active' : 'background'} mode: ${intervalMinutes * 60}s)`);
   
   // Also poll immediately
   await pollForNewMessages();
+}
+
+// Update polling frequency when panel opens/closes
+async function updatePollingFrequency(isActive: boolean): Promise<void> {
+  panelIsActive = isActive;
+  console.log(`[Notifications] Panel ${isActive ? 'opened' : 'closed'}, updating poll frequency`);
+  await startAlarmPolling();
 }
 
 async function stopAlarmPolling(): Promise<void> {
@@ -2972,104 +3040,118 @@ async function pollForNewMessages(): Promise<void> {
   }
   
   try {
-    const apiUrl = await getApiUrl();
-    const token = await getAuthToken();
+    // Use getConversations() for full processing (including metadata decryption)
+    const convResult = await getConversations();
     
-    if (!token) {
-      console.log('[Notifications] No auth token, skipping poll');
+    if (!convResult.success || !convResult.conversations) {
+      console.log('[Notifications] Failed to fetch conversations:', convResult.error);
       return;
     }
     
-    // Fetch all conversations
-    const res = await fetch(`${apiUrl}/v1/conversations`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
+    const rawConversations = convResult.conversations;
     
-    if (!res.ok) {
-      console.log('[Notifications] API error:', res.status);
-      return;
-    }
-    
-    const data = await res.json();
-    const conversations = data.conversations || [];
-    
-    // Get last seen state
+    // Get last seen state for unread calculation
     const lastSeenState = await getLastSeenState();
-    const newMessages: Array<{ conversationId: string; counterpartyName: string; lastActivityAt: string }> = [];
+    const lastSeenConversations = lastSeenState.conversations || {};
     
     // Save previous check time BEFORE updating (for notification filtering)
     const previousGlobalCheck = lastSeenState.globalLastCheck 
       ? new Date(lastSeenState.globalLastCheck).getTime() 
       : 0;
     
-    // Check each conversation for new activity
-    for (const conv of conversations) {
-      const lastSeen = lastSeenState.conversations[conv.id];
-      const lastActivity = new Date(conv.lastActivityAt).getTime();
-      const lastSeenTime = lastSeen ? new Date(lastSeen).getTime() : 0;
+    // Process conversations with same logic as panel's loadConversations
+    const processedConversations: ProcessedConversation[] = rawConversations.map(conv => {
+      // Determine conversation type
+      let type: 'native' | 'email' | 'contact_endpoint' | 'discord' = 'native';
+      if (conv.origin === 'email_inbound' || conv.origin === 'email') type = 'email';
+      else if (conv.origin === 'contact_link_inbound') type = 'contact_endpoint';
+      else if (conv.origin === 'discord') type = 'discord';
+
+      // Build counterparty name - prioritize decrypted metadata from bridge conversations
+      let counterpartyName = 'Unknown';
       
-      // New activity since we last saw this conversation
-      if (lastActivity > lastSeenTime) {
-        newMessages.push({
-          conversationId: conv.id,
-          counterpartyName: conv.counterpartyName || conv.counterpartyHandle || 'Unknown',
-          lastActivityAt: conv.lastActivityAt,
-        });
+      if (conv.decryptedCounterpartyName) {
+        counterpartyName = conv.decryptedCounterpartyName;
+      } else if (conv.counterparty?.handle) {
+        counterpartyName = conv.counterparty.handle.startsWith('&') 
+          ? conv.counterparty.handle 
+          : `&${conv.counterparty.handle}`;
+      } else if (conv.counterparty?.displayName) {
+        counterpartyName = conv.counterparty.displayName;
+      } else if (conv.edge?.address && (conv.origin === 'email' || conv.origin === 'email_inbound' || conv.origin === 'discord')) {
+        const bridgeLabel = conv.origin === 'discord' ? 'Discord' : 'Email';
+        counterpartyName = `${bridgeLabel} Contact`;
+      } else if (conv.edge?.address && conv.origin !== 'native') {
+        counterpartyName = `Contact via ${conv.edge.address.split('@')[0]}`;
       }
-    }
+
+      // Calculate if conversation is unread
+      const lastSeenAt = lastSeenConversations[conv.id];
+      const lastActivityTime = new Date(conv.lastActivityAt).getTime();
+      const lastSeenTime = lastSeenAt ? new Date(lastSeenAt).getTime() : 0;
+      const isUnread = lastActivityTime > lastSeenTime;
+
+      return {
+        id: conv.id,
+        type,
+        securityLevel: conv.securityLevel as 'e2ee' | 'gateway_secured',
+        participants: [conv.counterparty?.identityId || conv.counterparty?.externalId || 'unknown'],
+        counterpartyName,
+        lastMessagePreview: 'No messages yet',
+        lastActivityAt: conv.lastActivityAt,
+        createdAt: conv.createdAt,
+        unreadCount: isUnread ? 1 : 0,
+        isUnread,
+        myEdgeId: conv.myEdgeId || conv.edge?.id,
+        counterpartyEdgeId: conv.counterparty?.edgeId,
+        counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey,
+        edgeAddress: conv.edge?.address,
+      };
+    });
     
-    // Update global last check time
+    // Store processed conversations to chrome.storage
+    await setStoredConversations(processedConversations);
+    
+    // Count unread for badge and notifications
+    const unreadConversations = processedConversations.filter(c => c.isUnread);
+    
+    // Update global last check time (but NOT individual conversation times - that's only when opened)
     lastSeenState.globalLastCheck = new Date().toISOString();
     await setLastSeenState(lastSeenState);
     
     // Update badge count
     if (prefs.showBadgeCount) {
-      await updateBadgeCount(newMessages.length);
+      await updateBadgeCount(unreadConversations.length);
     }
     
-    // Show desktop notification for new messages (only if we have some)
-    console.log('[Notifications] Check:', {
-      showDesktopNotifications: prefs.showDesktopNotifications,
-      newMessagesCount: newMessages.length,
-      previousGlobalCheck: previousGlobalCheck > 0 ? new Date(previousGlobalCheck).toISOString() : 'none',
-    });
-    
-    if (prefs.showDesktopNotifications && newMessages.length > 0) {
+    // Show desktop notification for new messages
+    if (prefs.showDesktopNotifications && unreadConversations.length > 0) {
       // Only notify for messages that arrived since our PREVIOUS check
-      // (prevents notification flood on first unlock)
       const recentMessages = previousGlobalCheck > 0
-        ? newMessages.filter(m => {
-            const msgTime = new Date(m.lastActivityAt).getTime();
-            const isRecent = msgTime > previousGlobalCheck;
-            console.log('[Notifications] Filter message:', {
-              conversationId: m.conversationId,
-              lastActivityAt: m.lastActivityAt,
-              msgTime,
-              previousGlobalCheck,
-              isRecent,
-            });
-            return isRecent;
+        ? unreadConversations.filter(c => {
+            const msgTime = new Date(c.lastActivityAt).getTime();
+            return msgTime > previousGlobalCheck;
           })
-        : []; // Don't notify on first poll (when previousGlobalCheck is 0)
-      
-      console.log('[Notifications] Recent messages to notify:', recentMessages.length);
+        : [];
       
       if (recentMessages.length > 0) {
         console.log('[Notifications] Showing notification for', recentMessages.length, 'new messages');
-        await showNewMessageNotification(recentMessages);
-      } else {
-        console.log('[Notifications] No recent messages to notify (all older than previous check or first poll)');
+        await showNewMessageNotification(recentMessages.map(c => ({
+          conversationId: c.id,
+          counterpartyName: c.counterpartyName,
+          lastActivityAt: c.lastActivityAt,
+        })));
       }
     }
     
-    // Notify panel if open
+    // Notify panel if open (send processed conversations)
     notifyPanel({ 
-      type: 'NEW_MESSAGES',
-      conversations,
-      unreadCount: newMessages.length,
+      type: 'CONVERSATIONS_UPDATED',
+      conversations: processedConversations,
+      unreadCount: unreadConversations.length,
     });
     
-    console.log(`[Notifications] Poll complete: ${newMessages.length} unread conversations`);
+    console.log(`[Notifications] Poll complete: ${unreadConversations.length} unread conversations`);
   } catch (error) {
     console.error('[Notifications] Poll error:', error);
   }

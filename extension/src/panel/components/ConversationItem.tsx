@@ -113,11 +113,16 @@ export function ConversationItem({ conversation, isSelected, onClick }: Props) {
   const hasPreview = conversation.lastMessagePreview && conversation.lastMessagePreview.trim().length > 0;
   const showEdgeBadge = conversation.edgeAddress && conversation.type !== 'native';
 
+  // Background color: selected > unread > default
+  const bgClass = isSelected 
+    ? 'bg-stone-200' 
+    : isUnread 
+      ? 'bg-sky-50 hover:bg-sky-100' 
+      : 'hover:bg-stone-100';
+
   return (
     <button 
-      class={`flex items-center gap-3 w-full px-4 py-3 text-left transition-colors duration-150 ${
-        isSelected ? 'bg-stone-200' : 'hover:bg-stone-100'
-      }`}
+      class={`flex items-center gap-3 w-full px-4 py-3 text-left transition-colors duration-150 ${bgClass}`}
       onClick={onClick}
     >
       <div class={`flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full ${

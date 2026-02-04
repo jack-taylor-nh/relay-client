@@ -1,4 +1,5 @@
 import { activeTab, type Tab } from '../App';
+import { hasUnreadMessages } from '../state';
 
 const tabs: { id: Tab; label: string; icon: string }[] = [
   { id: 'inbox', label: 'Inbox', icon: 'inbox' },
@@ -43,6 +44,8 @@ function TabIcon({ icon }: { icon: string }) {
 }
 
 export function TabBar() {
+  const showUnreadDot = hasUnreadMessages.value;
+  
   return (
     <nav class="flex bg-white border-t border-stone-200">
       {tabs.map((tab) => (
@@ -57,6 +60,10 @@ export function TabBar() {
         >
           {activeTab.value === tab.id && (
             <span class="absolute top-0 left-0 right-0 h-0.5 bg-sky-500" />
+          )}
+          {/* Blue dot indicator for unread messages on inbox tab */}
+          {tab.id === 'inbox' && showUnreadDot && activeTab.value !== 'inbox' && (
+            <span class="absolute top-2 right-1/4 w-2 h-2 bg-sky-500 rounded-full" />
           )}
           <span class={activeTab.value === tab.id ? 'text-slate-700' : 'text-stone-400'}>
             <TabIcon icon={tab.icon} />

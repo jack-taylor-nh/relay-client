@@ -73,6 +73,17 @@ export const edgeTypes = signal<EdgeTypeDefinition[]>([]);
 
 export const conversations = signal<Conversation[]>([]);
 export const selectedConversationId = signal<string | null>(null);
+
+// Computed: Check if any conversation has unread messages
+export const hasUnreadMessages = computed(() => 
+  conversations.value.some(c => c.isUnread === true || (c.unreadCount ?? 0) > 0)
+);
+
+// Computed: Count of unread conversations
+export const unreadCount = computed(() => 
+  conversations.value.filter(c => c.isUnread === true || (c.unreadCount ?? 0) > 0).length
+);
+
 export const aliases = signal<EmailAlias[]>([]); // Legacy - will be replaced by edges
 export const handles = signal<Array<{
   id: string;
@@ -553,101 +564,27 @@ export async function loadEdges(): Promise<void> {
   }
 }
 
+/**
+ * Load conversations from chrome.storage (populated by background polling)
+ * Also triggers a fresh poll from the server
+ */
 export async function loadConversations(): Promise<void> {
   if (shouldThrottle('GET_CONVERSATIONS')) return;
   
   isRefreshing.value = true;
   try {
-    // Fetch last seen state for unread calculation
-    const lastSeenResult = await sendMessage<{
-      conversations: Record<string, string>;
-      globalLastCheck: string;
-    }>({ type: 'GET_LAST_SEEN_STATE' }).catch(() => ({
-      conversations: {},
-      globalLastCheck: new Date(0).toISOString(),
-    }));
-    const lastSeenConversations = (lastSeenResult as any)?.conversations || {};
-    
-    const convResult = await sendMessage<{
+    // First, load from storage (instant display)
+    const storedResult = await sendMessage<{
       success: boolean;
-      conversations?: Array<{
-        id: string;
-        origin: string;
-        securityLevel: string;
-        edge?: {
-          id: string;
-          type: string;
-          address: string;
-          label?: string;
-          status: string;
-        };
-        myEdgeId?: string;  // Phase 4: My edge in this conversation
-        counterparty?: {
-          identityId?: string;
-          externalId?: string;
-          displayName?: string;
-          handle?: string;
-          edgeId?: string;          // Phase 4: Counterparty edge ID
-          x25519PublicKey?: string; // Phase 4: Counterparty encryption key
-        };
-        lastActivityAt: string;
-        createdAt: string;
-      }>;
-    }>({ type: 'GET_CONVERSATIONS' });
+      conversations?: Conversation[];
+    }>({ type: 'GET_STORED_CONVERSATIONS' });
 
-    if (convResult.success && convResult.conversations) {
-      conversations.value = convResult.conversations.map(conv => {
-        let type: 'native' | 'email' | 'contact_endpoint' | 'discord' = 'native';
-        if (conv.origin === 'email_inbound' || conv.origin === 'email') type = 'email';
-        else if (conv.origin === 'contact_link_inbound') type = 'contact_endpoint';
-        else if (conv.origin === 'discord') type = 'discord';
-
-        // Build counterparty name - prioritize decrypted metadata from bridge conversations
-        let counterpartyName = 'Unknown';
-        
-        // Check for decrypted counterparty name from encryptedMetadata (bridge conversations)
-        if ((conv as any).decryptedCounterpartyName) {
-          counterpartyName = (conv as any).decryptedCounterpartyName;
-        } else if (conv.counterparty?.handle) {
-          counterpartyName = conv.counterparty.handle.startsWith('&') 
-            ? conv.counterparty.handle 
-            : `&${conv.counterparty.handle}`;
-        } else if (conv.counterparty?.displayName) {
-          counterpartyName = conv.counterparty.displayName;
-        } else if (conv.edge?.address && (conv.origin === 'email' || conv.origin === 'email_inbound' || conv.origin === 'discord')) {
-          // For email/discord without decrypted metadata, show a bridge-specific label
-          const bridgeLabel = conv.origin === 'discord' ? 'Discord' : 'Email';
-          counterpartyName = `${bridgeLabel} Contact`;
-        } else if (conv.edge?.address && conv.origin !== 'native') {
-          // For contact endpoints without display name, use edge address
-          counterpartyName = `Contact via ${conv.edge.address.split('@')[0]}`;
-        }
-
-        // Calculate if conversation is unread
-        const lastSeenAt = lastSeenConversations[conv.id];
-        const lastActivityTime = new Date(conv.lastActivityAt).getTime();
-        const lastSeenTime = lastSeenAt ? new Date(lastSeenAt).getTime() : 0;
-        const isUnread = lastActivityTime > lastSeenTime;
-
-        return {
-          id: conv.id,
-          type,
-          securityLevel: conv.securityLevel as 'e2ee' | 'gateway_secured',
-          participants: [conv.counterparty?.identityId || conv.counterparty?.externalId || 'unknown'],
-          counterpartyName,
-          lastMessagePreview: 'No messages yet',
-          lastActivityAt: conv.lastActivityAt,
-          createdAt: conv.createdAt,
-          unreadCount: isUnread ? 1 : 0,
-          isUnread,
-          // Phase 4: Edge-to-edge messaging info
-          myEdgeId: conv.myEdgeId || conv.edge?.id,
-          counterpartyEdgeId: conv.counterparty?.edgeId,
-          counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey,
-          edgeAddress: conv.edge?.address,
-        };
-      });
+    if (storedResult.success && storedResult.conversations) {
+      conversations.value = storedResult.conversations;
     }
+    
+    // Then trigger a fresh poll (will update storage and notify us)
+    await sendMessage({ type: 'FORCE_POLL' });
   } catch (error) {
     console.error('Load conversations error:', error);
   } finally {
@@ -704,10 +641,29 @@ chrome.runtime.onMessage.addListener((message) => {
     showToast('Session locked due to inactivity');
   }
   
+  // Handle background polling updates - directly update conversations signal
+  if (message.type === 'CONVERSATIONS_UPDATED' && message.conversations) {
+    console.log('[Panel] Received CONVERSATIONS_UPDATED with', message.conversations.length, 'conversations');
+    conversations.value = message.conversations;
+  }
+  
+  // Legacy handler for backwards compatibility
   if (message.type === 'NEW_MESSAGES' && message.conversations) {
-    // Refresh conversations to show new messages
     loadData();
   }
+});
+
+// ============================================
+// Panel Lifecycle
+// ============================================
+
+// Notify background when panel opens (increases poll frequency)
+sendMessage({ type: 'PANEL_OPENED' }).catch(() => {});
+
+// Notify background when panel closes
+window.addEventListener('beforeunload', () => {
+  // Fire and forget - we can't await in beforeunload
+  chrome.runtime.sendMessage({ type: 'PANEL_CLOSED' }).catch(() => {});
 });
 
 // ============================================
