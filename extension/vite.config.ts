@@ -85,6 +85,24 @@ function extensionBuild() {
       
       mkdirSync(resolve(distDir, 'popup'), { recursive: true });
       writeFileSync(resolve(distDir, 'popup', 'index.html'), popupHtml);
+      
+      // Create docs/index.html (fullscreen webhook documentation)
+      const docsHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relay Webhook Documentation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="./index.js"></script>
+</body>
+</html>`;
+      
+      mkdirSync(resolve(distDir, 'docs'), { recursive: true });
+      writeFileSync(resolve(distDir, 'docs', 'index.html'), docsHtml);
     },
   };
 }
@@ -101,6 +119,7 @@ export default defineConfig({
         fullscreen: resolve(__dirname, 'src/fullscreen/main.tsx'),
         background: resolve(__dirname, 'src/background/index.ts'),
         popup: resolve(__dirname, 'src/popup/main.ts'),
+        docs: resolve(__dirname, 'src/docs/index.tsx'),
       },
       output: {
         entryFileNames: (chunkInfo) => `${chunkInfo.name}/index.js`,

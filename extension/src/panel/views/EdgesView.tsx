@@ -1,7 +1,6 @@
 import { edges, createEdge, burnEdge, showToast, loadEdges, sendMessage, edgeTypes } from '../state';
 import { useState, useEffect } from 'preact/hooks';
 import { EdgeCard } from '../components/EdgeCard';
-import { WebhookDocsView } from './WebhookDocsView';
 
 export function EdgesView() {
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -11,7 +10,6 @@ export function EdgesView() {
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
   const [disposalModal, setDisposalModal] = useState<{ edgeId: string; edgeType: string; address: string } | null>(null);
-  const [webhookDocsModal, setWebhookDocsModal] = useState<{ edgeId: string; webhookUrl: string; authToken: string } | null>(null);
 
   const edgeList = edges.value;
   const availableEdgeTypes = edgeTypes.value;
@@ -163,11 +161,14 @@ export function EdgesView() {
                 }}
                 onDispose={() => openDisposalModal(edge.id, edge.type, edge.address)}
                 onViewDocs={edge.type === 'webhook' && rawEdge?.metadata?.webhookUrl && rawEdge?.metadata?.authToken
-                  ? () => setWebhookDocsModal({
-                      edgeId: edge.id,
-                      webhookUrl: rawEdge.metadata.webhookUrl,
-                      authToken: rawEdge.metadata.authToken
-                    })
+                  ? () => {
+                      const params = new URLSearchParams({
+                        edgeId: edge.id,
+                        webhookUrl: rawEdge.metadata.webhookUrl,
+                        authToken: rawEdge.metadata.authToken,
+                      });
+                      chrome.tabs.create({ url: `docs/index.html?${params.toString()}` });
+                    }
                   : undefined
                 }
                 expandable={true}
@@ -324,16 +325,6 @@ export function EdgesView() {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Webhook Documentation Modal */}
-      {webhookDocsModal && (
-        <WebhookDocsView
-          edgeId={webhookDocsModal.edgeId}
-          webhookUrl={webhookDocsModal.webhookUrl}
-          authToken={webhookDocsModal.authToken}
-          onClose={() => setWebhookDocsModal(null)}
-        />
       )}
     </div>
   );

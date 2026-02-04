@@ -1,24 +1,36 @@
 import { useState, useEffect } from 'preact/hooks';
+import Prism from 'prismjs';
+import 'prismjs/themes/prism-tomorrow.css'; // VS Code dark theme
+import 'prismjs/components/prism-bash';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-go';
+import 'prismjs/components/prism-ruby';
+import 'prismjs/components/prism-json';
 
 // Inline RelayLogo component
 function RelayLogo({ className }: { className?: string }) {
   return (
     <svg
-      width="32"
-      height="32"
-      viewBox="0 0 32 32"
+      width="28"
+      height="28"
+      viewBox="20 20 216 216"
       fill="none"
       className={className}
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path
-        d="M16 4L4 10v12l12 6 12-6V10L16 4z"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="16" cy="16" r="4" fill="currentColor" />
+      <defs>
+        <linearGradient id="relay-gradient-header" x1="44" y1="28" x2="212" y2="232" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#38BDF8"></stop>
+          <stop offset="0.55" stop-color="#60A5FA"></stop>
+          <stop offset="1" stop-color="#A5B4FC"></stop>
+        </linearGradient>
+      </defs>
+      <g transform="translate(128 128) scale(1.14) translate(-128 -128)">
+        <path d="M92 176V86c0-10 8-18 18-18h30c22 0 40 18 40 40s-18 40-40 40h-22" fill="none" stroke="url(#relay-gradient-header)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M118 148l52 28" fill="none" stroke="url(#relay-gradient-header)" stroke-width="18" stroke-linecap="round"></path>
+        <circle cx="188" cy="176" r="10" fill="url(#relay-gradient-header)"></circle>
+      </g>
     </svg>
   );
 }
@@ -32,6 +44,54 @@ interface WebhookDocsViewProps {
 
 export function WebhookDocsView({ edgeId, webhookUrl, authToken, onClose }: WebhookDocsViewProps) {
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
+  const [activeLanguageTab, setActiveLanguageTab] = useState<'curl' | 'javascript' | 'python' | 'go' | 'ruby'>('curl');
+  const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [testMessage, setTestMessage] = useState<string>('');
+
+  useEffect(() => {
+    // Trigger syntax highlighting when tab changes
+    Prism.highlightAll();
+  }, [activeLanguageTab]);
+
+  const testWebhook = async () => {
+    setTestStatus('loading');
+    setTestMessage('');
+
+    try {
+      const response = await fetch(webhookUrl.split('?')[0], {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sender: 'relay-docs-test',
+          title: 'Test from Documentation',
+          body: `This is a test message sent from the Relay webhook documentation page at ${new Date().toLocaleTimeString()}!`,
+          data: {
+            source: 'webhook-docs',
+            timestamp: new Date().toISOString(),
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      setTestStatus('success');
+      setTestMessage(`✓ Success! Message sent (ID: ${result.messageId || 'N/A'}). Check your inbox!`);
+    } catch (error) {
+      setTestStatus('error');
+      setTestMessage(`✗ Error: ${error instanceof Error ? error.message : 'Failed to send webhook'}`);
+    }
+
+    setTimeout(() => {
+      setTestStatus('idle');
+      setTestMessage('');
+    }, 5000);
+  };
 
   const copyToClipboard = async (text: string, section: string) => {
     await navigator.clipboard.writeText(text);
@@ -48,17 +108,21 @@ export function WebhookDocsView({ edgeId, webhookUrl, authToken, onClose }: Webh
     </button>
   );
 
-  const CodeBlock = ({ code, language, section }: { code: string; language: string; section: string }) => (
-    <div class="relative mb-4">
-      <div class="absolute top-2 left-3 text-xs text-slate-500 font-mono uppercase tracking-wide">
-        {language}
+  const CodeBlock = ({ code, language, section }: { code: string; language: string; section: string }) => {
+    const highlighted = Prism.highlight(code.trim(), Prism.languages[language] || Prism.languages.javascript, language);
+    
+    return (
+      <div class="relative mb-4">
+        <div class="absolute top-2 left-3 text-xs text-slate-400 font-mono uppercase tracking-wide">
+          {language}
+        </div>
+        <CopyButton text={code.trim()} section={section} />
+        <pre class="bg-slate-900 text-slate-100 p-4 pt-8 rounded-lg overflow-x-auto text-sm font-mono leading-relaxed">
+          <code class={`language-${language}`} dangerouslySetInnerHTML={{ __html: highlighted }}></code>
+        </pre>
       </div>
-      <CopyButton text={code.trim()} section={section} />
-      <pre class="bg-slate-900 text-slate-100 p-4 pt-8 rounded-lg overflow-x-auto text-sm font-mono leading-relaxed">
-        <code>{code.trim()}</code>
-      </pre>
-    </div>
-  );
+    );
+  };
 
   return (
     <div class="fixed inset-0 bg-stone-100 z-50 overflow-y-auto">
@@ -66,7 +130,7 @@ export function WebhookDocsView({ edgeId, webhookUrl, authToken, onClose }: Webh
       <div class="bg-white border-b border-stone-200 sticky top-0 z-10">
         <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <div class="flex items-center gap-3">
-            <RelayLogo className="w-8 h-8 text-sky-600" />
+            <RelayLogo className="w-8 h-8" />
             <div>
               <h1 class="text-xl font-bold text-stone-900">Webhook Edge Documentation</h1>
               <p class="text-sm text-stone-600">Technical Reference for Edge {edgeId.slice(0, 8)}...</p>
@@ -241,35 +305,94 @@ Content-Type: application/json
 
         {/* Code Examples */}
         <section class="bg-white rounded-lg shadow-sm border border-stone-200 p-6 mb-6">
-          <h2 class="text-2xl font-bold text-stone-900 mb-4">Code Examples</h2>
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-2xl font-bold text-stone-900">Code Examples</h2>
+            <button
+              onClick={testWebhook}
+              disabled={testStatus === 'loading'}
+              class={`px-4 py-2 rounded-lg font-medium text-sm transition-all duration-150 flex items-center gap-2 ${
+                testStatus === 'loading'
+                  ? 'bg-slate-400 text-white cursor-not-allowed'
+                  : testStatus === 'success'
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  : testStatus === 'error'
+                  ? 'bg-red-600 text-white hover:bg-red-700'
+                  : 'bg-sky-600 text-white hover:bg-sky-700 shadow-sm'
+              }`}
+            >
+              {testStatus === 'loading' ? (
+                <>
+                  <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Testing...
+                </>
+              ) : testStatus === 'success' ? (
+                <>✓ Sent!</>
+              ) : testStatus === 'error' ? (
+                <>✗ Failed</>
+              ) : (
+                <>▶ Run Example</>
+              )}
+            </button>
+          </div>
+
+          {/* Test Status Message */}
+          {testMessage && (
+            <div class={`mb-4 p-3 rounded-lg text-sm font-medium ${
+              testStatus === 'success'
+                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                : 'bg-red-50 text-red-800 border border-red-200'
+            }`}>
+              {testMessage}
+            </div>
+          )}
           
-          {/* cURL */}
-          <div class="mb-6">
-            <h3 class="text-lg font-semibold text-stone-900 mb-3">cURL</h3>
+          {/* Language Tabs */}
+          <div class="flex flex-wrap gap-2 mb-4 border-b border-stone-200">
+            {[
+              { id: 'curl', label: 'cURL' },
+              { id: 'javascript', label: 'JavaScript' },
+              { id: 'python', label: 'Python' },
+              { id: 'go', label: 'Go' },
+              { id: 'ruby', label: 'Ruby' },
+            ].map((lang) => (
+              <button
+                key={lang.id}
+                onClick={() => setActiveLanguageTab(lang.id as any)}
+                class={`px-4 py-2 font-medium text-sm transition-colors duration-150 border-b-2 ${
+                  activeLanguageTab === lang.id
+                    ? 'border-sky-600 text-sky-600'
+                    : 'border-transparent text-stone-600 hover:text-stone-900 hover:border-stone-300'
+                }`}
+              >
+                {lang.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Code Content */}
+          {activeLanguageTab === 'curl' && (
             <CodeBlock
               language="bash"
               section="curl"
-              code={`
-curl -X POST "${webhookUrl.split('?')[0]}" \\
+              code={`curl -X POST "${webhookUrl.split('?')[0]}" \\
   -H "Authorization: Bearer ${authToken}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "sender": "my-service",
     "title": "Test notification",
     "body": "This is a test message from cURL"
-  }'
-`}
+  }'`}
             />
-          </div>
+          )}
 
-          {/* JavaScript/Node.js */}
-          <div class="mb-6">
-            <h3 class="text-lg font-semibold text-stone-900 mb-3">JavaScript / Node.js</h3>
+          {activeLanguageTab === 'javascript' && (
             <CodeBlock
               language="javascript"
               section="javascript"
-              code={`
-// Using fetch (Node.js 18+ or browser)
+              code={`// Using fetch (Node.js 18+ or browser)
 async function sendWebhook(title, body, data = {}) {
   const response = await fetch("${webhookUrl.split('?')[0]}", {
     method: "POST",
@@ -298,19 +421,15 @@ await sendWebhook(
   "Payment received",
   "Customer paid $99.00 for Premium Plan",
   { amount: 99.00, plan: "premium" }
-);
-`}
+);`}
             />
-          </div>
+          )}
 
-          {/* Python */}
-          <div class="mb-6">
-            <h3 class="text-lg font-semibold text-stone-900 mb-3">Python</h3>
+          {activeLanguageTab === 'python' && (
             <CodeBlock
               language="python"
               section="python"
-              code={`
-import requests
+              code={`import requests
 from datetime import datetime
 
 def send_webhook(title: str, body: str, data: dict = None):
@@ -343,19 +462,15 @@ send_webhook(
     title="Backup completed",
     body="Database backup finished successfully",
     data={"size_mb": 1024, "duration_seconds": 45}
-)
-`}
+)`}
             />
-          </div>
+          )}
 
-          {/* Go */}
-          <div class="mb-6">
-            <h3 class="text-lg font-semibold text-stone-900 mb-3">Go</h3>
+          {activeLanguageTab === 'go' && (
             <CodeBlock
               language="go"
               section="go"
-              code={`
-package main
+              code={`package main
 
 import (
     "bytes"
@@ -425,19 +540,15 @@ func main() {
     if err != nil {
         panic(err)
     }
-}
-`}
+}`}
             />
-          </div>
+          )}
 
-          {/* Ruby */}
-          <div class="mb-6">
-            <h3 class="text-lg font-semibold text-stone-900 mb-3">Ruby</h3>
+          {activeLanguageTab === 'ruby' && (
             <CodeBlock
               language="ruby"
               section="ruby"
-              code={`
-require 'net/http'
+              code={`require 'net/http'
 require 'json'
 require 'time'
 
@@ -473,10 +584,9 @@ send_webhook(
   title: 'Deployment started',
   body: 'Deploying version 2.4.1 to production',
   data: { version: '2.4.1', environment: 'production' }
-)
-`}
+)`}
             />
-          </div>
+          )}
         </section>
 
         {/* Response Format */}

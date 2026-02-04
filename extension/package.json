@@ -11,7 +11,9 @@
   "dependencies": {
     "@preact/signals": "^1.2.2",
     "@relay/core": "file:../core",
+    "@types/prismjs": "^1.26.5",
     "preact": "^10.19.3",
+    "prismjs": "^1.30.0",
     "tweetnacl": "^1.0.3",
     "tweetnacl-util": "^0.15.1"
   },
