@@ -117,7 +117,7 @@ export function WebhookDocsView({ edgeId, webhookUrl, authToken, onClose }: Webh
           {language}
         </div>
         <CopyButton text={code.trim()} section={section} />
-        <pre class="bg-slate-900 text-slate-100 p-4 pt-8 rounded-lg overflow-x-auto text-sm font-mono leading-relaxed">
+        <pre class="bg-slate-900 text-slate-100 p-4 pt-10 rounded-lg overflow-x-auto text-sm font-mono leading-relaxed">
           <code class={`language-${language}`} dangerouslySetInnerHTML={{ __html: highlighted }}></code>
         </pre>
       </div>
