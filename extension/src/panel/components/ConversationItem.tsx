@@ -134,11 +134,13 @@ export function ConversationItem({ conversation, isSelected, onClick }: Props) {
       </div>
       <div class="flex-1 min-w-0">
         <div class="flex items-center justify-between gap-2 mb-0.5">
-          <span class={`text-sm ${isUnread ? 'font-semibold' : 'font-medium'} text-stone-900 whitespace-nowrap overflow-hidden text-ellipsis`}>
-            {conversation.counterpartyName || 'Unknown'}
-          </span>
-          <div class="flex items-center gap-1.5 flex-shrink-0">
+          <div class="flex items-center gap-1.5 min-w-0">
+            <span class={`text-sm ${isUnread ? 'font-semibold' : 'font-medium'} text-stone-900 whitespace-nowrap overflow-hidden text-ellipsis`}>
+              {conversation.counterpartyName || 'Unknown'}
+            </span>
             {showEdgeBadge && <EdgeBadge address={conversation.edgeAddress!} />}
+          </div>
+          <div class="flex items-center gap-1.5 flex-shrink-0">
             <SecurityBadge level={securityLevel} />
             <span class={`flex-shrink-0 text-xs ${isUnread ? 'text-stone-600 font-medium' : 'text-stone-400'}`}>
               {formatTime(conversation.lastActivityAt)}

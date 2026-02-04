@@ -1301,6 +1301,7 @@ async function getConversations(): Promise<{
       edgeId?: string;          // Phase 4: Counterparty edge ID
       x25519PublicKey?: string; // Phase 4: Counterparty encryption key
     };
+    lastMessageId?: string;  // For message preview lookup
     lastActivityAt: string;
     createdAt: string;
   }>;
@@ -2918,6 +2919,7 @@ interface ProcessedConversation {
   participants: string[];
   counterpartyName: string;
   lastMessagePreview: string;
+  lastMessageId?: string;  // For looking up cached decrypted content
   lastActivityAt: string;
   createdAt: string;
   unreadCount: number;
@@ -3059,6 +3061,14 @@ async function pollForNewMessages(): Promise<void> {
       ? new Date(lastSeenState.globalLastCheck).getTime() 
       : 0;
     
+    // Batch load cached message previews for conversations that have lastMessageId
+    const lastMessageIds = rawConversations
+      .map(c => c.lastMessageId)
+      .filter((id): id is string => !!id);
+    const cachedPreviews = lastMessageIds.length > 0 
+      ? await loadMessagesFromCache(lastMessageIds)
+      : new Map<string, string>();
+    
     // Process conversations with same logic as panel's loadConversations
     const processedConversations: ProcessedConversation[] = rawConversations.map(conv => {
       // Determine conversation type
@@ -3091,13 +3101,29 @@ async function pollForNewMessages(): Promise<void> {
       const lastSeenTime = lastSeenAt ? new Date(lastSeenAt).getTime() : 0;
       const isUnread = lastActivityTime > lastSeenTime;
 
+      // Determine message preview:
+      // 1. If we have cached decrypted content for lastMessageId -> show truncated preview
+      // 2. If unread but not cached -> "New message" 
+      // 3. If read but not cached -> empty (user hasn't opened this yet)
+      let lastMessagePreview = '';
+      if (conv.lastMessageId && cachedPreviews.has(conv.lastMessageId)) {
+        const fullContent = cachedPreviews.get(conv.lastMessageId)!;
+        // Truncate to ~50 chars for preview
+        lastMessagePreview = fullContent.length > 50 
+          ? fullContent.substring(0, 50) + '...' 
+          : fullContent;
+      } else if (isUnread) {
+        lastMessagePreview = 'New message';
+      }
+
       return {
         id: conv.id,
         type,
         securityLevel: conv.securityLevel as 'e2ee' | 'gateway_secured',
         participants: [conv.counterparty?.identityId || conv.counterparty?.externalId || 'unknown'],
         counterpartyName,
-        lastMessagePreview: 'No messages yet',
+        lastMessagePreview,
+        lastMessageId: conv.lastMessageId,
         lastActivityAt: conv.lastActivityAt,
         createdAt: conv.createdAt,
         unreadCount: isUnread ? 1 : 0,
