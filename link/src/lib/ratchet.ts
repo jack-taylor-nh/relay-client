@@ -179,16 +179,36 @@ function createAD(dhPublic: Uint8Array, pn: number, n: number): Uint8Array {
 /**
  * Initialize ratchet state for the visitor (Alice role - initiator)
  * 
- * @param sharedSecret - Derived from PIN + linkId
+ * The shared secret is derived from DH between the visitor's deterministic keypair
+ * and the edge's public key. This matches what the extension computes.
+ * 
+ * @param visitorKeypair - Visitor's deterministic X25519 keypair (derived from seed + linkId)
  * @param edgePublicKey - The edge owner's X25519 public key
  */
 export function RatchetInitVisitor(
-  sharedSecret: Uint8Array,
+  visitorKeypair: nacl.BoxKeyPair,
   edgePublicKey: Uint8Array
 ): RatchetState {
+  // Compute shared secret via DH - this matches what the extension computes
+  const sharedSecret = DH(visitorKeypair, edgePublicKey);
+  
+  console.log('[RatchetInitVisitor] Debug:', {
+    visitorPubKey: toBase64(visitorKeypair.publicKey),
+    edgePubKey: toBase64(edgePublicKey),
+    sharedSecret: toBase64(sharedSecret),
+  });
+  
+  // Generate ephemeral DH keypair for the ratchet (Alice's first ratchet key)
   const DHs = nacl.box.keyPair();
   const dhOut = DH(DHs, edgePublicKey);
   const { rk, ck } = KDF_RK(sharedSecret, dhOut);
+  
+  console.log('[RatchetInitVisitor] Ratchet initialized:', {
+    DHsPubKey: toBase64(DHs.publicKey),
+    dhOut: toBase64(dhOut),
+    RK: toBase64(rk),
+    CKs: toBase64(ck),
+  });
   
   return {
     DHs,

@@ -26,6 +26,7 @@ const visitorKeys = signal<{
   sharedSecret: Uint8Array;
   stateEncryptionKey: Uint8Array;
   publicKeyBase64: string;
+  keypairSecretKey: Uint8Array;
 } | null>(null);
 const ratchetState = signal<RatchetState | null>(null);
 const visitorName = signal<string>('');
@@ -196,10 +197,15 @@ function generateSeedWords(count = 3): string[] {
   return Array.from(randomValues, (value) => WORDLIST[value % WORDLIST.length]);
 }
 
-function initializeRatchet(sharedSecret: Uint8Array) {
-  if (!linkInfo.value) return;
+function initializeRatchet() {
+  if (!linkInfo.value || !visitorKeys.value) return;
   const edgePublicKey = fromBase64(linkInfo.value.x25519PublicKey);
-  ratchetState.value = RatchetInitVisitor(sharedSecret, edgePublicKey);
+  // Use the visitor's deterministic keypair for DH-based shared secret
+  const keypair = {
+    publicKey: fromBase64(visitorKeys.value.publicKeyBase64),
+    secretKey: visitorKeys.value.keypairSecretKey,
+  };
+  ratchetState.value = RatchetInitVisitor(keypair, edgePublicKey);
 }
 
 function SeedEntryView({ linkId }: { linkId: string }) {
@@ -256,6 +262,7 @@ function SeedEntryView({ linkId }: { linkId: string }) {
         sharedSecret: keys.sharedSecret,
         stateEncryptionKey: keys.stateEncryptionKey,
         publicKeyBase64: keys.publicKeyBase64,
+        keypairSecretKey: keys.keypair.secretKey,
       };
 
       const api = new LinkApiClient(linkId);
@@ -275,15 +282,15 @@ function SeedEntryView({ linkId }: { linkId: string }) {
             ratchetState.value = deserializeRatchetState(serializedState);
           } catch (err) {
             console.error('Failed to decrypt ratchet state:', err);
-            initializeRatchet(keys.sharedSecret);
+            initializeRatchet();
           }
         } else {
-          initializeRatchet(keys.sharedSecret);
+          initializeRatchet();
         }
 
         currentView.value = 'chat';
       } else {
-        initializeRatchet(keys.sharedSecret);
+        initializeRatchet();
         seedPhrase.value = seed;
         seedWordsForSave.value = normalized;
         currentView.value = 'seed-save';
@@ -519,7 +526,7 @@ function NameEntryView({ linkId }: { linkId: string }) {
       }
       
       // Initialize the ratchet for this new conversation
-      initializeRatchet(visitorKeys.value.sharedSecret);
+      initializeRatchet();
       
       const api = new LinkApiClient(linkId);
       const session = await api.createSession(
