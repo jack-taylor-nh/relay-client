@@ -635,10 +635,38 @@ function ChatView({ linkId }: { linkId: string }) {
           for (const msg of response.messages) {
             try {
               // Parse the encrypted message
-              const encryptedMsg: EncryptedRatchetMessage = JSON.parse(atob(msg.encryptedContent));
+              // Messages can come in two formats:
+              // 1. encryptedContent: base64-encoded JSON (legacy format)
+              // 2. Direct fields: ciphertext, ephemeralPubkey, nonce, pn, n (from extension)
+              let encryptedMsg: EncryptedRatchetMessage;
+              
+              if (msg.encryptedContent) {
+                // Legacy format - parse from base64-encoded JSON
+                encryptedMsg = JSON.parse(atob(msg.encryptedContent));
+              } else if (msg.ciphertext && msg.nonce) {
+                // Direct format from extension replies
+                encryptedMsg = {
+                  ciphertext: msg.ciphertext,
+                  dh: msg.ephemeralPubkey,
+                  nonce: msg.nonce,
+                  pn: msg.pn ?? 0,
+                  n: msg.n ?? 0,
+                };
+              } else {
+                throw new Error('Unknown message format');
+              }
+              
+              console.log('[Link] Attempting to decrypt message:', {
+                msgId: msg.id,
+                dh: encryptedMsg.dh?.substring(0, 20) + '...',
+                pn: encryptedMsg.pn,
+                n: encryptedMsg.n,
+              });
+              
               const result = RatchetDecrypt(currentState, encryptedMsg);
               
               if (result) {
+                console.log('[Link] Decryption successful');
                 currentState = result.newState;
                 decryptedMessages.push({
                   id: msg.id,
@@ -647,6 +675,7 @@ function ChatView({ linkId }: { linkId: string }) {
                   timestamp: new Date(msg.createdAt),
                 });
               } else {
+                console.log('[Link] Decryption returned null');
                 decryptedMessages.push({
                   id: msg.id,
                   content: '[Unable to decrypt message]',
@@ -654,7 +683,8 @@ function ChatView({ linkId }: { linkId: string }) {
                   timestamp: new Date(msg.createdAt),
                 });
               }
-            } catch {
+            } catch (err) {
+              console.error('[Link] Decryption error:', err);
               decryptedMessages.push({
                 id: msg.id,
                 content: '[Decryption error]',

@@ -3133,9 +3133,11 @@ async function pollForNewMessages(): Promise<void> {
         createdAt: conv.createdAt,
         unreadCount: isUnread ? 1 : 0,
         isUnread,
-        myEdgeId: conv.myEdgeId || conv.edge?.id,
-        counterpartyEdgeId: conv.counterparty?.edgeId,
-        counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey,
+        myEdgeId: conv.myEdgeId ?? conv.edge?.id,
+        // For contact_link visitors, use externalId as their "edge" identifier
+        counterpartyEdgeId: conv.counterparty?.edgeId ?? conv.counterparty?.externalId,
+        // For contact_link, externalId IS the x25519 public key
+        counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey ?? conv.counterparty?.externalId,
         edgeAddress: conv.edge?.address,
       };
     });

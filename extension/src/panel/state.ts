@@ -387,10 +387,11 @@ export async function loadData() {
           createdAt: conv.createdAt,
           unreadCount: 0, // TODO: Track unread
           // Phase 4: Edge-to-edge messaging info
-          myEdgeId: conv.myEdgeId || conv.edge?.id,
-          counterpartyEdgeId: conv.counterparty?.edgeId || conv.counterparty?.externalId || undefined,
+          myEdgeId: conv.myEdgeId ?? conv.edge?.id,
+          // For contact_link visitors, use externalId as their "edge" identifier
+          counterpartyEdgeId: conv.counterparty?.edgeId ?? conv.counterparty?.externalId ?? undefined,
           // For contact_link, the externalId IS the x25519 public key
-          counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey || conv.counterparty?.externalId || undefined,
+          counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey ?? conv.counterparty?.externalId ?? undefined,
           edgeAddress: conv.edge?.address,
         };
       });
