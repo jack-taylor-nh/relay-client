@@ -493,7 +493,19 @@ export function ConversationDetailView() {
           </div>
         ) : messages.value.length === 0 ? (
           <div class="messages-empty">
-            <div class="text-secondary">No messages yet</div>
+            {conv?.type === 'contact_endpoint' ? (
+              <>
+                <div class="contact-link-notice">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="contact-link-icon">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                  </svg>
+                  <div class="contact-link-text">Someone started a conversation via your contact link, but hasn't sent a message yet.</div>
+                </div>
+              </>
+            ) : (
+              <div class="text-secondary">No messages yet</div>
+            )}
           </div>
         ) : (
           <>
@@ -732,6 +744,28 @@ export function ConversationDetailView() {
           color: var(--color-text-tertiary);
           background-color: var(--color-background-elevated);
           border-top: 1px solid var(--color-border);
+        }
+        
+        .contact-link-notice {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 12px;
+          padding: 24px;
+          text-align: center;
+          max-width: 280px;
+          margin: auto;
+        }
+        
+        .contact-link-icon {
+          color: #10b981;
+          opacity: 0.8;
+        }
+        
+        .contact-link-text {
+          font-size: 14px;
+          color: var(--color-text-secondary);
+          line-height: 1.5;
         }
       `}</style>
     </div>

@@ -107,9 +107,7 @@ export function FullscreenEdgesView() {
       address: displayAddress,
       subtitle: (e.type === 'native' || e.type === 'discord') 
         ? (e.metadata?.displayName || null) 
-        : e.type === 'contact_link' 
-          ? (e.label || 'Contact Link')
-          : (e.label || null),
+        : (e.label || null),
       status: e.status,
       messageCount: e.messageCount,
       createdAt: e.createdAt

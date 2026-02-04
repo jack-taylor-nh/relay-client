@@ -98,7 +98,7 @@ export function EdgeCard({
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-sm font-semibold text-stone-900">{address}</span>
             <span class={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide ${badgeColor} text-white`}>
-              {type}
+              {type.replace(/_/g, ' ')}
             </span>
             {status !== 'active' && (
               <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide bg-stone-100 text-stone-500">

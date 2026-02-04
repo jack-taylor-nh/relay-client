@@ -12,9 +12,10 @@ import {
   type RatchetState,
   type EncryptedRatchetMessage,
 } from './lib/ratchet';
+import { WORDLIST } from './lib/wordlist';
 
 // App state
-type AppView = 'loading' | 'not-found' | 'pin-entry' | 'name-entry' | 'chat' | 'error';
+type AppView = 'loading' | 'not-found' | 'seed-entry' | 'seed-save' | 'name-entry' | 'chat' | 'error';
 const currentView = signal<AppView>('loading');
 const errorMessage = signal<string | null>(null);
 const linkInfo = signal<{ edgeId: string; x25519PublicKey: string } | null>(null);
@@ -29,6 +30,8 @@ const ratchetState = signal<RatchetState | null>(null);
 const visitorName = signal<string>('');
 const sessionId = signal<string | null>(null);
 const conversationId = signal<string | null>(null);
+const seedPhrase = signal<string>('');
+const seedWordsForSave = signal<string[]>([]);
 
 // Messages
 interface ChatMessage {
@@ -67,7 +70,7 @@ export function App() {
           edgeId: info.edgeId,
           x25519PublicKey: info.x25519PublicKey,
         };
-        currentView.value = 'pin-entry';
+        currentView.value = 'seed-entry';
       })
       .catch(err => {
         console.error('Failed to load link:', err);
@@ -87,7 +90,8 @@ export function App() {
         {currentView.value === 'loading' && <LoadingView />}
         {currentView.value === 'not-found' && <NotFoundView />}
         {currentView.value === 'error' && <ErrorView />}
-        {currentView.value === 'pin-entry' && linkId && <PinEntryView linkId={linkId} />}
+        {currentView.value === 'seed-entry' && linkId && <SeedEntryView linkId={linkId} />}
+        {currentView.value === 'seed-save' && linkId && <SeedSaveView linkId={linkId} />}
         {currentView.value === 'name-entry' && linkId && <NameEntryView linkId={linkId} />}
         {currentView.value === 'chat' && linkId && <ChatView linkId={linkId} />}
       </main>
@@ -184,141 +188,288 @@ function ErrorView() {
   );
 }
 
-function PinEntryView({ linkId }: { linkId: string }) {
-  const [pin, setPin] = useState('');
+const WORDSET = new Set(WORDLIST);
+
+function generateSeedWords(count = 3): string[] {
+  const randomValues = crypto.getRandomValues(new Uint32Array(count));
+  return Array.from(randomValues, (value) => WORDLIST[value % WORDLIST.length]);
+}
+
+function initializeRatchet(sharedSecret: Uint8Array) {
+  if (!linkInfo.value) return;
+  const edgePublicKey = fromBase64(linkInfo.value.x25519PublicKey);
+  ratchetState.value = RatchetInitVisitor(sharedSecret, edgePublicKey);
+}
+
+function SeedEntryView({ linkId }: { linkId: string }) {
+  const [words, setWords] = useState<string[]>(['', '', '']);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+
   useEffect(() => {
-    inputRef.current?.focus();
+    inputRefs.current[0]?.focus();
   }, []);
-  
+
+  function updateWord(index: number, value: string) {
+    const sanitized = value.replace(/[^a-z]/gi, '').toLowerCase();
+    const updated = [...words];
+    updated[index] = sanitized;
+    setWords(updated);
+  }
+
+  function handleGenerateSeed() {
+    const generated = generateSeedWords(3);
+    setWords(generated);
+    setError(null);
+    // Focus last field so user can continue immediately
+    requestAnimationFrame(() => inputRefs.current[2]?.focus());
+  }
+
   async function handleSubmit(e: Event) {
     e.preventDefault();
-    if (pin.length !== 6) return;
-    
+    if (isLoading) return;
+
+    const normalized = words.map((w) => w.trim().toLowerCase());
+
+    if (normalized.some((w) => !w)) {
+      setError('Enter all three words.');
+      const firstEmpty = normalized.findIndex((w) => !w);
+      if (firstEmpty >= 0) inputRefs.current[firstEmpty]?.focus();
+      return;
+    }
+
+    if (normalized.some((w) => !WORDSET.has(w))) {
+      setError('One or more words are not in the word list.');
+      return;
+    }
+
+    const seed = normalized.join(' ');
+
     setIsLoading(true);
     setError(null);
-    
+
     try {
-      // Derive deterministic keys from PIN + linkId
-      const keys = await deriveVisitorKeys(pin, linkId);
+      const keys = await deriveVisitorKeys(seed, linkId);
       visitorKeys.value = {
         sharedSecret: keys.sharedSecret,
         stateEncryptionKey: keys.stateEncryptionKey,
         publicKeyBase64: keys.publicKeyBase64,
       };
-      
-      // Check if session exists
+
       const api = new LinkApiClient(linkId);
       const session = await api.getSession(keys.publicKeyBase64);
-      
+
       if (session) {
-        // Existing session - decrypt and restore ratchet state
         sessionId.value = session.sessionId;
         conversationId.value = session.conversationId;
         visitorName.value = session.displayName || '';
-        
-        // Decrypt stored ratchet state
+
         if (session.encryptedRatchetState) {
           try {
             const serializedState = await decryptState(
-              session.encryptedRatchetState, 
+              session.encryptedRatchetState,
               keys.stateEncryptionKey
             );
             ratchetState.value = deserializeRatchetState(serializedState);
           } catch (err) {
             console.error('Failed to decrypt ratchet state:', err);
-            // State corrupted - need to reinitialize
-            initializeRatchet(keys);
+            initializeRatchet(keys.sharedSecret);
           }
         } else {
-          initializeRatchet(keys);
+          initializeRatchet(keys.sharedSecret);
         }
-        
+
         currentView.value = 'chat';
       } else {
-        // New visitor - ask for name
-        currentView.value = 'name-entry';
+        initializeRatchet(keys.sharedSecret);
+        seedPhrase.value = seed;
+        seedWordsForSave.value = normalized;
+        currentView.value = 'seed-save';
       }
     } catch (err: any) {
-      console.error('PIN verification error:', err);
-      setError(err.message || 'Failed to verify PIN');
+      console.error('Seed verification error:', err);
+      setError(err.message || 'Failed to verify seed phrase');
     } finally {
       setIsLoading(false);
     }
   }
-  
-  function initializeRatchet(keys: { sharedSecret: Uint8Array }) {
-    if (!linkInfo.value) return;
-    const edgePublicKey = fromBase64(linkInfo.value.x25519PublicKey);
-    ratchetState.value = RatchetInitVisitor(keys.sharedSecret, edgePublicKey);
-  }
-  
+
   return (
-    <div class="w-full max-w-sm">
+    <div class="w-full max-w-md">
       <div class="bg-white rounded-2xl shadow-lg p-6 border border-stone-200">
         <div class="text-center mb-6">
           <div class="w-14 h-14 bg-sky-100 rounded-full flex items-center justify-center mx-auto mb-3">
             <svg class="w-7 h-7 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0110 0v4" />
+              <path d="M6 10V7a6 6 0 0112 0v3" />
+              <rect x="4" y="10" width="16" height="10" rx="2" />
             </svg>
           </div>
-          <h2 class="text-xl font-semibold text-stone-800">Enter Your PIN</h2>
-          <p class="text-sm text-stone-600 mt-1">
-            Create a 6-digit PIN to secure your conversation
+          <h2 class="text-xl font-semibold text-stone-800">Secure Your Conversation</h2>
+          <p class="text-sm text-stone-600 mt-1 leading-relaxed">
+            Pick three words to create your private seed. You&apos;ll need this seed to return to the conversation.
           </p>
         </div>
-        
-        <form onSubmit={handleSubmit}>
-          <input
-            ref={inputRef}
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            maxLength={6}
-            value={pin}
-            onInput={(e) => {
-              const value = (e.target as HTMLInputElement).value.replace(/\D/g, '');
-              setPin(value);
-            }}
-            class="w-full text-center text-2xl tracking-[0.5em] font-mono py-4 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-            placeholder="••••••"
-            disabled={isLoading}
-          />
-          
-          {error && (
-            <p class="text-sm text-red-600 text-center mt-2">{error}</p>
-          )}
-          
-          <button
-            type="submit"
-            disabled={pin.length !== 6 || isLoading}
-            class="w-full mt-4 py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors"
-          >
-            {isLoading ? 'Verifying...' : 'Continue'}
-          </button>
+
+        <form onSubmit={handleSubmit} class="space-y-4">
+          <div class="flex flex-col gap-3">
+            {words.map((word, idx) => (
+              <input
+                key={idx}
+                ref={(el) => {
+                  inputRefs.current[idx] = el;
+                }}
+                type="text"
+                inputMode="text"
+                value={word}
+                onInput={(e) => updateWord(idx, (e.target as HTMLInputElement).value)}
+                class="w-full text-center text-lg font-mono uppercase tracking-[0.3em] py-3 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                placeholder={`Word ${idx + 1}`}
+                autoCapitalize="off"
+                autoComplete="off"
+                spellcheck={false}
+                disabled={isLoading}
+              />
+            ))}
+          </div>
+
+          {error && <p class="text-sm text-red-600 text-center">{error}</p>}
+
+          <div class="flex flex-col sm:flex-row gap-3">
+            <button
+              type="button"
+              onClick={handleGenerateSeed}
+              class="flex-1 py-3 border border-slate-300 rounded-lg text-slate-700 font-semibold hover:border-slate-400 disabled:opacity-60"
+              disabled={isLoading}
+            >
+              Generate Seed
+            </button>
+            <button
+              type="submit"
+              class="flex-1 py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800 disabled:bg-stone-300 disabled:cursor-not-allowed"
+              disabled={isLoading || words.some((w) => !w.trim())}
+            >
+              {isLoading ? 'Checking…' : 'Continue'}
+            </button>
+          </div>
         </form>
-        
-        <p class="text-xs text-stone-500 text-center mt-4">
-          Remember this PIN to return to your conversation later.
+
+        <p class="text-xs text-stone-500 text-center mt-4 leading-relaxed">
+          Your seed stays on this device. Keep it private—anyone with these words can read this conversation.
         </p>
       </div>
-      
+
       <div class="mt-4 p-4 bg-sky-50 rounded-xl border border-sky-200">
         <div class="flex items-start gap-3">
           <svg class="w-5 h-5 text-sky-600 mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
           </svg>
           <div>
-            <p class="text-sm font-medium text-sky-900">E2EE (PIN-protected)</p>
+            <p class="text-sm font-medium text-sky-900">End-to-End Encryption</p>
             <p class="text-xs text-sky-700 mt-0.5">
-              Your messages are encrypted end-to-end. Your PIN never leaves your device.
+              Your messages are encrypted with keys derived from this seed. Remember it to resume securely.
             </p>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function SeedSaveView({ linkId }: { linkId: string }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!seedPhrase.value) {
+      currentView.value = 'seed-entry';
+    }
+  }, []);
+
+  const words = seedWordsForSave.value;
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(seedPhrase.value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy seed:', err);
+    }
+  }
+
+  function handleDownload() {
+    const seedText = `Relay Contact Seed\nLink ID: ${linkId}\nSeed Phrase: ${seedPhrase.value}\n\nKeep this file private. Anyone with these words can read your messages.`;
+    const blob = new Blob([seedText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relay-contact-seed-${linkId}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function handleContinue() {
+    currentView.value = 'name-entry';
+  }
+
+  if (!seedPhrase.value) {
+    return null;
+  }
+
+  return (
+    <div class="w-full max-w-md">
+      <div class="bg-white rounded-2xl shadow-lg p-6 border border-stone-200">
+        <div class="text-center mb-6">
+          <div class="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <svg class="w-7 h-7 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 3l7 4v6c0 4.97-3.58 9.74-7 11-3.42-1.26-7-6.03-7-11V7l7-4z" />
+              <path d="M9 12l2 2 4-4" />
+            </svg>
+          </div>
+          <h2 class="text-xl font-semibold text-stone-800">Save Your Seed</h2>
+          <p class="text-sm text-stone-600 mt-1 leading-relaxed">
+            Download or copy these words. You&apos;ll need them to reopen this conversation in the future.
+          </p>
+        </div>
+
+        <div class="grid grid-cols-3 gap-3">
+          {words.map((word, idx) => (
+            <div key={idx} class="flex flex-col items-center gap-1 py-3 px-2 rounded-xl bg-slate-50 border border-slate-200">
+              <span class="text-xs font-semibold text-slate-500">{idx + 1}</span>
+              <span class="font-mono text-base tracking-[0.08em] uppercase text-slate-900">{word}</span>
+            </div>
+          ))}
+        </div>
+
+        <div class="mt-6 flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={handleDownload}
+            class="py-3 border border-slate-300 rounded-lg text-slate-700 font-semibold hover:border-slate-400"
+          >
+            Download Backup
+          </button>
+          <button
+            type="button"
+            onClick={handleCopy}
+            class="py-3 border border-slate-300 rounded-lg text-slate-700 font-semibold hover:border-slate-400"
+          >
+            {copied ? 'Copied!' : 'Copy to Clipboard'}
+          </button>
+          <button
+            type="button"
+            onClick={handleContinue}
+            class="py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800"
+          >
+            I saved my seed
+          </button>
+        </div>
+
+        <p class="text-xs text-stone-500 text-center mt-4 leading-relaxed">
+          Keep your seed private. Anyone with these words can impersonate you in this conversation.
+        </p>
       </div>
     </div>
   );
@@ -346,8 +497,7 @@ function NameEntryView({ linkId }: { linkId: string }) {
       }
       
       // Initialize the ratchet for this new conversation
-      const edgePublicKey = fromBase64(linkInfo.value.x25519PublicKey);
-      ratchetState.value = RatchetInitVisitor(visitorKeys.value.sharedSecret, edgePublicKey);
+      initializeRatchet(visitorKeys.value.sharedSecret);
       
       const api = new LinkApiClient(linkId);
       const session = await api.createSession(
@@ -588,7 +738,7 @@ function ChatView({ linkId }: { linkId: string }) {
             <svg class="w-3 h-3 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
               <polyline points="20 6 9 17 4 12" />
             </svg>
-            E2EE (PIN-protected)
+            E2EE (Seed-protected)
           </p>
         </div>
         {visitorName.value && (

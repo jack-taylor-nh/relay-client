@@ -1,19 +1,19 @@
 /**
  * Crypto utilities for Contact Link visitors
  * 
- * Key derivation from PIN + linkId to create deterministic keypairs
+ * Key derivation from seed phrase + linkId to create deterministic keypairs
  * and state encryption keys using tweetnacl.
  */
 
 import nacl from 'tweetnacl';
 
 /**
- * Derive a deterministic shared secret and keypair from PIN + linkId
+ * Derive a deterministic shared secret and keypair from seed + linkId
  * 
  * Uses Web Crypto PBKDF2 for key stretching, then generates
  * a deterministic X25519 keypair using the derived seed.
  */
-export async function deriveVisitorKeys(pin: string, linkId: string): Promise<{
+export async function deriveVisitorKeys(seedPhrase: string, linkId: string): Promise<{
   keypair: nacl.BoxKeyPair;
   sharedSecret: Uint8Array;
   stateEncryptionKey: Uint8Array;
@@ -22,7 +22,7 @@ export async function deriveVisitorKeys(pin: string, linkId: string): Promise<{
   const encoder = new TextEncoder();
   
   // Create deterministic seed using PBKDF2
-  const pinBytes = encoder.encode(pin);
+  const pinBytes = encoder.encode(seedPhrase);
   const saltBytes = encoder.encode(`relay-contact-v1:${linkId}`);
   
   const keyMaterial = await crypto.subtle.importKey(
@@ -128,10 +128,10 @@ export async function decryptState(
 }
 
 /**
- * Derive a deterministic public key identifier from PIN + linkId
+ * Derive a deterministic public key identifier from seed + linkId
  * This is used to identify/lookup existing sessions
  */
-export async function derivePublicKeyId(pin: string, linkId: string): Promise<string> {
-  const { publicKeyBase64 } = await deriveVisitorKeys(pin, linkId);
+export async function derivePublicKeyId(seedPhrase: string, linkId: string): Promise<string> {
+  const { publicKeyBase64 } = await deriveVisitorKeys(seedPhrase, linkId);
   return publicKeyBase64;
 }
