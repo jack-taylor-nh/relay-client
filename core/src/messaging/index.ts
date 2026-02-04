@@ -51,14 +51,6 @@ export async function getRatchetState(
   // Use edge-to-edge DH as shared secret
   const sharedSecret = deriveSharedSecret(myEdgeSecretKey, counterpartyEdgePublicKey);
   
-  console.log('[getRatchetState] Initializing new ratchet:', {
-    conversationId: conversation.id,
-    myEdgePubKey: toBase64(derivePublicKey(myEdgeSecretKey)),
-    counterpartyPubKey: toBase64(counterpartyEdgePublicKey),
-    sharedSecret: toBase64(sharedSecret),
-    isInitiator: conversation.is_initiator,
-  });
-  
   // Determine if we're Alice (initiator) or Bob (responder)
   // If is_initiator is explicitly set, use that; otherwise use edge ID comparison
   const weAreAlice = conversation.is_initiator !== undefined 

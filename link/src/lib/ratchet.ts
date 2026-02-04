@@ -192,23 +192,10 @@ export function RatchetInitVisitor(
   // Compute shared secret via DH - this matches what the extension computes
   const sharedSecret = DH(visitorKeypair, edgePublicKey);
   
-  console.log('[RatchetInitVisitor] Debug:', {
-    visitorPubKey: toBase64(visitorKeypair.publicKey),
-    edgePubKey: toBase64(edgePublicKey),
-    sharedSecret: toBase64(sharedSecret),
-  });
-  
   // Generate ephemeral DH keypair for the ratchet (Alice's first ratchet key)
   const DHs = nacl.box.keyPair();
   const dhOut = DH(DHs, edgePublicKey);
   const { rk, ck } = KDF_RK(sharedSecret, dhOut);
-  
-  console.log('[RatchetInitVisitor] Ratchet initialized:', {
-    DHsPubKey: toBase64(DHs.publicKey),
-    dhOut: toBase64(dhOut),
-    RK: toBase64(rk),
-    CKs: toBase64(ck),
-  });
   
   return {
     DHs,

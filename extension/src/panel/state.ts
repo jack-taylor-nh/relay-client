@@ -389,7 +389,8 @@ export async function loadData() {
           // Phase 4: Edge-to-edge messaging info
           myEdgeId: conv.myEdgeId || conv.edge?.id,
           counterpartyEdgeId: conv.counterparty?.edgeId || conv.counterparty?.externalId || undefined,
-          counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey,
+          // For contact_link, the externalId IS the x25519 public key
+          counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey || conv.counterparty?.externalId || undefined,
           edgeAddress: conv.edge?.address,
         };
       });
