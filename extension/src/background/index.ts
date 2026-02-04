@@ -3026,8 +3026,8 @@ async function handleSSEEvent(type: string, dataStr: string): Promise<void> {
       const data = JSON.parse(dataStr);
       console.log('[SSE] Conversation update:', data);
       
-      // Trigger immediate poll to fetch new messages
-      await pollForNewMessages();
+      // Trigger immediate poll to fetch new messages (mark as SSE-triggered)
+      await pollForNewMessages(true);
     }
   } catch (error) {
     console.error('[SSE] Failed to handle event:', error);
@@ -3176,7 +3176,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-async function pollForNewMessages(): Promise<void> {
+async function pollForNewMessages(sseTriggered: boolean = false): Promise<void> {
   // Check if we're unlocked
   if (!unlockedIdentity) {
     console.log('[Notifications] Wallet locked, skipping poll');
@@ -3305,15 +3305,35 @@ async function pollForNewMessages(): Promise<void> {
     // If panel is open: play sound only (user is actively viewing)
     // If panel is closed: show desktop notification only (alert user)
     // Only notify for RECEIVED messages (not ones we sent)
+    console.log('[Notifications] Poll completed:', {
+      sseTriggered,
+      unreadCount: unreadConversations.length,
+      panelIsActive,
+      playSound: prefs.playSound,
+      showDesktopNotifications: prefs.showDesktopNotifications,
+    });
+    
     if (unreadConversations.length > 0) {
       // Only notify for messages that arrived since our PREVIOUS check
       // AND were not sent by us (lastMessageWasMine === false)
-      const recentMessages = previousGlobalCheck > 0
-        ? unreadConversations.filter(c => {
-            const msgTime = new Date(c.lastActivityAt).getTime();
-            return msgTime > previousGlobalCheck && c.lastMessageWasMine !== true;
-          })
-        : [];
+      // UNLESS this was SSE-triggered (then always notify for unread messages)
+      const recentMessages = sseTriggered
+        ? unreadConversations.filter(c => c.lastMessageWasMine !== true)
+        : previousGlobalCheck > 0
+          ? unreadConversations.filter(c => {
+              const msgTime = new Date(c.lastActivityAt).getTime();
+              return msgTime > previousGlobalCheck && c.lastMessageWasMine !== true;
+            })
+          : [];
+      
+      console.log('[Notifications] Recent messages:', {
+        total: recentMessages.length,
+        conversations: recentMessages.map(c => ({
+          id: c.id,
+          counterpartyName: c.counterpartyName,
+          lastMessageWasMine: c.lastMessageWasMine,
+        })),
+      });
       
       if (recentMessages.length > 0) {
         if (panelIsActive) {
@@ -3321,6 +3341,8 @@ async function pollForNewMessages(): Promise<void> {
           if (prefs.playSound) {
             console.log('[Notifications] Panel open, playing sound for', recentMessages.length, 'new messages');
             await playNotificationSound();
+          } else {
+            console.log('[Notifications] Panel open but playSound is disabled');
           }
         } else {
           // Panel is closed - show desktop notification only (no sound)
