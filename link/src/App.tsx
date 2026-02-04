@@ -287,6 +287,32 @@ function SeedEntryView({ linkId }: { linkId: string }) {
         } else {
           initializeRatchet();
         }
+        
+        // Restore message history if available
+        if (session.encryptedMessageHistory) {
+          try {
+            const historyJson = await decryptState(
+              session.encryptedMessageHistory,
+              keys.stateEncryptionKey
+            );
+            const history = JSON.parse(historyJson) as Array<{
+              id: string;
+              content: string;
+              fromVisitor: boolean;
+              timestamp: string;
+            }>;
+            messages.value = history.map(m => ({
+              id: m.id,
+              content: m.content,
+              fromVisitor: m.fromVisitor,
+              timestamp: new Date(m.timestamp),
+            }));
+            console.log('[Link] Restored', messages.value.length, 'messages from history');
+          } catch (err) {
+            console.error('Failed to decrypt message history:', err);
+            // Not critical - continue without history
+          }
+        }
 
         currentView.value = 'chat';
       } else {
@@ -738,10 +764,26 @@ function ChatView({ linkId }: { linkId: string }) {
     try {
       // Serialize and encrypt the ratchet state
       const serialized = serializeRatchetState(ratchetState.value);
-      const encrypted = await encryptState(serialized, visitorKeys.value.stateEncryptionKey);
+      const encryptedState = await encryptState(serialized, visitorKeys.value.stateEncryptionKey);
+      
+      // Serialize and encrypt message history
+      const messageHistory = messages.value.map(m => ({
+        id: m.id,
+        content: m.content,
+        fromVisitor: m.fromVisitor,
+        timestamp: m.timestamp.toISOString(),
+      }));
+      const encryptedHistory = await encryptState(
+        JSON.stringify(messageHistory), 
+        visitorKeys.value.stateEncryptionKey
+      );
       
       // Update on server
-      await api.updateRatchetState(visitorKeys.value.publicKeyBase64, encrypted);
+      await api.updateRatchetState(
+        visitorKeys.value.publicKeyBase64, 
+        encryptedState,
+        encryptedHistory
+      );
     } catch (err) {
       console.error('Failed to save ratchet state:', err);
     }

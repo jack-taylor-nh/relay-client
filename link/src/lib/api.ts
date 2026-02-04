@@ -15,6 +15,7 @@ interface SessionResponse {
   sessionId: string;
   conversationId: string | null;
   encryptedRatchetState: string | null;
+  encryptedMessageHistory: string | null;
   displayName: string | null;
   isNew: boolean;
 }
@@ -100,15 +101,19 @@ export class LinkApiClient {
   }
   
   /**
-   * Update encrypted ratchet state
+   * Update encrypted ratchet state and message history
    */
-  async updateRatchetState(visitorPublicKey: string, encryptedRatchetState: string): Promise<void> {
+  async updateRatchetState(
+    visitorPublicKey: string, 
+    encryptedRatchetState: string,
+    encryptedMessageHistory?: string
+  ): Promise<void> {
     const res = await fetch(
       `${API_BASE}/link/${this.linkId}/session/${encodeURIComponent(visitorPublicKey)}/ratchet`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ encryptedRatchetState }),
+        body: JSON.stringify({ encryptedRatchetState, encryptedMessageHistory }),
       }
     );
     
