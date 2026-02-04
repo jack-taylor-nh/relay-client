@@ -773,11 +773,18 @@ async function unlock(passphrase: string): Promise<{ success: boolean; error?: s
   await resetLockTimer();
   onUnlock(); // Start background polling
   
-  // Connect to real-time SSE stream
-  connectSSE().catch(err => {
-    console.error('[SSE] Failed to connect on unlock:', err);
-    // Continue with polling fallback
-  });
+  // Get auth token first (needed for SSE connection)
+  const token = await getAuthToken();
+  
+  // Connect to real-time SSE stream (only if we have a valid token)
+  if (token) {
+    connectSSE().catch(err => {
+      console.error('[SSE] Failed to connect on unlock:', err);
+      // Continue with polling fallback
+    });
+  } else {
+    console.warn('[SSE] No auth token available, falling back to polling only');
+  }
 
   return { success: true };
 }
