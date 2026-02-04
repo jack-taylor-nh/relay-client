@@ -1477,7 +1477,7 @@ async function getMessages(
           if (conv) {
             conversationDetails = {
               myEdgeId: conv.myEdgeId || conv.edge?.id,  // Prefer myEdgeId, fallback to edge.id
-              counterpartyEdgeId: conv.counterparty?.edgeId,
+              counterpartyEdgeId: conv.counterparty?.edgeId || conv.counterparty?.externalId || undefined,
               // Server now returns x25519PublicKey directly in counterparty
               counterpartyX25519Key: conv.counterparty?.x25519PublicKey,
               origin: conv.origin,

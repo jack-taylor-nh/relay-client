@@ -388,7 +388,7 @@ export async function loadData() {
           unreadCount: 0, // TODO: Track unread
           // Phase 4: Edge-to-edge messaging info
           myEdgeId: conv.myEdgeId || conv.edge?.id,
-          counterpartyEdgeId: conv.counterparty?.edgeId,
+          counterpartyEdgeId: conv.counterparty?.edgeId || conv.counterparty?.externalId || undefined,
           counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey,
           edgeAddress: conv.edge?.address,
         };

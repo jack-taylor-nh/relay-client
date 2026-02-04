@@ -580,6 +580,8 @@ function ChatView({ linkId }: { linkId: string }) {
   const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const hasCompletedInitialPoll = useRef(false);
   
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -644,12 +646,25 @@ function ChatView({ linkId }: { linkId: string }) {
             messages.value = [...messages.value, ...uniqueNew].sort(
               (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
             );
+
+            if (hasCompletedInitialPoll.current && audioRef.current) {
+              try {
+                audioRef.current.currentTime = 0;
+                void audioRef.current.play();
+              } catch (err) {
+                console.warn('Notification audio failed to play:', err);
+              }
+            }
           }
           
           lastCheck = response.messages[0]?.createdAt;
         }
       } catch (err) {
         console.error('Poll error:', err);
+      } finally {
+        if (!hasCompletedInitialPoll.current) {
+          hasCompletedInitialPoll.current = true;
+        }
       }
     }
     
@@ -725,6 +740,7 @@ function ChatView({ linkId }: { linkId: string }) {
   
   return (
     <div class="w-full max-w-2xl h-[600px] flex flex-col bg-white rounded-2xl shadow-lg border border-stone-200 overflow-hidden">
+      <audio ref={audioRef} src="/sounds/notification.mp3" preload="auto" />
       {/* Chat header */}
       <div class="px-4 py-3 bg-stone-50 border-b border-stone-200 flex items-center gap-3">
         <div class="w-10 h-10 bg-sky-100 rounded-full flex items-center justify-center">
