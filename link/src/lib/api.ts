@@ -44,9 +44,11 @@ interface SendMessageResponse {
 
 export class LinkApiClient {
   private linkId: string;
+  public baseUrl: string;
   
   constructor(linkId: string) {
     this.linkId = linkId;
+    this.baseUrl = API_BASE;
   }
   
   /**

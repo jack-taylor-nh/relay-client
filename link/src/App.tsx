@@ -643,109 +643,117 @@ function ChatView({ linkId }: { linkId: string }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.value]);
   
-  // Poll for new messages and decrypt them
+  // Use SSE for real-time message updates, with fallback polling
   useEffect(() => {
     const api = new LinkApiClient(linkId);
     let lastCheck: string | undefined;
+    let eventSource: EventSource | null = null;
+    let pollInterval: number | null = null;
+    let sseRetryTimeout: number | null = null;
+    let retryCount = 0;
+    
+    async function processMessages(rawMessages: any[]) {
+      if (!visitorKeys.value || !ratchetState.value || rawMessages.length === 0) return;
+      
+      // Decrypt each message using Double Ratchet
+      const decryptedMessages: ChatMessage[] = [];
+      let currentState = ratchetState.value;
+      
+      for (const msg of rawMessages) {
+        try {
+          // Parse the encrypted message
+          // Messages can come in two formats:
+          // 1. encryptedContent: base64-encoded JSON (legacy format)
+          // 2. Direct fields: ciphertext, ephemeralPubkey, nonce, pn, n (from extension)
+          let encryptedMsg: EncryptedRatchetMessage;
+          
+          if (msg.encryptedContent) {
+            // Legacy format - parse from base64-encoded JSON
+            encryptedMsg = JSON.parse(atob(msg.encryptedContent));
+          } else if (msg.ciphertext && msg.nonce) {
+            // Direct format from extension replies
+            encryptedMsg = {
+              ciphertext: msg.ciphertext,
+              dh: msg.ephemeralPubkey,
+              nonce: msg.nonce,
+              pn: msg.pn ?? 0,
+              n: msg.n ?? 0,
+            };
+          } else {
+            throw new Error('Unknown message format');
+          }
+          
+          console.log('[Link] Attempting to decrypt message:', {
+            msgId: msg.id,
+            dh: encryptedMsg.dh?.substring(0, 20) + '...',
+            pn: encryptedMsg.pn,
+            n: encryptedMsg.n,
+          });
+          
+          const result = RatchetDecrypt(currentState, encryptedMsg);
+          
+          if (result) {
+            console.log('[Link] Decryption successful');
+            currentState = result.newState;
+            decryptedMessages.push({
+              id: msg.id,
+              content: result.plaintext,
+              fromVisitor: false,
+              timestamp: new Date(msg.createdAt),
+            });
+          } else {
+            console.log('[Link] Decryption returned null');
+            decryptedMessages.push({
+              id: msg.id,
+              content: '[Unable to decrypt message]',
+              fromVisitor: false,
+              timestamp: new Date(msg.createdAt),
+            });
+          }
+        } catch (err) {
+          console.error('[Link] Decryption error:', err);
+          decryptedMessages.push({
+            id: msg.id,
+            content: '[Decryption error]',
+            fromVisitor: false,
+            timestamp: new Date(msg.createdAt),
+          });
+        }
+      }
+      
+      // Update ratchet state and save to server
+      ratchetState.value = currentState;
+      await saveRatchetState(api);
+      
+      // Add new messages (avoid duplicates)
+      const existingIds = new Set(messages.value.map(m => m.id));
+      const uniqueNew = decryptedMessages.filter(m => !existingIds.has(m.id));
+      if (uniqueNew.length > 0) {
+        messages.value = [...messages.value, ...uniqueNew].sort(
+          (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
+        );
+
+        if (hasCompletedInitialPoll.current && audioRef.current) {
+          try {
+            audioRef.current.currentTime = 0;
+            void audioRef.current.play();
+          } catch (err) {
+            console.warn('Notification audio failed to play:', err);
+          }
+        }
+      }
+      
+      lastCheck = rawMessages[0]?.createdAt;
+    }
     
     async function pollMessages() {
       if (!visitorKeys.value || !ratchetState.value) return;
       
       try {
         const response = await api.getMessages(visitorKeys.value.publicKeyBase64, lastCheck);
-        if (response.messages.length > 0) {
-          // Decrypt each message using Double Ratchet
-          const decryptedMessages: ChatMessage[] = [];
-          let currentState = ratchetState.value;
-          
-          for (const msg of response.messages) {
-            try {
-              // Parse the encrypted message
-              // Messages can come in two formats:
-              // 1. encryptedContent: base64-encoded JSON (legacy format)
-              // 2. Direct fields: ciphertext, ephemeralPubkey, nonce, pn, n (from extension)
-              let encryptedMsg: EncryptedRatchetMessage;
-              
-              if (msg.encryptedContent) {
-                // Legacy format - parse from base64-encoded JSON
-                encryptedMsg = JSON.parse(atob(msg.encryptedContent));
-              } else if (msg.ciphertext && msg.nonce) {
-                // Direct format from extension replies
-                encryptedMsg = {
-                  ciphertext: msg.ciphertext,
-                  dh: msg.ephemeralPubkey,
-                  nonce: msg.nonce,
-                  pn: msg.pn ?? 0,
-                  n: msg.n ?? 0,
-                };
-              } else {
-                throw new Error('Unknown message format');
-              }
-              
-              console.log('[Link] Attempting to decrypt message:', {
-                msgId: msg.id,
-                dh: encryptedMsg.dh?.substring(0, 20) + '...',
-                pn: encryptedMsg.pn,
-                n: encryptedMsg.n,
-              });
-              
-              const result = RatchetDecrypt(currentState, encryptedMsg);
-              
-              if (result) {
-                console.log('[Link] Decryption successful');
-                currentState = result.newState;
-                decryptedMessages.push({
-                  id: msg.id,
-                  content: result.plaintext,
-                  fromVisitor: false,
-                  timestamp: new Date(msg.createdAt),
-                });
-              } else {
-                console.log('[Link] Decryption returned null');
-                decryptedMessages.push({
-                  id: msg.id,
-                  content: '[Unable to decrypt message]',
-                  fromVisitor: false,
-                  timestamp: new Date(msg.createdAt),
-                });
-              }
-            } catch (err) {
-              console.error('[Link] Decryption error:', err);
-              decryptedMessages.push({
-                id: msg.id,
-                content: '[Decryption error]',
-                fromVisitor: false,
-                timestamp: new Date(msg.createdAt),
-              });
-            }
-          }
-          
-          // Update ratchet state and save to server
-          ratchetState.value = currentState;
-          await saveRatchetState(api);
-          
-          // Add new messages (avoid duplicates)
-          const existingIds = new Set(messages.value.map(m => m.id));
-          const uniqueNew = decryptedMessages.filter(m => !existingIds.has(m.id));
-          if (uniqueNew.length > 0) {
-            messages.value = [...messages.value, ...uniqueNew].sort(
-              (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
-            );
-
-            if (hasCompletedInitialPoll.current && audioRef.current) {
-              try {
-                audioRef.current.currentTime = 0;
-                void audioRef.current.play();
-              } catch (err) {
-                console.warn('Notification audio failed to play:', err);
-              }
-            }
-          }
-          
-          lastCheck = response.messages[0]?.createdAt;
-        }
+        await processMessages(response.messages);
       } catch (err) {
-        console.error('Poll error:', err);
+        console.error('[Link] Poll error:', err);
       } finally {
         if (!hasCompletedInitialPoll.current) {
           hasCompletedInitialPoll.current = true;
@@ -753,9 +761,85 @@ function ChatView({ linkId }: { linkId: string }) {
       }
     }
     
+    function connectSSE() {
+      if (!visitorKeys.value) return;
+      
+      const sseUrl = `${api.baseUrl}/link/${linkId}/stream/${encodeURIComponent(visitorKeys.value.publicKeyBase64)}`;
+      console.log('[Link SSE] Connecting to:', sseUrl);
+      
+      eventSource = new EventSource(sseUrl);
+      
+      eventSource.addEventListener('connected', () => {
+        console.log('[Link SSE] Connected');
+        retryCount = 0;
+        // Stop polling since SSE is active
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+      });
+      
+      eventSource.addEventListener('message', async (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          console.log('[Link SSE] Received message event:', data);
+          
+          // SSE event contains the new message(s)
+          if (data.messages && Array.isArray(data.messages)) {
+            await processMessages(data.messages);
+          }
+        } catch (err) {
+          console.error('[Link SSE] Failed to process message event:', err);
+        }
+      });
+      
+      eventSource.addEventListener('ping', () => {
+        // Keepalive ping - no action needed
+      });
+      
+      eventSource.addEventListener('error', (e) => {
+        console.error('[Link SSE] Connection error:', e);
+        eventSource?.close();
+        eventSource = null;
+        
+        // Exponential backoff: 1s, 2s, 4s, 8s, max 30s
+        const delay = Math.min(1000 * Math.pow(2, retryCount), 30000);
+        retryCount++;
+        
+        console.log(`[Link SSE] Retrying in ${delay}ms (attempt ${retryCount})`);
+        sseRetryTimeout = setTimeout(() => {
+          connectSSE();
+        }, delay);
+        
+        // Fall back to polling while SSE is down
+        if (!pollInterval) {
+          console.log('[Link] Falling back to polling');
+          pollInterval = setInterval(pollMessages, 30000); // Poll every 30s as backup
+        }
+      });
+    }
+    
+    // Initial message fetch
     pollMessages();
-    const interval = setInterval(pollMessages, 5000);
-    return () => clearInterval(interval);
+    
+    // Try to establish SSE connection
+    connectSSE();
+    
+    // Cleanup on unmount
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+      if (sseRetryTimeout) {
+        clearTimeout(sseRetryTimeout);
+        sseRetryTimeout = null;
+      }
+    };
   }, [linkId]);
   
   async function saveRatchetState(api: LinkApiClient) {
