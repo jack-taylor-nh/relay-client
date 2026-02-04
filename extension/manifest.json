@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Relay",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "Your private communications perimeter",
   "permissions": [
     "storage",

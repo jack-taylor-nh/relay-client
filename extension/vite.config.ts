@@ -34,6 +34,36 @@ function extensionBuild() {
       mkdirSync(resolve(distDir, 'panel'), { recursive: true });
       writeFileSync(resolve(distDir, 'panel', 'index.html'), panelHtml);
       
+      // Create fullscreen/index.html (full browser tab with expanded layout)
+      const fullscreenHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relay</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <style>
+    /* Fullscreen mode - use full viewport */
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+    }
+    #app {
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="./index.js"></script>
+</body>
+</html>`;
+      
+      mkdirSync(resolve(distDir, 'fullscreen'), { recursive: true });
+      writeFileSync(resolve(distDir, 'fullscreen', 'index.html'), fullscreenHtml);
+      
       // Create popup/index.html
       const popupHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -68,6 +98,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         panel: resolve(__dirname, 'src/panel/main.tsx'),
+        fullscreen: resolve(__dirname, 'src/fullscreen/main.tsx'),
         background: resolve(__dirname, 'src/background/index.ts'),
         popup: resolve(__dirname, 'src/popup/main.ts'),
       },
