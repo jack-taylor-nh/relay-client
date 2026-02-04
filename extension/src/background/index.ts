@@ -2696,8 +2696,7 @@ async function createEdge(
     
     // For webhook edges, construct webhook URL
     if (type === 'webhook' && edge.id && authToken) {
-      // TODO: Replace with actual webhook worker URL from env
-      const webhookWorkerUrl = 'https://webhook-worker.relay.dev';
+      const webhookWorkerUrl = 'https://webhook.rlymsg.com';
       edge.webhookUrl = `${webhookWorkerUrl}/w/${edge.id}`;
       edge.authToken = authToken;
     }
