@@ -462,7 +462,7 @@ type MessageType =
   | { type: 'CREATE_ALIAS'; payload: { label?: string } }
   // Notification system
   | { type: 'GET_NOTIFICATION_PREFS' }
-  | { type: 'SET_NOTIFICATION_PREFS'; payload: { enabled?: boolean; showDesktopNotifications?: boolean; showBadgeCount?: boolean } }
+  | { type: 'SET_NOTIFICATION_PREFS'; payload: { enabled?: boolean; showDesktopNotifications?: boolean; showBadgeCount?: boolean; playSound?: boolean } }
   | { type: 'MARK_CONVERSATION_SEEN'; payload: { conversationId: string } }
   | { type: 'GET_UNREAD_COUNT' }
   | { type: 'GET_LAST_SEEN_STATE' }
@@ -1302,6 +1302,7 @@ async function getConversations(): Promise<{
       x25519PublicKey?: string; // Phase 4: Counterparty encryption key
     };
     lastMessageId?: string;  // For message preview lookup
+    lastMessageWasMine?: boolean;  // For filtering sent vs received notifications
     lastActivityAt: string;
     createdAt: string;
   }>;
@@ -2903,12 +2904,14 @@ interface NotificationPrefs {
   enabled: boolean;
   showDesktopNotifications: boolean;
   showBadgeCount: boolean;
+  playSound: boolean;
 }
 
 const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   enabled: true,
   showDesktopNotifications: true,
   showBadgeCount: true,
+  playSound: true,
 };
 
 // Processed conversation for storage (matches what panel expects)
@@ -2920,6 +2923,7 @@ interface ProcessedConversation {
   counterpartyName: string;
   lastMessagePreview: string;
   lastMessageId?: string;  // For looking up cached decrypted content
+  lastMessageWasMine?: boolean;  // For filtering sent vs received notifications
   lastActivityAt: string;
   createdAt: string;
   unreadCount: number;
@@ -3124,6 +3128,7 @@ async function pollForNewMessages(): Promise<void> {
         counterpartyName,
         lastMessagePreview,
         lastMessageId: conv.lastMessageId,
+        lastMessageWasMine: conv.lastMessageWasMine,
         lastActivityAt: conv.lastActivityAt,
         createdAt: conv.createdAt,
         unreadCount: isUnread ? 1 : 0,
@@ -3150,23 +3155,38 @@ async function pollForNewMessages(): Promise<void> {
       await updateBadgeCount(unreadConversations.length);
     }
     
-    // Show desktop notification for new messages
-    if (prefs.showDesktopNotifications && unreadConversations.length > 0) {
+    // Handle notifications for new messages
+    // If panel is open: play sound only (user is actively viewing)
+    // If panel is closed: show desktop notification only (alert user)
+    // Only notify for RECEIVED messages (not ones we sent)
+    if (unreadConversations.length > 0) {
       // Only notify for messages that arrived since our PREVIOUS check
+      // AND were not sent by us (lastMessageWasMine === false)
       const recentMessages = previousGlobalCheck > 0
         ? unreadConversations.filter(c => {
             const msgTime = new Date(c.lastActivityAt).getTime();
-            return msgTime > previousGlobalCheck;
+            return msgTime > previousGlobalCheck && c.lastMessageWasMine !== true;
           })
         : [];
       
       if (recentMessages.length > 0) {
-        console.log('[Notifications] Showing notification for', recentMessages.length, 'new messages');
-        await showNewMessageNotification(recentMessages.map(c => ({
-          conversationId: c.id,
-          counterpartyName: c.counterpartyName,
-          lastActivityAt: c.lastActivityAt,
-        })));
+        if (panelIsActive) {
+          // Panel is open - play sound only (no desktop notification)
+          if (prefs.playSound) {
+            console.log('[Notifications] Panel open, playing sound for', recentMessages.length, 'new messages');
+            await playNotificationSound();
+          }
+        } else {
+          // Panel is closed - show desktop notification only (no sound)
+          if (prefs.showDesktopNotifications) {
+            console.log('[Notifications] Panel closed, showing desktop notification for', recentMessages.length, 'new messages');
+            await showNewMessageNotification(recentMessages.map(c => ({
+              conversationId: c.id,
+              counterpartyName: c.counterpartyName,
+              lastActivityAt: c.lastActivityAt,
+            })));
+          }
+        }
       }
     }
     
@@ -3203,6 +3223,34 @@ async function updateBadgeCount(count?: number): Promise<void> {
     await chrome.action.setBadgeBackgroundColor({ color: '#0ea5e9' }); // sky-500
   } else {
     await chrome.action.setBadgeText({ text: '' });
+  }
+}
+
+// Play notification sound using offscreen document (service workers can't play audio directly)
+async function playNotificationSound(): Promise<void> {
+  try {
+    // Create offscreen document if needed (for playing audio in background)
+    const existingContexts = await chrome.runtime.getContexts({
+      contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
+    });
+    
+    if (existingContexts.length === 0) {
+      await chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: [chrome.offscreen.Reason.AUDIO_PLAYBACK],
+        justification: 'Play notification sound for new messages',
+      });
+    }
+    
+    // Send message to offscreen document to play sound
+    await chrome.runtime.sendMessage({ 
+      type: 'PLAY_NOTIFICATION_SOUND',
+      target: 'offscreen' 
+    });
+    
+    console.log('[Notifications] Sound played successfully');
+  } catch (error) {
+    console.error('[Notifications] Failed to play sound:', error);
   }
 }
 

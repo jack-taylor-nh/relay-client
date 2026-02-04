@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Relay Offscreen Audio</title>
+</head>
+<body>
+  <!-- Offscreen document for playing notification sounds -->
+  <!-- Service workers cannot play audio directly, so we use this -->
+  <audio id="notification-sound" preload="auto">
+    <source src="sounds/notification.mp3" type="audio/mpeg">
+    <source src="sounds/notification.ogg" type="audio/ogg">
+  </audio>
+  <script src="offscreen.js"></script>
+</body>
+</html>

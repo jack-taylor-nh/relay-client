@@ -7,7 +7,8 @@
     "storage",
     "sidePanel",
     "alarms",
-    "notifications"
+    "notifications",
+    "offscreen"
   ],
   "host_permissions": [],
   "icons": {
