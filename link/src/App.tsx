@@ -536,11 +536,13 @@ function ChatView({ linkId }: { linkId: string }) {
       const { message: encryptedMsg, newState } = RatchetEncrypt(ratchetState.value, message.trim());
       ratchetState.value = newState;
       
-      // Send the encrypted message
+      // Send the encrypted message with all ratchet fields
       const response = await api.sendMessage(visitorKeys.value.publicKeyBase64, {
-        ciphertext: btoa(JSON.stringify(encryptedMsg)),
+        ciphertext: encryptedMsg.ciphertext,
         ephemeralPubkey: encryptedMsg.dh,
         nonce: encryptedMsg.nonce,
+        pn: encryptedMsg.pn,
+        n: encryptedMsg.n,
       });
       
       // Save updated ratchet state

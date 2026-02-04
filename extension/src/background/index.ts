@@ -3078,7 +3078,7 @@ async function pollForNewMessages(): Promise<void> {
       // Determine conversation type
       let type: 'native' | 'email' | 'contact_endpoint' | 'discord' = 'native';
       if (conv.origin === 'email_inbound' || conv.origin === 'email') type = 'email';
-      else if (conv.origin === 'contact_link_inbound') type = 'contact_endpoint';
+      else if (conv.origin === 'contact_link_inbound' || conv.origin === 'contact_link') type = 'contact_endpoint';
       else if (conv.origin === 'discord') type = 'discord';
 
       // Build counterparty name - prioritize decrypted metadata from bridge conversations
