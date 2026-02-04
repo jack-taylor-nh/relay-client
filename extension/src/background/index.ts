@@ -772,12 +772,19 @@ async function unlock(passphrase: string): Promise<{ success: boolean; error?: s
   
   await resetLockTimer();
   onUnlock(); // Start background polling
+  
+  // Connect to real-time SSE stream
+  connectSSE().catch(err => {
+    console.error('[SSE] Failed to connect on unlock:', err);
+    // Continue with polling fallback
+  });
 
   return { success: true };
 }
 
 async function lock(): Promise<{ success: boolean }> {
   await lockAndClearSession();
+  disconnectSSE(); // Stop SSE connection
   return { success: true };
 }
 
@@ -2893,11 +2900,141 @@ async function burnEdge(edgeId: string): Promise<{
 // ============================================
 
 const POLL_ALARM_NAME = 'relay-poll';
-const POLL_INTERVAL_BACKGROUND_SECONDS = 30; // 30s when panel closed
-const POLL_INTERVAL_ACTIVE_SECONDS = 10;     // 10s when panel open
+const POLL_INTERVAL_BACKGROUND_SECONDS = 300; // 5min fallback (SSE is primary)
+const POLL_INTERVAL_ACTIVE_SECONDS = 60;      // 1min fallback (SSE is primary)
 
 // Track if panel is currently active
 let panelIsActive = false;
+
+// ============================================
+// Real-time SSE Connection
+// ============================================
+
+let sseConnected = false;
+let sseRetryCount = 0;
+const SSE_MAX_RETRY = 5;
+const SSE_RETRY_DELAYS = [1000, 2000, 5000, 10000, 30000]; // Exponential backoff
+
+/**
+ * Connect to SSE stream for real-time updates
+ * Falls back to polling if connection fails
+ */
+async function connectSSE(): Promise<void> {
+  if (!unlockedIdentity || !session.token) {
+    console.log('[SSE] Not unlocked or no session token, skipping SSE');
+    return;
+  }
+
+  const apiUrl = await getApiUrl();
+  const streamUrl = `${apiUrl}/v1/stream`;
+
+  console.log('[SSE] Connecting to real-time stream...');
+
+  try {
+    const response = await fetch(streamUrl, {
+      headers: {
+        'Authorization': `Bearer ${session.token}`,
+        'Accept': 'text/event-stream',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`SSE connection failed: ${response.status}`);
+    }
+
+    if (!response.body) {
+      throw new Error('No response body for SSE stream');
+    }
+
+    sseConnected = true;
+    sseRetryCount = 0;
+    console.log('[SSE] Connected successfully');
+
+    // Read SSE stream
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (sseConnected && unlockedIdentity) {
+      const { done, value } = await reader.read();
+      
+      if (done) {
+        console.log('[SSE] Stream ended');
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+      let eventType = '';
+      let eventData = '';
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          eventType = line.slice(7).trim();
+        } else if (line.startsWith('data: ')) {
+          eventData = line.slice(6).trim();
+        } else if (line.trim() === '' && eventType && eventData) {
+          // Complete event received
+          await handleSSEEvent(eventType, eventData);
+          eventType = '';
+          eventData = '';
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[SSE] Connection error:', error);
+  } finally {
+    sseConnected = false;
+    
+    // Retry with exponential backoff
+    if (sseRetryCount < SSE_MAX_RETRY && unlockedIdentity) {
+      const delay = SSE_RETRY_DELAYS[Math.min(sseRetryCount, SSE_RETRY_DELAYS.length - 1)];
+      console.log(`[SSE] Reconnecting in ${delay}ms (attempt ${sseRetryCount + 1}/${SSE_MAX_RETRY})`);
+      sseRetryCount++;
+      
+      setTimeout(() => {
+        if (unlockedIdentity) {
+          connectSSE();
+        }
+      }, delay);
+    } else {
+      console.log('[SSE] Max retries reached or wallet locked, falling back to polling only');
+    }
+  }
+}
+
+/**
+ * Handle SSE events from server
+ */
+async function handleSSEEvent(type: string, dataStr: string): Promise<void> {
+  try {
+    if (type === 'connected') {
+      console.log('[SSE] Connection confirmed');
+      return;
+    }
+
+    if (type === 'conversation_update') {
+      const data = JSON.parse(dataStr);
+      console.log('[SSE] Conversation update:', data);
+      
+      // Trigger immediate poll to fetch new messages
+      await pollForNewMessages();
+    }
+  } catch (error) {
+    console.error('[SSE] Failed to handle event:', error);
+  }
+}
+
+/**
+ * Disconnect SSE stream
+ */
+function disconnectSSE(): void {
+  sseConnected = false;
+  sseRetryCount = 0;
+  console.log('[SSE] Disconnected');
+}
 
 // Notification preferences (stored in chrome.storage.local)
 interface NotificationPrefs {
@@ -3135,9 +3272,9 @@ async function pollForNewMessages(): Promise<void> {
         isUnread,
         myEdgeId: conv.myEdgeId ?? conv.edge?.id,
         // For contact_link visitors, use externalId as their "edge" identifier
-        counterpartyEdgeId: conv.counterparty?.edgeId ?? conv.counterparty?.externalId,
-        // For contact_link, externalId IS the x25519 public key
-        counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey ?? conv.counterparty?.externalId,
+        counterpartyEdgeId: conv.counterparty?.edgeId ?? (conv.origin === 'contact_link' ? conv.counterparty?.externalId : undefined),
+        // For contact_link, externalId IS the x25519 public key (NOT for gateway_secured where it's an email/discord ID)
+        counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey ?? (conv.origin === 'contact_link' ? conv.counterparty?.externalId : undefined),
         edgeAddress: conv.edge?.address,
       };
     });

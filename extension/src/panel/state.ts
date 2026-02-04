@@ -389,9 +389,9 @@ export async function loadData() {
           // Phase 4: Edge-to-edge messaging info
           myEdgeId: conv.myEdgeId ?? conv.edge?.id,
           // For contact_link visitors, use externalId as their "edge" identifier
-          counterpartyEdgeId: conv.counterparty?.edgeId ?? conv.counterparty?.externalId ?? undefined,
-          // For contact_link, the externalId IS the x25519 public key
-          counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey ?? conv.counterparty?.externalId ?? undefined,
+          counterpartyEdgeId: conv.counterparty?.edgeId ?? (conv.origin === 'contact_link' ? conv.counterparty?.externalId : undefined),
+          // For contact_link, the externalId IS the x25519 public key (NOT for gateway_secured)
+          counterpartyX25519PublicKey: conv.counterparty?.x25519PublicKey ?? (conv.origin === 'contact_link' ? conv.counterparty?.externalId : undefined),
           edgeAddress: conv.edge?.address,
         };
       });
