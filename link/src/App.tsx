@@ -1,3 +1,4 @@
+import { Fragment } from 'preact';
 import { signal } from '@preact/signals';
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { LinkApiClient } from './lib/api';
@@ -312,24 +313,33 @@ function SeedEntryView({ linkId }: { linkId: string }) {
         </div>
 
         <form onSubmit={handleSubmit} class="space-y-4">
-          <div class="flex flex-col gap-3">
+          <div class="flex items-stretch rounded-xl border border-stone-300 bg-white px-3 shadow-sm focus-within:border-transparent focus-within:ring-2 focus-within:ring-sky-500">
             {words.map((word, idx) => (
-              <input
-                key={idx}
-                ref={(el) => {
-                  inputRefs.current[idx] = el;
-                }}
-                type="text"
-                inputMode="text"
-                value={word}
-                onInput={(e) => updateWord(idx, (e.target as HTMLInputElement).value)}
-                class="w-full text-center text-lg font-mono uppercase tracking-[0.3em] py-3 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-                placeholder={`Word ${idx + 1}`}
-                autoCapitalize="off"
-                autoComplete="off"
-                spellcheck={false}
-                disabled={isLoading}
-              />
+              <Fragment key={idx}>
+                <input
+                  ref={(el) => {
+                    inputRefs.current[idx] = el;
+                  }}
+                  type="text"
+                  inputMode="text"
+                  value={word}
+                  onInput={(e) => updateWord(idx, (e.target as HTMLInputElement).value)}
+                  class="flex-1 min-w-0 bg-transparent py-3 text-center text-lg font-mono uppercase tracking-[0.3em] placeholder:text-stone-300 focus:outline-none"
+                  placeholder={`Word ${idx + 1}`}
+                  autoCapitalize="off"
+                  autoComplete="off"
+                  spellcheck={false}
+                  disabled={isLoading}
+                />
+                {idx < words.length - 1 && (
+                  <span
+                    aria-hidden="true"
+                    class="px-3 text-xl font-semibold text-stone-300 select-none self-center"
+                  >
+                    -
+                  </span>
+                )}
+              </Fragment>
             ))}
           </div>
 
@@ -355,7 +365,7 @@ function SeedEntryView({ linkId }: { linkId: string }) {
         </form>
 
         <p class="text-xs text-stone-500 text-center mt-4 leading-relaxed">
-          Your seed stays on this device. Keep it private—anyone with these words can read this conversation.
+          Keep your seed phrase private—anyone with these words can read this conversation.
         </p>
       </div>
 
@@ -434,12 +444,24 @@ function SeedSaveView({ linkId }: { linkId: string }) {
           </p>
         </div>
 
-        <div class="grid grid-cols-3 gap-3">
+        <div class="flex items-stretch rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm">
           {words.map((word, idx) => (
-            <div key={idx} class="flex flex-col items-center gap-1 py-3 px-2 rounded-xl bg-slate-50 border border-slate-200">
-              <span class="text-xs font-semibold text-slate-500">{idx + 1}</span>
-              <span class="font-mono text-base tracking-[0.08em] uppercase text-slate-900">{word}</span>
-            </div>
+            <Fragment key={idx}>
+              <div class="flex-1 min-w-0 px-1 text-center">
+                <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                  Word {idx + 1}
+                </p>
+                <p class="font-mono text-base uppercase tracking-[0.18em] text-slate-900">{word}</p>
+              </div>
+              {idx < words.length - 1 && (
+                <span
+                  aria-hidden="true"
+                  class="px-3 text-xl font-semibold text-slate-300 select-none self-center"
+                >
+                  -
+                </span>
+              )}
+            </Fragment>
           ))}
         </div>
 
