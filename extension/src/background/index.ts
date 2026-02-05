@@ -3498,6 +3498,20 @@ try {
     console.log('[Init] Session restored - Relay is unlocked');
     // Reset the lock timer since we just woke up
     await resetLockTimer();
+    
+    // Start background services
+    onUnlock(); // Start alarm polling
+    
+    // Connect to SSE if we have a token
+    const token = await getAuthToken();
+    if (token) {
+      connectSSE().catch(err => {
+        console.error('[SSE] Failed to connect on startup:', err);
+        // Continue with polling fallback
+      });
+    } else {
+      console.warn('[SSE] No auth token available on startup, falling back to polling only');
+    }
   } else {
     console.log('[Init] No active session - Relay is locked');
   }
