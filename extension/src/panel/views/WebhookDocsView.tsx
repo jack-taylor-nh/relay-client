@@ -113,7 +113,7 @@ export function WebhookDocsView({ edgeId, webhookUrl, authToken, onClose }: Webh
     
     return (
       <div class="relative mb-4">
-        <div class="absolute top-2 left-3 text-xs text-slate-400 font-mono uppercase tracking-wide">
+        <div class="absolute top-2 left-3 text-xs text-[var(--color-text-tertiary)] font-mono uppercase tracking-wide">
           {language}
         </div>
         <CopyButton text={code.trim()} section={section} />
@@ -155,9 +155,9 @@ export function WebhookDocsView({ edgeId, webhookUrl, authToken, onClose }: Webh
             When a webhook is triggered, the message appears instantly in your conversations, encrypted 
             end-to-end with your identity.
           </p>
-          <div class="bg-sky-50 border border-sky-200 rounded-lg p-4">
-            <h3 class="text-sm font-semibold text-sky-900 mb-2">Use Cases</h3>
-            <ul class="text-sm text-sky-800 space-y-1">
+          <div class="bg-[var(--color-accent-subtle)] border border-[var(--color-accent)] rounded-lg p-4">
+            <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">Use Cases</h3>
+            <ul class="text-sm text-[var(--color-text-primary)] space-y-1">
               <li>• GitHub push notifications, PR comments, workflow results</li>
               <li>• Stripe payment confirmations, failed charges, subscriptions</li>
               <li>• CI/CD pipeline alerts (build failures, deployments)</li>
@@ -182,8 +182,8 @@ export function WebhookDocsView({ edgeId, webhookUrl, authToken, onClose }: Webh
             </div>
             <div>
               <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">Authentication Token</h3>
-              <div class="bg-amber-50 border border-amber-300 rounded-lg p-3 mb-3">
-                <p class="text-xs text-amber-800 font-medium">
+              <div class="bg-[var(--color-warning-subtle)] border border-[var(--color-warning)] rounded-lg p-3 mb-3">
+                <p class="text-xs text-[var(--color-warning)] font-medium">
                   ⚠️ <strong>Keep this token secret!</strong> Anyone with this token can send messages to your inbox.
                 </p>
               </div>
@@ -239,7 +239,7 @@ Content-Type: application/json
           </p>
 
           {/* Service Auto-Detection */}
-          <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-6">
+          <div class="bg-emerald-50 border border-[var(--color-success)] rounded-lg p-4 mb-6">
             <h3 class="text-sm font-semibold text-emerald-900 mb-2">✨ Automatic Service Detection</h3>
             <p class="text-sm text-emerald-800 mb-2">
               Just point your service's webhook directly at this URL! Relay automatically detects and formats:
@@ -269,22 +269,22 @@ Content-Type: application/json
               </thead>
               <tbody class="text-[var(--color-text-primary)]">
                 <tr class="border-b border-[var(--color-border-default)]">
-                  <td class="py-2 px-3"><code class="text-sky-600 font-mono">sender</code></td>
+                  <td class="py-2 px-3"><code class="text-[var(--color-accent)] font-mono">sender</code></td>
                   <td class="py-2 px-3">string</td>
                   <td class="py-2 px-3">Sender name (falls back to edge name or service detection)</td>
                 </tr>
                 <tr class="border-b border-[var(--color-border-default)]">
-                  <td class="py-2 px-3"><code class="text-sky-600 font-mono">title</code></td>
+                  <td class="py-2 px-3"><code class="text-[var(--color-accent)] font-mono">title</code></td>
                   <td class="py-2 px-3">string</td>
                   <td class="py-2 px-3">Message title/subject (supports **bold** and *italic*)</td>
                 </tr>
                 <tr class="border-b border-[var(--color-border-default)]">
-                  <td class="py-2 px-3"><code class="text-sky-600 font-mono">body</code></td>
+                  <td class="py-2 px-3"><code class="text-[var(--color-accent)] font-mono">body</code></td>
                   <td class="py-2 px-3">string</td>
                   <td class="py-2 px-3">Message body (supports markdown: bold, italic, code, links, bullets)</td>
                 </tr>
                 <tr class="border-b border-[var(--color-border-default)]">
-                  <td class="py-2 px-3"><code class="text-sky-600 font-mono">data</code></td>
+                  <td class="py-2 px-3"><code class="text-[var(--color-accent)] font-mono">data</code></td>
                   <td class="py-2 px-3">object</td>
                   <td class="py-2 px-3">Structured key-value data displayed below the message</td>
                 </tr>
@@ -293,7 +293,7 @@ Content-Type: application/json
           </div>
 
           <p class="text-[var(--color-text-primary)] mb-4 text-sm">
-            You can also set a custom sender via the <code class="text-sky-600 font-mono">X-Webhook-Sender</code> header.
+            You can also set a custom sender via the <code class="text-[var(--color-accent)] font-mono">X-Webhook-Sender</code> header.
           </p>
 
           <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">Example: Structured Payload</h3>
@@ -334,12 +334,12 @@ Content-Type: application/json
               disabled={testStatus === 'loading'}
               class={`px-4 py-2 rounded-lg font-medium text-sm transition-all duration-150 flex items-center gap-2 ${
                 testStatus === 'loading'
-                  ? 'bg-slate-400 text-[var(--color-text-inverse)] cursor-not-allowed'
+                  ? 'bg-[var(--color-text-tertiary)] text-[var(--color-text-inverse)] cursor-not-allowed'
                   : testStatus === 'success'
-                  ? 'bg-emerald-600 text-[var(--color-text-inverse)] hover:bg-emerald-700'
+                  ? 'bg-[var(--color-success)] text-[var(--color-text-inverse)] hover:bg-[var(--color-success)]'
                   : testStatus === 'error'
-                  ? 'bg-red-600 text-[var(--color-text-inverse)] hover:bg-red-700'
-                  : 'bg-sky-600 text-[var(--color-text-inverse)] hover:bg-sky-700 shadow-sm'
+                  ? 'bg-[var(--color-error)] text-[var(--color-text-inverse)] hover:bg-[var(--color-error)]'
+                  : 'bg-[var(--color-accent)] text-[var(--color-text-inverse)] hover:bg-[var(--color-accent-hover)] shadow-sm'
               }`}
             >
               {testStatus === 'loading' ? (
@@ -364,8 +364,8 @@ Content-Type: application/json
           {testMessage && (
             <div class={`mb-4 p-3 rounded-lg text-sm font-medium ${
               testStatus === 'success'
-                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                : 'bg-red-50 text-red-800 border border-red-200'
+                ? 'bg-[var(--color-success-subtle)] text-[var(--color-success)] border border-[var(--color-success)]'
+                : 'bg-[var(--color-error-subtle)] text-[var(--color-error)] border border-[var(--color-error)]'
             }`}>
               {testMessage}
             </div>
@@ -385,7 +385,7 @@ Content-Type: application/json
                 onClick={() => setActiveLanguageTab(lang.id as any)}
                 class={`px-4 py-2 font-medium text-sm transition-colors duration-150 border-b-2 ${
                   activeLanguageTab === lang.id
-                    ? 'border-sky-600 text-sky-600'
+                    ? 'border-[var(--color-accent)] text-[var(--color-accent)]'
                     : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-border-strong)]'
                 }`}
               >
@@ -675,35 +675,35 @@ send_webhook(
         <section class="bg-[var(--color-bg-elevated)] rounded-lg shadow-sm border border-[var(--color-border-default)] p-6 mb-6">
           <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Best Practices</h2>
           <div class="space-y-4">
-            <div class="border-l-4 border-sky-500 pl-4">
+            <div class="border-l-4 border-[var(--color-accent)] pl-4">
               <h3 class="font-semibold text-[var(--color-text-primary)] mb-1">Use Environment Variables</h3>
               <p class="text-sm text-[var(--color-text-primary)]">
                 Never hardcode your authentication token in source code. Store it as an environment 
                 variable or in a secure secrets manager.
               </p>
             </div>
-            <div class="border-l-4 border-sky-500 pl-4">
+            <div class="border-l-4 border-[var(--color-accent)] pl-4">
               <h3 class="font-semibold text-[var(--color-text-primary)] mb-1">Implement Retry Logic</h3>
               <p class="text-sm text-[var(--color-text-primary)]">
                 Use exponential backoff for retries on 5xx errors and rate limits. Start with 1 second, 
                 then 2s, 4s, 8s, etc.
               </p>
             </div>
-            <div class="border-l-4 border-sky-500 pl-4">
+            <div class="border-l-4 border-[var(--color-accent)] pl-4">
               <h3 class="font-semibold text-[var(--color-text-primary)] mb-1">Use Structured Format When Possible</h3>
               <p class="text-sm text-[var(--color-text-primary)]">
                 While any JSON works, using our structured format (sender, title, body) gives you the 
                 best display with markdown support and clean formatting.
               </p>
             </div>
-            <div class="border-l-4 border-sky-500 pl-4">
+            <div class="border-l-4 border-[var(--color-accent)] pl-4">
               <h3 class="font-semibold text-[var(--color-text-primary)] mb-1">Connect Services Directly</h3>
               <p class="text-sm text-[var(--color-text-primary)]">
                 For GitHub, Stripe, and other supported services, just paste the webhook URL directly into 
                 their settings. Relay auto-detects and formats the messages intelligently.
               </p>
             </div>
-            <div class="border-l-4 border-amber-500 pl-4">
+            <div class="border-l-4 border-[var(--color-warning)] pl-4">
               <h3 class="font-semibold text-[var(--color-text-primary)] mb-1">Rotate Tokens Periodically</h3>
               <p class="text-sm text-[var(--color-text-primary)]">
                 For security, regenerate your authentication token periodically and update all services 
@@ -716,7 +716,7 @@ send_webhook(
         {/* Security */}
         <section class="bg-[var(--color-bg-elevated)] rounded-lg shadow-sm border border-[var(--color-border-default)] p-6 mb-6">
           <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Security</h2>
-          <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+          <div class="bg-red-50 border border-[var(--color-error)] rounded-lg p-4 mb-4">
             <h3 class="text-sm font-semibold text-red-900 mb-2">⚠️ Important Security Considerations</h3>
             <ul class="text-sm text-red-800 space-y-1">
               <li>• <strong>Never commit tokens to version control</strong> - Use .gitignore for config files</li>
@@ -748,7 +748,7 @@ send_webhook(
           </ul>
           <div class="bg-[var(--color-bg-hover)] border border-[var(--color-border-strong)] rounded-lg p-4">
             <p class="text-sm text-[var(--color-text-primary)]">
-              <strong>Edge ID:</strong> <code class="font-mono text-sky-600">{edgeId}</code>
+              <strong>Edge ID:</strong> <code class="font-mono text-[var(--color-accent)]">{edgeId}</code>
             </p>
             <p class="text-sm text-[var(--color-text-primary)] mt-2">
               For additional support, refer to the main Relay documentation or contact support with this Edge ID.

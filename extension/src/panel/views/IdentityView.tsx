@@ -108,7 +108,7 @@ export function IdentityView() {
 
         {/* Security highlights - same as onboarding complete screen */}
         <div class="w-full bg-gradient-to-br from-slate-50 to-sky-50 border border-slate-200 rounded-xl p-5 mb-6">
-          <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-3 flex items-center gap-2">
+          <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
             </svg>
@@ -118,22 +118,22 @@ export function IdentityView() {
             <div class="flex items-start gap-3">
               <span class="text-emerald-600 mt-0.5">✓</span>
               <div>
-                <strong class="text-[var(--color-text-primary)]">Zero-knowledge architecture</strong>
-                <p class="text-[var(--color-text-secondary)] text-xs mt-0.5">We can't read your messages — ever. All encryption happens on your device.</p>
+                <strong class="text-slate-800">Zero-knowledge architecture</strong>
+                <p class="text-slate-600 text-xs mt-0.5">We can't read your messages — ever. All encryption happens on your device.</p>
               </div>
             </div>
             <div class="flex items-start gap-3">
               <span class="text-emerald-600 mt-0.5">✓</span>
               <div>
-                <strong class="text-[var(--color-text-primary)]">Disposable edges</strong>
-                <p class="text-[var(--color-text-secondary)] text-xs mt-0.5">Every handle and email alias is isolated. Burn one, keep the rest.</p>
+                <strong class="text-slate-800">Disposable edges</strong>
+                <p class="text-slate-600 text-xs mt-0.5">Every handle and email alias is isolated. Burn one, keep the rest.</p>
               </div>
             </div>
             <div class="flex items-start gap-3">
               <span class="text-emerald-600 mt-0.5">✓</span>
               <div>
-                <strong class="text-[var(--color-text-primary)]">You own your identity</strong>
-                <p class="text-[var(--color-text-secondary)] text-xs mt-0.5">Your cryptographic keys live on your device. No accounts, no passwords stored with us.</p>
+                <strong class="text-slate-800">You own your identity</strong>
+                <p class="text-slate-600 text-xs mt-0.5">Your cryptographic keys live on your device. No accounts, no passwords stored with us.</p>
               </div>
             </div>
           </div>
