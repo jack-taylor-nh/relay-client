@@ -156,12 +156,277 @@ async function loadMessages(conversationId: string, isPolling = false) {
 // Components
 // ============================================
 
+/**
+ * Try to parse webhook payload JSON from message content
+ */
+function tryParseWebhookPayload(content: string): {
+  isWebhook: boolean;
+  sender?: string;
+  title?: string;
+  body?: string;
+  data?: Record<string, any>;
+  raw?: any;
+  detectedService?: string;
+} {
+  try {
+    const parsed = JSON.parse(content);
+    // Check if it looks like a webhook payload
+    // Either has our structured format (sender, title, body)
+    // Or has raw field (flexible format from external services)
+    if (parsed && typeof parsed === 'object' && 
+        (parsed.sender || parsed.title || parsed.body || parsed.raw)) {
+      return {
+        isWebhook: true,
+        sender: parsed.sender,
+        title: parsed.title,
+        body: parsed.body,
+        data: parsed.data,
+        raw: parsed.raw,
+        detectedService: parsed.detectedService,
+      };
+    }
+  } catch {
+    // Not JSON, that's fine
+  }
+  return { isWebhook: false };
+}
+
+/**
+ * Simple markdown renderer for webhook messages
+ * Supports: **bold**, *italic*, `code`, [links](url), ```code blocks```
+ */
+function renderMarkdown(text: string): preact.JSX.Element {
+  if (!text) return <></>;
+  
+  // Split by code blocks first
+  const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g;
+  const parts: Array<{ type: 'text' | 'codeblock'; content: string; language?: string }> = [];
+  let lastIndex = 0;
+  let match;
+  
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
+    }
+    parts.push({ type: 'codeblock', content: match[2], language: match[1] });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push({ type: 'text', content: text.slice(lastIndex) });
+  }
+  
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.type === 'codeblock') {
+          return (
+            <pre key={i} class="markdown-codeblock">
+              <code>{part.content}</code>
+            </pre>
+          );
+        }
+        
+        // Process inline markdown
+        return <span key={i}>{renderInlineMarkdown(part.content)}</span>;
+      })}
+    </>
+  );
+}
+
+/**
+ * Render inline markdown (bold, italic, code, links)
+ */
+function renderInlineMarkdown(text: string): preact.JSX.Element {
+  // Process line by line to handle bullet points
+  const lines = text.split('\n');
+  
+  return (
+    <>
+      {lines.map((line, lineIndex) => {
+        const elements: preact.JSX.Element[] = [];
+        
+        // Check for bullet points
+        const bulletMatch = line.match(/^(\s*)[•\-\*]\s+(.*)$/);
+        if (bulletMatch) {
+          const indent = bulletMatch[1].length;
+          elements.push(
+            <div key={lineIndex} class="markdown-bullet" style={{ paddingLeft: `${indent * 8 + 12}px` }}>
+              <span class="bullet-dot">•</span>
+              {processInlineFormatting(bulletMatch[2])}
+            </div>
+          );
+        } else {
+          elements.push(
+            <span key={lineIndex}>
+              {processInlineFormatting(line)}
+              {lineIndex < lines.length - 1 && <br />}
+            </span>
+          );
+        }
+        
+        return elements;
+      })}
+    </>
+  );
+}
+
+/**
+ * Process inline formatting (bold, italic, code, links)
+ */
+function processInlineFormatting(text: string): preact.JSX.Element {
+  // Regex patterns for inline formatting
+  const patterns = [
+    { regex: /\*\*(.+?)\*\*/g, render: (m: string) => <strong>{m}</strong> },
+    { regex: /\*(.+?)\*/g, render: (m: string) => <em>{m}</em> },
+    { regex: /`([^`]+)`/g, render: (m: string) => <code class="markdown-inline-code">{m}</code> },
+    { regex: /\[([^\]]+)\]\(([^)]+)\)/g, render: (m: string, url: string) => (
+      <a href={url} target="_blank" rel="noopener noreferrer" class="markdown-link">{m}</a>
+    )},
+  ];
+  
+  // Simple approach: process text and replace patterns
+  // This is a simplified version - a full parser would handle nesting better
+  const elements: (string | preact.JSX.Element)[] = [];
+  let remaining = text;
+  let key = 0;
+  
+  // Process bold
+  remaining = remaining.replace(/\*\*(.+?)\*\*/g, (_, content) => `\x00B${content}\x00`);
+  // Process italic (but not ** which we already processed)
+  remaining = remaining.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, (_, content) => `\x00I${content}\x00`);
+  // Process inline code
+  remaining = remaining.replace(/`([^`]+)`/g, (_, content) => `\x00C${content}\x00`);
+  // Process links
+  remaining = remaining.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => `\x00L${text}\x01${url}\x00`);
+  
+  // Split and render
+  const tokens = remaining.split('\x00');
+  
+  return (
+    <>
+      {tokens.map((token, i) => {
+        if (token.startsWith('B')) {
+          return <strong key={i}>{token.slice(1)}</strong>;
+        } else if (token.startsWith('I')) {
+          return <em key={i}>{token.slice(1)}</em>;
+        } else if (token.startsWith('C')) {
+          return <code key={i} class="markdown-inline-code">{token.slice(1)}</code>;
+        } else if (token.startsWith('L')) {
+          const [linkText, url] = token.slice(1).split('\x01');
+          return <a key={i} href={url} target="_blank" rel="noopener noreferrer" class="markdown-link">{linkText}</a>;
+        }
+        return <span key={i}>{token}</span>;
+      })}
+    </>
+  );
+}
+
+/**
+ * Render webhook data object in a readable format
+ */
+function WebhookDataDisplay({ data, isRaw = false }: { data: Record<string, any>; isRaw?: boolean }) {
+  const entries = Object.entries(data);
+  if (entries.length === 0) return null;
+  
+  // Filter out internal fields for raw display
+  const displayEntries = isRaw 
+    ? entries.filter(([key]) => !['sender', 'title', 'body', 'data', 'raw', 'detectedService', 'timestamp'].includes(key))
+    : entries;
+  
+  if (displayEntries.length === 0) return null;
+  
+  return (
+    <div class="webhook-data">
+      <div class="webhook-data-header">{isRaw ? 'Payload Data' : 'Additional Data'}</div>
+      <div class="webhook-data-list">
+        {displayEntries.slice(0, 10).map(([key, value]) => (
+          <div key={key} class="webhook-data-item">
+            <span class="webhook-data-key">{formatDataKey(key)}</span>
+            <span class="webhook-data-value">{formatDataValue(value)}</span>
+          </div>
+        ))}
+        {displayEntries.length > 10 && (
+          <div class="webhook-data-more">+{displayEntries.length - 10} more fields</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Format a data key for display (e.g., "source" -> "Source", "user_id" -> "User ID")
+ */
+function formatDataKey(key: string): string {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, str => str.toUpperCase())
+    .trim();
+}
+
+/**
+ * Format a data value for display
+ */
+function formatDataValue(value: any): string {
+  if (value === null || value === undefined) return '—';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'object') {
+    // For nested objects/arrays, show compact JSON
+    return JSON.stringify(value);
+  }
+  // For timestamps, try to format them nicely
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+    try {
+      return new Date(value).toLocaleString();
+    } catch {
+      return value;
+    }
+  }
+  return String(value);
+}
+
 function MessageBubble({ message }: { message: Message }) {
   const time = new Date(message.createdAt).toLocaleTimeString([], { 
     hour: '2-digit', 
     minute: '2-digit' 
   });
   
+  const webhookPayload = tryParseWebhookPayload(message.content);
+  
+  // Render webhook message with structured layout
+  if (webhookPayload.isWebhook) {
+    // Determine what data to show
+    const hasStructuredData = webhookPayload.data && Object.keys(webhookPayload.data).length > 0;
+    const hasRawData = webhookPayload.raw && Object.keys(webhookPayload.raw).length > 0;
+    
+    return (
+      <div class={`message-bubble webhook-message ${message.isMine ? 'mine' : 'theirs'}`}>
+        {webhookPayload.sender && (
+          <div class="webhook-sender">
+            {webhookPayload.detectedService && (
+              <span class="webhook-service-badge">{webhookPayload.detectedService}</span>
+            )}
+            {webhookPayload.sender}
+          </div>
+        )}
+        {webhookPayload.title && (
+          <div class="webhook-title">{renderMarkdown(webhookPayload.title)}</div>
+        )}
+        {webhookPayload.body && (
+          <div class="webhook-body">{renderMarkdown(webhookPayload.body)}</div>
+        )}
+        {hasStructuredData && !webhookPayload.raw && (
+          <WebhookDataDisplay data={webhookPayload.data!} />
+        )}
+        {hasRawData && (
+          <WebhookDataDisplay data={webhookPayload.raw!} isRaw={true} />
+        )}
+        <div class="message-time">{time}</div>
+      </div>
+    );
+  }
+  
+  // Regular message
   return (
     <div class={`message-bubble ${message.isMine ? 'mine' : 'theirs'}`}>
       <div class="message-content">{message.content}</div>
@@ -654,6 +919,165 @@ export function ConversationDetailView() {
           color: #1f2937;
           border-bottom-left-radius: 6px;
           margin-right: 20%;
+        }
+        
+        /* Webhook message styles */
+        .message-bubble.webhook-message {
+          max-width: 85%;
+          padding: 0;
+          overflow: hidden;
+        }
+        
+        .message-bubble.webhook-message.theirs {
+          background-color: #fafafa;
+          border: 1px solid #e5e7eb;
+        }
+        
+        .webhook-sender {
+          padding: 10px 14px 6px;
+          font-size: 12px;
+          font-weight: 600;
+          color: #6b7280;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        
+        .webhook-title {
+          padding: 0 14px 8px;
+          font-size: 15px;
+          font-weight: 600;
+          color: #111827;
+          line-height: 1.3;
+        }
+        
+        .webhook-body {
+          padding: 0 14px 12px;
+          font-size: 14px;
+          line-height: 1.5;
+          color: #374151;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        
+        .webhook-data {
+          border-top: 1px solid #e5e7eb;
+          padding: 10px 14px;
+          background-color: #f9fafb;
+        }
+        
+        .webhook-data-header {
+          font-size: 11px;
+          font-weight: 600;
+          color: #9ca3af;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin-bottom: 8px;
+        }
+        
+        .webhook-data-list {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        
+        .webhook-data-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          gap: 12px;
+          font-size: 12px;
+        }
+        
+        .webhook-data-key {
+          color: #6b7280;
+          font-weight: 500;
+          flex-shrink: 0;
+        }
+        
+        .webhook-data-value {
+          color: #374151;
+          text-align: right;
+          word-break: break-all;
+          font-family: var(--font-mono, monospace);
+          font-size: 11px;
+        }
+        
+        /* Markdown rendering styles */
+        .markdown-codeblock {
+          background: var(--color-background-elevated, #f1f5f9);
+          padding: 12px;
+          border-radius: 6px;
+          overflow-x: auto;
+          font-family: var(--font-mono, 'SF Mono', Monaco, Consolas, monospace);
+          font-size: 12px;
+          line-height: 1.5;
+          margin: 8px 0;
+          border: 1px solid var(--color-border, #e2e8f0);
+        }
+        
+        .markdown-codeblock code {
+          color: var(--color-text-primary, #1e293b);
+        }
+        
+        .markdown-inline-code {
+          background: var(--color-background-elevated, #f1f5f9);
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-family: var(--font-mono, 'SF Mono', Monaco, Consolas, monospace);
+          font-size: 0.9em;
+          color: #e11d48;
+        }
+        
+        .markdown-link {
+          color: #0ea5e9;
+          text-decoration: underline;
+          text-underline-offset: 2px;
+        }
+        
+        .markdown-link:hover {
+          color: #0284c7;
+        }
+        
+        .markdown-bullet {
+          display: flex;
+          align-items: baseline;
+          margin: 4px 0;
+        }
+        
+        .bullet-dot {
+          margin-right: 8px;
+          color: var(--color-text-tertiary, #6b7280);
+          font-weight: bold;
+        }
+        
+        .markdown-bold {
+          font-weight: 600;
+        }
+        
+        .markdown-italic {
+          font-style: italic;
+        }
+        
+        /* Service badge in webhook */
+        .webhook-service-badge {
+          display: inline-block;
+          padding: 2px 6px;
+          background: #dbeafe;
+          color: #1d4ed8;
+          font-size: 10px;
+          font-weight: 600;
+          border-radius: 4px;
+          margin-right: 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        
+        .message-bubble.webhook-message .message-time {
+          padding: 6px 14px 10px;
+          margin-top: 0;
+          background-color: #f9fafb;
+          border-top: 1px solid #e5e7eb;
+          color: #9ca3af;
         }
         
         .message-content {

@@ -18,11 +18,31 @@
     "./icons": {
       "import": "./icons/index.js",
       "types": "./icons/index.d.ts"
+    },
+    "./theme": {
+      "import": "./src/theme/index.js",
+      "types": "./src/theme/index.d.ts"
+    },
+    "./theme/variables.css": {
+      "import": "./src/theme/variables.css",
+      "default": "./src/theme/variables.css"
+    },
+    "./components": {
+      "import": "./src/components/index.js",
+      "types": "./src/components/index.d.ts"
     }
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch"
+  },
+  "peerDependencies": {
+    "preact": "^10.0.0"
+  },
+  "peerDependenciesMeta": {
+    "preact": {
+      "optional": true
+    }
   },
   "keywords": ["relay", "ui", "design-system", "tailwind", "cross-platform"],
   "author": "Relay",

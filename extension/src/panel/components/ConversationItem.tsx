@@ -29,9 +29,11 @@ function OriginIcon({ type }: { type: ConversationType }) {
       );
     case 'webhook':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="16 18 22 12 16 6" />
-          <polyline points="8 6 2 12 8 18" />
+        // Tabler webhook icon
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4.876 13.61a4 4 0 1 0 6.124 3.39h6"/>
+          <path d="M15.066 20.502a4 4 0 1 0 1.934 -7.502c-.706 0 -1.424 .179 -2 .5l-3 -5.5"/>
+          <path d="M16 8a4 4 0 1 0 -8 0c0 1.506 .77 2.818 2 3.5l-3 5.5"/>
         </svg>
       );
     case 'contact_endpoint':
@@ -83,7 +85,21 @@ function SecurityBadge({ level }: { level: SecurityLevel }) {
   }
 }
 
-function EdgeBadge({ address }: { address: string }) {
+function EdgeBadge({ address, type }: { address: string; type: ConversationType }) {
+  // For webhooks, show "via Webhook" with full edge name on hover
+  if (type === 'webhook') {
+    // Extract webhook edge name from address if available
+    const webhookName = address ? `Webhook: ${address}` : 'Webhook';
+    return (
+      <span 
+        class="text-xs text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded" 
+        title={`Received via ${webhookName}`}
+      >
+        via Webhook
+      </span>
+    );
+  }
+  
   // For email addresses, show just the local part (before @)
   const displayAddress = address.includes('@') 
     ? address.split('@')[0] 
@@ -118,7 +134,8 @@ export function ConversationItem({ conversation, isSelected, onClick }: Props) {
   const isUnread = conversation.isUnread ?? (conversation.unreadCount ?? 0) > 0;
   const securityLevel = conversation.securityLevel || 'e2ee';
   const hasPreview = conversation.lastMessagePreview && conversation.lastMessagePreview.trim().length > 0;
-  const showEdgeBadge = conversation.edgeAddress && conversation.type !== 'native';
+  // Show edge badge for non-native conversations (email, discord, contact_endpoint, webhook)
+  const showEdgeBadge = conversation.type !== 'native' && (conversation.edgeAddress || conversation.type === 'webhook');
 
   // Background color: selected > unread > default
   const bgClass = isSelected 
@@ -145,7 +162,7 @@ export function ConversationItem({ conversation, isSelected, onClick }: Props) {
             <span class={`text-sm ${isUnread ? 'font-semibold' : 'font-medium'} text-stone-900 whitespace-nowrap overflow-hidden text-ellipsis`}>
               {conversation.counterpartyName || 'Unknown'}
             </span>
-            {showEdgeBadge && <EdgeBadge address={conversation.edgeAddress!} />}
+            {showEdgeBadge && <EdgeBadge address={conversation.edgeAddress || ''} type={conversation.type} />}
           </div>
           <div class="flex items-center gap-1.5 flex-shrink-0">
             <SecurityBadge level={securityLevel} />
