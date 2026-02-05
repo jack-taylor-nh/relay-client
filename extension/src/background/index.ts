@@ -1372,9 +1372,22 @@ async function getConversations(): Promise<{
         try {
           const edgeSecretKey = fromBase64(edgeKeyEntry.secretKey);
           
-          // The encryptedMetadata is a NaCl box JSON package (same format as encrypted messages)
+          // The encryptedMetadata should be a NaCl box JSON package
           // Format: { ephemeralPubkey, nonce, ciphertext }
-          const pkg = JSON.parse(conv.encryptedMetadata);
+          // If it's not valid JSON, skip decryption (legacy/malformed data)
+          let pkg;
+          try {
+            pkg = JSON.parse(conv.encryptedMetadata);
+          } catch {
+            console.log(`[getConversations] encryptedMetadata is not JSON for conversation ${conv.id}, skipping`);
+            return conv;
+          }
+          
+          if (!pkg.ephemeralPubkey || !pkg.nonce || !pkg.ciphertext) {
+            console.log(`[getConversations] Invalid metadata package format for conversation ${conv.id}`);
+            return conv;
+          }
+          
           const ephemeralPubkey = fromBase64(pkg.ephemeralPubkey);
           const nonce = fromBase64(pkg.nonce);
           const ciphertext = fromBase64(pkg.ciphertext);
