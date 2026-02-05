@@ -51,7 +51,7 @@ export function Header() {
   }
   
   return (
-    <header class="flex items-center justify-between px-4 py-3 bg-white border-b border-stone-200">
+    <header class="flex items-center justify-between px-4 py-3 bg-[var(--color-bg-elevated)] border-b border-[var(--color-border-default)]">
       <div class="flex items-center">
         {/* Relay glyph - brand gradient */}
         <svg width="28" height="28" viewBox="20 20 216 216" fill="none" xmlns="http://www.w3.org/2000/svg">

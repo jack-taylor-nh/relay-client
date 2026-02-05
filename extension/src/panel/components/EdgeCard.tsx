@@ -31,7 +31,7 @@ export function EdgeCard({
 
   // Neutral color scheme - native handles use slate, email uses sky, discord uses indigo, contact_link uses emerald, webhook uses purple
   const bgColor = type === 'native' ? 'bg-slate-100' : type === 'discord' ? 'bg-indigo-100' : type === 'contact_link' ? 'bg-emerald-100' : type === 'webhook' ? 'bg-purple-100' : 'bg-sky-100';
-  const textColor = type === 'native' ? 'text-slate-600' : type === 'discord' ? 'text-indigo-600' : type === 'contact_link' ? 'text-emerald-600' : type === 'webhook' ? 'text-purple-600' : 'text-sky-600';
+  const textColor = type === 'native' ? 'text-[var(--color-text-secondary)]' : type === 'discord' ? 'text-indigo-600' : type === 'contact_link' ? 'text-emerald-600' : type === 'webhook' ? 'text-purple-600' : 'text-sky-600';
   const badgeColor = type === 'native' ? 'bg-slate-600' : type === 'discord' ? 'bg-indigo-500' : type === 'contact_link' ? 'bg-emerald-500' : type === 'webhook' ? 'bg-purple-500' : 'bg-sky-500';
 
   const icon = type === 'native' ? (
@@ -68,7 +68,7 @@ export function EdgeCard({
     // Simple card for selection (New tab)
     return (
       <button
-        class={`w-full flex items-center gap-3 p-3 bg-white border border-stone-200 rounded-lg hover:border-slate-300 hover:bg-slate-50 transition-all mb-2 ${
+        class={`w-full flex items-center gap-3 p-3 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg hover:border-slate-300 hover:bg-slate-50 transition-all mb-2 ${
           status !== 'active' ? 'opacity-60' : ''
         }`}
       >
@@ -76,13 +76,13 @@ export function EdgeCard({
           {icon}
         </div>
         <div class="flex-1 text-left">
-          <div class="text-sm font-semibold text-stone-900">{address}</div>
-          {subtitle && <div class="text-xs text-stone-600">{subtitle}</div>}
+          <div class="text-sm font-semibold text-[var(--color-text-primary)]">{address}</div>
+          {subtitle && <div class="text-xs text-[var(--color-text-secondary)]">{subtitle}</div>}
           {type === 'email' && messageCount > 0 && (
-            <div class="text-xs text-stone-500 mt-0.5">{messageCount} messages</div>
+            <div class="text-xs text-[var(--color-text-tertiary)] mt-0.5">{messageCount} messages</div>
           )}
         </div>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-stone-400">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-[var(--color-text-tertiary)]">
           <polyline points="9 18 15 12 9 6" />
         </svg>
       </button>
@@ -92,12 +92,12 @@ export function EdgeCard({
   // Expandable card for management (Edges tab)
   return (
     <div 
-      class={`bg-white border-2 border-stone-200 rounded-lg mb-3 overflow-hidden transition-all duration-200 shadow-sm hover:border-slate-300 ${
+      class={`bg-[var(--color-bg-elevated)] border-2 border-[var(--color-border-default)] rounded-lg mb-3 overflow-hidden transition-all duration-200 shadow-sm hover:border-slate-300 ${
         status !== 'active' ? 'opacity-60' : ''
       }`}
     >
       <button
-        class="w-full flex items-center gap-3 p-3 hover:bg-stone-50 transition-colors"
+        class="w-full flex items-center gap-3 p-3 hover:bg-[var(--color-bg-sunken)] transition-colors"
         onClick={() => setIsExpanded(!isExpanded)}
       >
         <div class={`flex-shrink-0 w-10 h-10 flex items-center justify-center ${bgColor} ${textColor} rounded-full`}>
@@ -105,17 +105,17 @@ export function EdgeCard({
         </div>
         <div class="flex-1 text-left">
           <div class="flex items-center gap-2 flex-wrap">
-            <span class="text-sm font-semibold text-stone-900">{address}</span>
-            <span class={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide ${badgeColor} text-white`}>
+            <span class="text-sm font-semibold text-[var(--color-text-primary)]">{address}</span>
+            <span class={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide ${badgeColor} text-[var(--color-text-inverse)]`}>
               {type.replace(/_/g, ' ')}
             </span>
             {status !== 'active' && (
-              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide bg-stone-100 text-stone-500">
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide bg-[var(--color-bg-hover)] text-[var(--color-text-tertiary)]">
                 {status}
               </span>
             )}
           </div>
-          {subtitle && <div class="text-xs text-stone-600 mt-1">{subtitle}</div>}
+          {subtitle && <div class="text-xs text-[var(--color-text-secondary)] mt-1">{subtitle}</div>}
         </div>
         <svg 
           width="20" 
@@ -124,15 +124,15 @@ export function EdgeCard({
           fill="none" 
           stroke="currentColor" 
           stroke-width="2" 
-          class={`text-stone-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+          class={`text-[var(--color-text-tertiary)] transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
         >
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
 
       {isExpanded && (
-        <div class="px-4 pb-3 border-t border-stone-200 bg-stone-50">
-          <div class="text-xs text-stone-500 mt-3 mb-3">
+        <div class="px-4 pb-3 border-t border-[var(--color-border-default)] bg-[var(--color-bg-sunken)]">
+          <div class="text-xs text-[var(--color-text-tertiary)] mt-3 mb-3">
             {type === 'email' && `${messageCount} messages • `}
             {type === 'contact_link' && `${messageCount} conversations • `}
             {type === 'webhook' && `${messageCount} messages • `}
@@ -142,11 +142,11 @@ export function EdgeCard({
             <div class="mb-3 p-2 bg-emerald-50 border border-emerald-200 rounded-lg">
               <div class="text-xs text-emerald-700 font-medium mb-1">Shareable Link</div>
               <div class="flex items-center gap-2">
-                <code class="flex-1 text-xs bg-white px-2 py-1 rounded border border-emerald-200 text-emerald-800 overflow-hidden text-ellipsis">
+                <code class="flex-1 text-xs bg-[var(--color-bg-elevated)] px-2 py-1 rounded border border-emerald-200 text-emerald-800 overflow-hidden text-ellipsis">
                   https://{address}
                 </code>
                 <button
-                  class="px-2 py-1 bg-emerald-600 text-white text-xs rounded hover:bg-emerald-700 transition-colors"
+                  class="px-2 py-1 bg-emerald-600 text-[var(--color-text-inverse)] text-xs rounded hover:bg-emerald-700 transition-colors"
                   onClick={(e) => {
                     e.stopPropagation();
                     navigator.clipboard.writeText(`https://${address}`);
@@ -180,7 +180,7 @@ export function EdgeCard({
             <div class="flex gap-2">
               {type !== 'contact_link' && type !== 'webhook' && (
                 <button 
-                  class="flex-1 px-4 py-2 border border-stone-300 rounded-lg text-sm font-medium bg-white text-stone-900 hover:bg-stone-100 hover:border-slate-400 transition-all duration-150"
+                  class="flex-1 px-4 py-2 border border-[var(--color-border-strong)] rounded-lg text-sm font-medium bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] hover:border-[var(--color-border-strong)] transition-all duration-150"
                   onClick={(e) => {
                     e.stopPropagation();
                     onCopy();
@@ -190,7 +190,7 @@ export function EdgeCard({
                 </button>
               )}
               <button 
-                class={`${type !== 'contact_link' && type !== 'webhook' ? 'flex-1' : 'w-full'} px-4 py-2 border border-red-200 rounded-lg text-sm font-medium bg-white text-red-600 hover:bg-red-50 hover:border-red-600 transition-all duration-150`}
+                class={`${type !== 'contact_link' && type !== 'webhook' ? 'flex-1' : 'w-full'} px-4 py-2 border border-red-200 rounded-lg text-sm font-medium bg-[var(--color-bg-elevated)] text-red-600 hover:bg-red-50 hover:border-red-600 transition-all duration-150`}
                 onClick={(e) => {
                   e.stopPropagation();
                   onDispose();

@@ -42,17 +42,17 @@ export function FullscreenInboxView() {
     return (
       <div class="flex h-full">
         {/* Empty state - full width */}
-        <div class="flex-1 flex flex-col items-center justify-center text-center px-5 py-10 bg-stone-50">
-          <svg class="w-16 h-16 text-stone-400 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <div class="flex-1 flex flex-col items-center justify-center text-center px-5 py-10 bg-[var(--color-bg-sunken)]">
+          <svg class="w-16 h-16 text-[var(--color-text-tertiary)] mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M22 12h-6l-2 3H10l-2-3H2" />
             <path d="M5.45 5.11L2 12v6a2 2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" />
           </svg>
-          <h3 class="text-xl font-semibold text-stone-900 mb-2">No conversations yet</h3>
-          <p class="text-base text-stone-600 mb-6 max-w-md">
+          <h3 class="text-xl font-semibold text-[var(--color-text-primary)] mb-2">No conversations yet</h3>
+          <p class="text-base text-[var(--color-text-secondary)] mb-6 max-w-md">
             Start a chat with another handle or create an edge to receive messages from email, Discord, and more.
           </p>
           <button 
-            class="px-6 py-3 text-base font-semibold text-white bg-slate-700 hover:bg-slate-800 rounded-lg transition-colors duration-150"
+            class="px-6 py-3 text-base font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] rounded-lg transition-colors duration-150"
             onClick={() => { activeTab.value = 'new'; }}
           >
             Start a conversation
@@ -65,12 +65,12 @@ export function FullscreenInboxView() {
   return (
     <div class="flex h-full">
       {/* Conversation List - Left Panel */}
-      <div class="w-80 flex-shrink-0 flex flex-col border-r border-stone-200 bg-white">
+      <div class="w-80 flex-shrink-0 flex flex-col border-r border-[var(--color-border-default)] bg-[var(--color-bg-elevated)]">
         {/* Header with refresh button */}
-        <div class="flex items-center justify-between px-4 py-3 border-b border-stone-200">
-          <h2 class="text-lg font-semibold text-stone-900">Inbox</h2>
+        <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border-default)]">
+          <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Inbox</h2>
           <button
-            class={`p-2 rounded-md transition-all duration-150 ${refreshing ? 'text-sky-600' : 'text-stone-500 hover:text-stone-700 hover:bg-stone-100'}`}
+            class={`p-2 rounded-md transition-all duration-150 ${refreshing ? 'text-sky-600' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'}`}
             onClick={() => loadConversations()}
             disabled={refreshing}
             title="Refresh conversations"
@@ -102,15 +102,15 @@ export function FullscreenInboxView() {
       </div>
 
       {/* Message Detail - Right Panel */}
-      <div class="flex-1 flex flex-col bg-stone-50">
+      <div class="flex-1 flex flex-col bg-[var(--color-bg-sunken)]">
         {showDetailPanel.value && selectedId ? (
           <FullscreenConversationDetail onClose={handleCloseDetail} />
         ) : (
           <div class="flex-1 flex flex-col items-center justify-center text-center px-5">
-            <svg class="w-12 h-12 text-stone-300 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <svg class="w-12 h-12 text-[var(--color-text-tertiary)] mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
             </svg>
-            <p class="text-stone-500">Select a conversation to view messages</p>
+            <p class="text-[var(--color-text-tertiary)]">Select a conversation to view messages</p>
           </div>
         )}
       </div>
@@ -123,9 +123,9 @@ function FullscreenConversationDetail({ onClose }: { onClose: () => void }) {
   return (
     <div class="flex-1 flex flex-col h-full">
       {/* Close button bar at top */}
-      <div class="flex items-center justify-end px-4 py-2 bg-white border-b border-stone-200">
+      <div class="flex items-center justify-end px-4 py-2 bg-[var(--color-bg-elevated)] border-b border-[var(--color-border-default)]">
         <button
-          class="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-md transition-all"
+          class="p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] rounded-md transition-all"
           onClick={onClose}
           title="Close conversation"
         >

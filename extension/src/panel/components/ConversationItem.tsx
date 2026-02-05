@@ -92,7 +92,7 @@ function EdgeBadge({ address, type }: { address: string; type: ConversationType 
     const webhookName = address ? `Webhook: ${address}` : 'Webhook';
     return (
       <span 
-        class="text-xs text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded" 
+        class="text-xs text-[var(--color-text-tertiary)] bg-[var(--color-bg-hover)] px-1.5 py-0.5 rounded" 
         title={`Received via ${webhookName}`}
       >
         via Webhook
@@ -107,7 +107,7 @@ function EdgeBadge({ address, type }: { address: string; type: ConversationType 
   
   return (
     <span 
-      class="text-xs text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded" 
+      class="text-xs text-[var(--color-text-tertiary)] bg-[var(--color-bg-hover)] px-1.5 py-0.5 rounded" 
       title={`Received via ${address}`}
     >
       via {displayAddress}
@@ -139,10 +139,10 @@ export function ConversationItem({ conversation, isSelected, onClick }: Props) {
 
   // Background color: selected > unread > default
   const bgClass = isSelected 
-    ? 'bg-stone-200' 
+    ? 'bg-[var(--color-bg-active)]' 
     : isUnread 
       ? 'bg-sky-50 hover:bg-sky-100' 
-      : 'hover:bg-stone-100';
+      : 'hover:bg-[var(--color-bg-hover)]';
 
   return (
     <button 
@@ -150,7 +150,7 @@ export function ConversationItem({ conversation, isSelected, onClick }: Props) {
       onClick={onClick}
     >
       <div class={`flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full ${
-        isUnread ? 'bg-sky-500 text-white' : 'bg-stone-100 text-stone-600'
+        isUnread ? 'bg-sky-500 text-[var(--color-text-inverse)]' : 'bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)]'
       }`}>
         <div class="w-4 h-4">
           <OriginIcon type={conversation.type} />
@@ -159,21 +159,21 @@ export function ConversationItem({ conversation, isSelected, onClick }: Props) {
       <div class="flex-1 min-w-0">
         <div class="flex items-center justify-between gap-2 mb-0.5">
           <div class="flex items-center gap-1.5 min-w-0">
-            <span class={`text-sm ${isUnread ? 'font-semibold' : 'font-medium'} text-stone-900 whitespace-nowrap overflow-hidden text-ellipsis`}>
+            <span class={`text-sm ${isUnread ? 'font-semibold' : 'font-medium'} text-[var(--color-text-primary)] whitespace-nowrap overflow-hidden text-ellipsis`}>
               {conversation.counterpartyName || 'Unknown'}
             </span>
             {showEdgeBadge && <EdgeBadge address={conversation.edgeAddress || ''} type={conversation.type} />}
           </div>
           <div class="flex items-center gap-1.5 flex-shrink-0">
             <SecurityBadge level={securityLevel} />
-            <span class={`flex-shrink-0 text-xs ${isUnread ? 'text-stone-600 font-medium' : 'text-stone-400'}`}>
+            <span class={`flex-shrink-0 text-xs ${isUnread ? 'text-[var(--color-text-secondary)] font-medium' : 'text-[var(--color-text-tertiary)]'}`}>
               {formatTime(conversation.lastActivityAt)}
             </span>
           </div>
         </div>
         {hasPreview && (
           <div class={`text-xs whitespace-nowrap overflow-hidden text-ellipsis ${
-            isUnread ? 'text-stone-700' : 'text-stone-500'
+            isUnread ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'
           }`}>
             {conversation.lastMessagePreview}
           </div>

@@ -123,23 +123,23 @@ export function EdgesView() {
 
   return (
     <div class="h-full flex flex-col">
-      <div class="flex items-center justify-between px-4 py-4 border-b border-stone-200">
-        <h2 class="text-lg font-semibold text-stone-900">Edges</h2>
+      <div class="flex items-center justify-between px-4 py-4 border-b border-[var(--color-border-default)]">
+        <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Edges</h2>
         <button 
-          class="px-4 py-2 text-sm font-semibold text-white bg-slate-700 hover:bg-slate-800 rounded-md shadow-sm hover:shadow-md transition-all duration-150 transform hover:-translate-y-0.5"
+          class="px-4 py-2 text-sm font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] rounded-md shadow-sm hover:shadow-md transition-all duration-150 transform hover:-translate-y-0.5"
           onClick={() => setShowCreateModal(true)}
         >
           + New Edge
         </button>
       </div>
 
-      <p class="px-4 py-3 text-sm text-stone-600 bg-white border-b border-stone-200 m-0">
+      <p class="px-4 py-3 text-sm text-[var(--color-text-secondary)] bg-[var(--color-bg-elevated)] border-b border-[var(--color-border-default)] m-0">
         Edges are your communication surfaces. Create handles for native messaging or email aliases.
       </p>
 
       <div class="flex-1 overflow-y-auto p-4">
         {allEdges.length === 0 ? (
-          <div class="text-center py-10 px-5 text-stone-600">
+          <div class="text-center py-10 px-5 text-[var(--color-text-secondary)]">
             <p>No edges yet. Create a handle or email alias to get started!</p>
           </div>
         ) : (
@@ -180,17 +180,17 @@ export function EdgesView() {
 
       {showCreateModal && (
         <div 
-          class="fixed inset-0 bg-black/75 flex items-center justify-center z-[1000] backdrop-blur-sm"
+          class="fixed inset-0 bg-[var(--color-bg-overlay)] flex items-center justify-center z-[1000] backdrop-blur-sm"
           onClick={() => setShowCreateModal(false)}
         >
           <div 
-            class="bg-white border border-stone-200 rounded-xl p-6 max-w-[440px] w-[90%] shadow-2xl"
+            class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-xl p-6 max-w-[440px] w-[90%] shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 class="m-0 mb-5 text-lg font-semibold text-stone-900">Create New Edge</h3>
+            <h3 class="m-0 mb-5 text-lg font-semibold text-[var(--color-text-primary)]">Create New Edge</h3>
             
             <div class="flex flex-col gap-3">
-              <label class="text-sm font-medium text-stone-600 mb-1 mt-1">Edge Type</label>
+              <label class="text-sm font-medium text-[var(--color-text-secondary)] mb-1 mt-1">Edge Type</label>
               <div class="flex flex-col gap-2 mb-2">
                 {availableEdgeTypes.map(edgeType => (
                   <label 
@@ -198,7 +198,7 @@ export function EdgesView() {
                     class={`flex items-center p-3 border-2 rounded-lg cursor-pointer transition-all duration-150 ${
                       selectedEdgeTypeId === edgeType.id
                         ? 'border-slate-600 bg-slate-50' 
-                        : 'border-stone-200 bg-stone-50 hover:border-slate-400 hover:bg-stone-100'
+                        : 'border-[var(--color-border-default)] bg-[var(--color-bg-sunken)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]'
                     }`}
                   >
                     <input
@@ -210,10 +210,10 @@ export function EdgesView() {
                       class="mr-3 cursor-pointer w-[18px] h-[18px] flex-shrink-0"
                     />
                     <div class="flex-1">
-                      <div class={`text-sm font-semibold mb-0.5 ${selectedEdgeTypeId === edgeType.id ? 'text-slate-700' : 'text-stone-900'}`}>
+                      <div class={`text-sm font-semibold mb-0.5 ${selectedEdgeTypeId === edgeType.id ? 'text-slate-700' : 'text-[var(--color-text-primary)]'}`}>
                         {edgeType.icon} {edgeType.name}
                       </div>
-                      <div class="text-xs text-stone-600">{edgeType.description}</div>
+                      <div class="text-xs text-[var(--color-text-secondary)]">{edgeType.description}</div>
                     </div>
                   </label>
                 ))}
@@ -221,9 +221,9 @@ export function EdgesView() {
 
               {selectedEdgeType?.requiresCustomAddress && (selectedEdgeType.id === 'native' || selectedEdgeType.id === 'discord') ? (
                 <>
-                  <label class="text-sm font-medium text-stone-600 mb-1 mt-1">Handle</label>
-                  <div class="flex border border-stone-200 rounded-lg overflow-hidden bg-stone-50">
-                    <span class="px-3 py-2.5 bg-stone-100 text-stone-600 font-semibold">&</span>
+                  <label class="text-sm font-medium text-[var(--color-text-secondary)] mb-1 mt-1">Handle</label>
+                  <div class="flex border border-[var(--color-border-default)] rounded-lg overflow-hidden bg-[var(--color-bg-sunken)]">
+                    <span class="px-3 py-2.5 bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] font-semibold">&</span>
                     <input
                       type="text"
                       value={handleName}
@@ -231,43 +231,43 @@ export function EdgesView() {
                       placeholder="username"
                       pattern="[a-z0-9_\-]{3,32}"
                       maxLength={32}
-                      class="flex-1 border-none px-3 py-2.5 text-sm bg-stone-50 text-stone-900"
+                      class="flex-1 border-none px-3 py-2.5 text-sm bg-[var(--color-bg-sunken)] text-[var(--color-text-primary)]"
                     />
                   </div>
-                  <small class="text-xs text-stone-400">3-32 characters, lowercase, alphanumeric, _ or -</small>
+                  <small class="text-xs text-[var(--color-text-tertiary)]">3-32 characters, lowercase, alphanumeric, _ or -</small>
 
-                  <label class="text-sm font-medium text-stone-600 mb-1 mt-4">Display Name (optional)</label>
+                  <label class="text-sm font-medium text-[var(--color-text-secondary)] mb-1 mt-4">Display Name (optional)</label>
                   <input
                     type="text"
                     value={displayName}
                     onInput={(e) => setDisplayName((e.target as HTMLInputElement).value)}
                     placeholder="Your Name"
                     maxLength={50}
-                    class="w-full px-3 py-2.5 border border-stone-200 rounded-lg text-sm bg-stone-50 text-stone-900"
+                    class="w-full px-3 py-2.5 border border-[var(--color-border-default)] rounded-lg text-sm bg-[var(--color-bg-sunken)] text-[var(--color-text-primary)]"
                   />
                 </>
               ) : (
                 <>
-                  <label class="text-sm font-medium text-stone-600 mb-1 mt-1">Label (optional)</label>
+                  <label class="text-sm font-medium text-[var(--color-text-secondary)] mb-1 mt-1">Label (optional)</label>
                   <input
                     type="text"
                     value={label}
                     onInput={(e) => setLabel((e.target as HTMLInputElement).value)}
                     placeholder="e.g., Amazon, Newsletter"
-                    class="w-full px-3 py-2.5 border border-stone-200 rounded-lg text-sm bg-stone-50 text-stone-900"
+                    class="w-full px-3 py-2.5 border border-[var(--color-border-default)] rounded-lg text-sm bg-[var(--color-bg-sunken)] text-[var(--color-text-primary)]"
                   />
                 </>
               )}
 
               <div class="flex gap-2 mt-5">
                 <button 
-                  class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-stone-100 text-stone-900 hover:bg-stone-200 transition-colors duration-150"
+                  class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-active)] transition-colors duration-150"
                   onClick={() => setShowCreateModal(false)}
                 >
                   Cancel
                 </button>
                 <button 
-                  class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-slate-700 text-white hover:bg-slate-800 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+                  class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-[var(--color-primary)] text-[var(--color-text-inverse)] hover:bg-[var(--color-primary-hover)] transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={(selectedEdgeTypeId === 'native' || selectedEdgeTypeId === 'discord') ? handleCreateHandle : handleCreateEdge}
                   disabled={loading}
                 >
@@ -282,23 +282,23 @@ export function EdgesView() {
       {/* Disposal Confirmation Modal */}
       {disposalModal && (
         <div 
-          class="fixed inset-0 bg-black/75 flex items-center justify-center z-[1000] backdrop-blur-sm"
+          class="fixed inset-0 bg-[var(--color-bg-overlay)] flex items-center justify-center z-[1000] backdrop-blur-sm"
           onClick={() => setDisposalModal(null)}
         >
           <div 
-            class="bg-white border border-stone-200 rounded-xl p-6 max-w-[480px] w-[90%] shadow-2xl"
+            class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-xl p-6 max-w-[480px] w-[90%] shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 class="m-0 mb-4 text-lg font-semibold text-red-600">Permanently Dispose Edge</h3>
             
-            <div class="mb-5 p-4 bg-stone-50 border border-stone-200 rounded-lg">
-              <div class="text-sm font-medium text-stone-900 mb-1">Edge: {disposalModal.address}</div>
-              <div class="text-xs text-stone-600">Type: {disposalModal.edgeType}</div>
+            <div class="mb-5 p-4 bg-[var(--color-bg-sunken)] border border-[var(--color-border-default)] rounded-lg">
+              <div class="text-sm font-medium text-[var(--color-text-primary)] mb-1">Edge: {disposalModal.address}</div>
+              <div class="text-xs text-[var(--color-text-secondary)]">Type: {disposalModal.edgeType}</div>
             </div>
 
             <div class="mb-5 space-y-2">
-              <p class="text-sm text-stone-700 m-0">This action will:</p>
-              <ul class="text-sm text-stone-600 space-y-1 ml-5 list-disc">
+              <p class="text-sm text-[var(--color-text-primary)] m-0">This action will:</p>
+              <ul class="text-sm text-[var(--color-text-secondary)] space-y-1 ml-5 list-disc">
                 <li>Permanently dispose of this edge (cannot be recovered or reused)</li>
                 <li>Remove all connection to your Relay identity (untraceable)</li>
                 <li>Conversations remain but become read-only</li>
@@ -311,13 +311,13 @@ export function EdgesView() {
 
             <div class="flex gap-3">
               <button 
-                class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-stone-100 text-stone-900 hover:bg-stone-200 transition-colors duration-150"
+                class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-active)] transition-colors duration-150"
                 onClick={() => setDisposalModal(null)}
               >
                 Cancel
               </button>
               <button 
-                class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition-colors duration-150"
+                class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-red-600 text-[var(--color-text-inverse)] hover:bg-red-700 transition-colors duration-150"
                 onClick={confirmDisposal}
               >
                 Dispose Edge

@@ -151,49 +151,49 @@ function generateSecurePassphrase(wordCount: number = 4): string {
 
 export function WelcomeScreen() {
   return (
-    <div class="flex flex-col items-center justify-center min-h-screen bg-stone-50 px-6 py-12">
+    <div class="flex flex-col items-center justify-center min-h-screen bg-[var(--color-bg-sunken)] px-6 py-12">
       <div class="mb-8">
         <RelayGlyphIcon size={80} />
       </div>
 
-      <h1 class="text-3xl font-bold text-stone-900 mb-3">Welcome to Relay</h1>
+      <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-3">Welcome to Relay</h1>
       
-      <p class="text-base text-stone-600 mb-10 text-center max-w-md">
+      <p class="text-base text-[var(--color-text-secondary)] mb-10 text-center max-w-md">
         One identity. Every conversation. Zero exposure.
       </p>
 
       <div class="w-full max-w-md space-y-4 mb-10">
-        <div class="flex items-start gap-3 p-4 bg-white rounded-lg border border-stone-200">
-          <span class="text-slate-600 mt-0.5"><LockIcon size={20} /></span>
+        <div class="flex items-start gap-3 p-4 bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border-default)]">
+          <span class="text-[var(--color-text-secondary)] mt-0.5"><LockIcon size={20} /></span>
           <div class="flex flex-col gap-1">
-            <strong class="text-sm font-semibold text-stone-900">Zero-knowledge encryption</strong>
-            <span class="text-sm text-stone-600">Your messages never touch our servers unencrypted</span>
+            <strong class="text-sm font-semibold text-[var(--color-text-primary)]">Zero-knowledge encryption</strong>
+            <span class="text-sm text-[var(--color-text-secondary)]">Your messages never touch our servers unencrypted</span>
           </div>
         </div>
-        <div class="flex items-start gap-3 p-4 bg-white rounded-lg border border-stone-200">
-          <span class="text-slate-600 mt-0.5"><MailIcon size={20} /></span>
+        <div class="flex items-start gap-3 p-4 bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border-default)]">
+          <span class="text-[var(--color-text-secondary)] mt-0.5"><MailIcon size={20} /></span>
           <div class="flex flex-col gap-1">
-            <strong class="text-sm font-semibold text-stone-900">Disposable edges</strong>
-            <span class="text-sm text-stone-600">Email, links, and more — each connection is isolated</span>
+            <strong class="text-sm font-semibold text-[var(--color-text-primary)]">Disposable edges</strong>
+            <span class="text-sm text-[var(--color-text-secondary)]">Email, links, and more — each connection is isolated</span>
           </div>
         </div>
-        <div class="flex items-start gap-3 p-4 bg-white rounded-lg border border-stone-200">
-          <span class="text-slate-600 mt-0.5"><UserIcon size={20} /></span>
+        <div class="flex items-start gap-3 p-4 bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border-default)]">
+          <span class="text-[var(--color-text-secondary)] mt-0.5"><UserIcon size={20} /></span>
           <div class="flex flex-col gap-1">
-            <strong class="text-sm font-semibold text-stone-900">Claim your &handle</strong>
-            <span class="text-sm text-stone-600">A portable identity you own forever</span>
+            <strong class="text-sm font-semibold text-[var(--color-text-primary)]">Claim your &handle</strong>
+            <span class="text-sm text-[var(--color-text-secondary)]">A portable identity you own forever</span>
           </div>
         </div>
       </div>
 
       <button
-        class="w-full max-w-md px-6 py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800 transition-colors text-base"
+        class="w-full max-w-md px-6 py-3 bg-[var(--color-primary)] text-[var(--color-text-inverse)] font-semibold rounded-lg hover:bg-[var(--color-primary-hover)] transition-colors text-base"
         onClick={() => { onboardingStep.value = 'create-passphrase'; }}
       >
         Get Started
       </button>
 
-      <p class="text-sm text-stone-600 mt-6">
+      <p class="text-sm text-[var(--color-text-secondary)] mt-6">
         Already have an identity? <a href="#" class="text-slate-700 hover:text-slate-900 font-medium underline" onClick={(e) => {
           e.preventDefault();
           // TODO: Import flow
@@ -231,27 +231,27 @@ export function CreatePassphraseScreen() {
   }
 
   return (
-    <div class="flex flex-col min-h-screen bg-stone-50 px-6 py-8">
+    <div class="flex flex-col min-h-screen bg-[var(--color-bg-sunken)] px-6 py-8">
       <button 
-        class="self-start mb-6 px-3 py-1.5 text-sm text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded transition-colors"
+        class="self-start mb-6 px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
         onClick={() => { onboardingStep.value = 'welcome'; }}
       >
         ← Back
       </button>
 
       <div class="flex-1 flex flex-col justify-center max-w-md mx-auto w-full">
-        <h1 class="text-3xl font-bold text-stone-900 mb-3">Create Passphrase</h1>
+        <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-3">Create Passphrase</h1>
         
-        <p class="text-base text-stone-600 mb-8">
+        <p class="text-base text-[var(--color-text-secondary)] mb-8">
           Your passphrase encrypts your identity. You'll need it to unlock Relay.
         </p>
 
         <div class="mb-6">
           <div class="flex items-center justify-between mb-2">
-            <label class="text-sm font-medium text-stone-700">Passphrase</label>
+            <label class="text-sm font-medium text-[var(--color-text-primary)]">Passphrase</label>
             <button 
               type="button" 
-              class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded transition-colors"
+              class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-slate-100 rounded transition-colors"
               onClick={handleGeneratePassphrase}
               title="Generate a secure random passphrase"
             >
@@ -262,7 +262,7 @@ export function CreatePassphraseScreen() {
           <div class="relative">
             <input
               type={showPassphrase ? 'text' : 'password'}
-              class="w-full px-3 py-2.5 pr-10 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+              class="w-full px-3 py-2.5 pr-10 text-sm border border-[var(--color-border-strong)] rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
               placeholder="Enter a strong passphrase"
               value={passphrase}
               onInput={(e) => setPassphrase((e.target as HTMLInputElement).value)}
@@ -270,7 +270,7 @@ export function CreatePassphraseScreen() {
             />
             <button
               type="button"
-              class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-stone-400 hover:text-stone-600 rounded transition-colors"
+              class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] rounded transition-colors"
               onClick={() => setShowPassphrase(!showPassphrase)}
             >
               {showPassphrase ? <EyeOffIcon /> : <EyeIcon />}
@@ -284,10 +284,10 @@ export function CreatePassphraseScreen() {
         </div>
 
         <div class="mb-6">
-          <label class="block text-sm font-medium text-stone-700 mb-2">Confirm Passphrase</label>
+          <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">Confirm Passphrase</label>
           <input
             type={showPassphrase ? 'text' : 'password'}
-            class="w-full px-3 py-2.5 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+            class="w-full px-3 py-2.5 text-sm border border-[var(--color-border-strong)] rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
             placeholder="Confirm your passphrase"
             value={confirmPassphrase}
             onInput={(e) => setConfirmPassphrase((e.target as HTMLInputElement).value)}
@@ -310,7 +310,7 @@ export function CreatePassphraseScreen() {
         </div>
 
         <button
-          class="w-full px-6 py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors text-base"
+          class="w-full px-6 py-3 bg-[var(--color-primary)] text-[var(--color-text-inverse)] font-semibold rounded-lg hover:bg-[var(--color-primary-hover)] disabled:bg-[var(--color-text-tertiary)] disabled:cursor-not-allowed transition-colors text-base"
           onClick={handleCreate}
           disabled={!isValid || isLoading.value}
         >
@@ -403,21 +403,21 @@ export function BackupIdentityScreen() {
   }
 
   return (
-    <div class="flex flex-col min-h-screen bg-stone-50 px-6 py-8">
+    <div class="flex flex-col min-h-screen bg-[var(--color-bg-sunken)] px-6 py-8">
       <div class="flex-1 flex flex-col items-center justify-center max-w-md mx-auto w-full">
-        <div class="mb-8 text-slate-600">
+        <div class="mb-8 text-[var(--color-text-secondary)]">
           <ShieldIcon />
         </div>
 
-        <h1 class="text-3xl font-bold text-stone-900 mb-3 text-center">Save Your Backup</h1>
+        <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-3 text-center">Save Your Backup</h1>
         
-        <p class="text-base text-stone-600 mb-8 text-center">
-          Download your recovery file now. This is the <strong class="font-semibold text-stone-900">only way</strong> to recover your identity if you forget your passphrase.
+        <p class="text-base text-[var(--color-text-secondary)] mb-8 text-center">
+          Download your recovery file now. This is the <strong class="font-semibold text-[var(--color-text-primary)]">only way</strong> to recover your identity if you forget your passphrase.
         </p>
 
-        <div class="w-full bg-white border border-stone-200 rounded-lg overflow-hidden mb-6">
-          <div class="px-4 py-3 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
-            <span class="text-sm font-medium text-stone-700">Recovery File</span>
+        <div class="w-full bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg overflow-hidden mb-6">
+          <div class="px-4 py-3 bg-[var(--color-bg-sunken)] border-b border-[var(--color-border-default)] flex items-center justify-between">
+            <span class="text-sm font-medium text-[var(--color-text-primary)]">Recovery File</span>
             {hasDownloaded && (
               <span class="flex items-center gap-1.5 text-xs font-medium text-emerald-600">
                 <CheckCircleIcon size={14} /> Saved
@@ -426,16 +426,16 @@ export function BackupIdentityScreen() {
           </div>
           <div class="px-4 py-3 space-y-3">
             <div class="flex justify-between items-center">
-              <span class="text-xs font-medium text-stone-600">Fingerprint</span>
-              <code class="text-xs font-mono text-stone-900 bg-stone-100 px-2 py-1 rounded">{identity?.id?.slice(0, 16)}...</code>
+              <span class="text-xs font-medium text-[var(--color-text-secondary)]">Fingerprint</span>
+              <code class="text-xs font-mono text-[var(--color-text-primary)] bg-[var(--color-bg-hover)] px-2 py-1 rounded">{identity?.id?.slice(0, 16)}...</code>
             </div>
             <div class="flex justify-between items-center">
-              <span class="text-xs font-medium text-stone-600">Passphrase</span>
-              <code class="text-xs font-mono text-stone-900 bg-stone-100 px-2 py-1 rounded max-w-[180px] truncate">{passphrase?.slice(0, 20)}{(passphrase?.length || 0) > 20 ? '...' : ''}</code>
+              <span class="text-xs font-medium text-[var(--color-text-secondary)]">Passphrase</span>
+              <code class="text-xs font-mono text-[var(--color-text-primary)] bg-[var(--color-bg-hover)] px-2 py-1 rounded max-w-[180px] truncate">{passphrase?.slice(0, 20)}{(passphrase?.length || 0) > 20 ? '...' : ''}</code>
             </div>
           </div>
           <button
-            class="w-full px-4 py-3 bg-stone-100 hover:bg-stone-200 text-stone-900 font-medium text-sm flex items-center justify-center gap-2 transition-colors"
+            class="w-full px-4 py-3 bg-[var(--color-bg-hover)] hover:bg-[var(--color-bg-active)] text-[var(--color-text-primary)] font-medium text-sm flex items-center justify-center gap-2 transition-colors"
             onClick={handleDownload}
           >
             <DownloadIcon size={18} />
@@ -452,7 +452,7 @@ export function BackupIdentityScreen() {
         </div>
 
         <button
-          class="w-full px-6 py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors text-base mb-4"
+          class="w-full px-6 py-3 bg-[var(--color-primary)] text-[var(--color-text-inverse)] font-semibold rounded-lg hover:bg-[var(--color-primary-hover)] disabled:bg-[var(--color-text-tertiary)] disabled:cursor-not-allowed transition-colors text-base mb-4"
           onClick={handleContinue}
           disabled={!hasDownloaded}
         >
@@ -461,7 +461,7 @@ export function BackupIdentityScreen() {
 
         {!hasDownloaded && (
           <p class="text-sm text-center">
-            <button class="text-stone-600 hover:text-stone-900 underline" onClick={() => {
+            <button class="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] underline" onClick={() => {
               if (confirm('Are you sure? Without a backup, you cannot recover your identity if you forget your passphrase.')) {
                 pendingPassphrase.value = null;
                 onboardingStep.value = 'create-edge';
@@ -601,15 +601,15 @@ export function CreateFirstEdgeScreen() {
   ];
 
   return (
-    <div class="flex flex-col min-h-screen bg-stone-50 px-6 py-8">
+    <div class="flex flex-col min-h-screen bg-[var(--color-bg-sunken)] px-6 py-8">
       <div class="flex-1 flex flex-col justify-center max-w-md mx-auto w-full">
-        <div class="mb-6 text-slate-600 flex justify-center">
+        <div class="mb-6 text-[var(--color-text-secondary)] flex justify-center">
           <LinkIcon size={48} />
         </div>
 
-        <h1 class="text-3xl font-bold text-stone-900 mb-3 text-center">Create Your First Edge</h1>
+        <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-3 text-center">Create Your First Edge</h1>
         
-        <p class="text-base text-stone-600 mb-6 text-center">
+        <p class="text-base text-[var(--color-text-secondary)] mb-6 text-center">
           Edges are your communication surfaces — each one is isolated and disposable, protecting your core identity.
         </p>
 
@@ -629,7 +629,7 @@ export function CreateFirstEdgeScreen() {
               class={`flex items-start gap-4 p-4 border-2 rounded-xl cursor-pointer transition-all duration-150 ${
                 selectedEdgeType === edgeType.id
                   ? 'border-slate-600 bg-slate-50' 
-                  : 'border-stone-200 bg-white hover:border-slate-400 hover:bg-stone-50'
+                  : 'border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-sunken)]'
               }`}
             >
               <input
@@ -645,10 +645,10 @@ export function CreateFirstEdgeScreen() {
               />
               <div class="flex-1">
                 <div class="flex items-center gap-2 mb-1">
-                  <span class={selectedEdgeType === edgeType.id ? 'text-slate-700' : 'text-stone-600'}>
+                  <span class={selectedEdgeType === edgeType.id ? 'text-slate-700' : 'text-[var(--color-text-secondary)]'}>
                     {edgeType.icon}
                   </span>
-                  <span class={`font-semibold ${selectedEdgeType === edgeType.id ? 'text-slate-800' : 'text-stone-900'}`}>
+                  <span class={`font-semibold ${selectedEdgeType === edgeType.id ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-primary)]'}`}>
                     {edgeType.name}
                   </span>
                   <span class={`text-xs px-2 py-0.5 rounded-full ${
@@ -659,8 +659,8 @@ export function CreateFirstEdgeScreen() {
                     {edgeType.securityBadge}
                   </span>
                 </div>
-                <p class="text-sm text-stone-600 mb-2">{edgeType.description}</p>
-                <code class="text-xs font-mono bg-stone-100 px-2 py-1 rounded text-stone-700">{edgeType.example}</code>
+                <p class="text-sm text-[var(--color-text-secondary)] mb-2">{edgeType.description}</p>
+                <code class="text-xs font-mono bg-[var(--color-bg-hover)] px-2 py-1 rounded text-[var(--color-text-primary)]">{edgeType.example}</code>
               </div>
             </label>
           ))}
@@ -670,9 +670,9 @@ export function CreateFirstEdgeScreen() {
         {selectedEdgeType === 'native' && (
           <div class="space-y-4 mb-6">
             <div>
-              <label class="block text-sm font-medium text-stone-700 mb-2">Your Handle</label>
-              <div class="flex border border-stone-300 rounded-lg overflow-hidden">
-                <span class="px-3 py-2.5 bg-stone-100 text-stone-600 font-semibold border-r border-stone-300">&</span>
+              <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">Your Handle</label>
+              <div class="flex border border-[var(--color-border-strong)] rounded-lg overflow-hidden">
+                <span class="px-3 py-2.5 bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] font-semibold border-r border-[var(--color-border-strong)]">&</span>
                 <input
                   type="text"
                   value={handleName}
@@ -683,7 +683,7 @@ export function CreateFirstEdgeScreen() {
                   placeholder="yourname"
                   pattern="[a-z0-9_]{3,24}"
                   maxLength={24}
-                  class="flex-1 px-3 py-2.5 text-sm bg-white text-stone-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  class="flex-1 px-3 py-2.5 text-sm bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-sky-500"
                   autoFocus
                 />
               </div>
@@ -699,14 +699,14 @@ export function CreateFirstEdgeScreen() {
               </div>
             </div>
             <div>
-              <label class="block text-sm font-medium text-stone-700 mb-2">Display Name <span class="text-stone-400">(optional)</span></label>
+              <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">Display Name <span class="text-[var(--color-text-tertiary)]">(optional)</span></label>
               <input
                 type="text"
                 value={displayName}
                 onInput={(e) => setDisplayName((e.target as HTMLInputElement).value)}
                 placeholder="Your Name"
                 maxLength={50}
-                class="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white text-stone-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                class="w-full px-3 py-2.5 border border-[var(--color-border-strong)] rounded-lg text-sm bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-sky-500"
               />
             </div>
           </div>
@@ -714,15 +714,15 @@ export function CreateFirstEdgeScreen() {
 
         {selectedEdgeType === 'email' && (
           <div class="mb-6">
-            <label class="block text-sm font-medium text-stone-700 mb-2">Label <span class="text-stone-400">(optional)</span></label>
+            <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">Label <span class="text-[var(--color-text-tertiary)]">(optional)</span></label>
             <input
               type="text"
               value={label}
               onInput={(e) => setLabel((e.target as HTMLInputElement).value)}
               placeholder="e.g., Shopping, Newsletters"
-              class="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white text-stone-900 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              class="w-full px-3 py-2.5 border border-[var(--color-border-strong)] rounded-lg text-sm bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-sky-500"
             />
-            <p class="text-xs text-stone-500 mt-2">
+            <p class="text-xs text-[var(--color-text-tertiary)] mt-2">
               A random email address will be generated for you.
             </p>
           </div>
@@ -731,7 +731,7 @@ export function CreateFirstEdgeScreen() {
         {error && <div class="mb-4 p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded-lg">{error}</div>}
 
         <button
-          class="w-full px-6 py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors text-base mb-3"
+          class="w-full px-6 py-3 bg-[var(--color-primary)] text-[var(--color-text-inverse)] font-semibold rounded-lg hover:bg-[var(--color-primary-hover)] disabled:bg-[var(--color-text-tertiary)] disabled:cursor-not-allowed transition-colors text-base mb-3"
           onClick={handleCreate}
           disabled={loading || (selectedEdgeType === 'native' && !isValidHandle)}
         >
@@ -739,13 +739,13 @@ export function CreateFirstEdgeScreen() {
         </button>
 
         <button
-          class="w-full px-6 py-3 bg-stone-200 text-stone-700 font-semibold rounded-lg hover:bg-stone-300 transition-colors text-base"
+          class="w-full px-6 py-3 bg-[var(--color-bg-active)] text-[var(--color-text-primary)] font-semibold rounded-lg hover:bg-[var(--color-bg-active)] transition-colors text-base"
           onClick={handleSkip}
         >
           Skip for now
         </button>
 
-        <p class="text-sm text-stone-600 text-center mt-6">
+        <p class="text-sm text-[var(--color-text-secondary)] text-center mt-6">
           You can create more edges anytime from the Edges tab.
         </p>
       </div>
@@ -755,7 +755,7 @@ export function CreateFirstEdgeScreen() {
 
 export function CompleteScreen() {
   return (
-    <div class="flex flex-col items-center justify-center min-h-screen bg-stone-50 px-6 py-12">
+    <div class="flex flex-col items-center justify-center min-h-screen bg-[var(--color-bg-sunken)] px-6 py-12">
       <div class="mb-6">
         <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
           <circle cx="40" cy="40" r="38" stroke="#10B981" stroke-width="2" />
@@ -770,15 +770,15 @@ export function CompleteScreen() {
         </svg>
       </div>
 
-      <h1 class="text-3xl font-bold text-stone-900 mb-3">You're All Set!</h1>
+      <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-3">You're All Set!</h1>
       
-      <p class="text-base text-stone-600 mb-6 text-center max-w-sm">
+      <p class="text-base text-[var(--color-text-secondary)] mb-6 text-center max-w-sm">
         Your Relay identity is ready. You're now in control.
       </p>
 
       {/* Security highlights */}
       <div class="w-full max-w-md bg-gradient-to-br from-slate-50 to-sky-50 border border-slate-200 rounded-xl p-5 mb-6">
-        <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+        <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-3 flex items-center gap-2">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
           </svg>
@@ -788,42 +788,42 @@ export function CompleteScreen() {
           <div class="flex items-start gap-3">
             <span class="text-emerald-600 mt-0.5">✓</span>
             <div>
-              <strong class="text-stone-900">Zero-knowledge architecture</strong>
-              <p class="text-stone-600 text-xs mt-0.5">We can't read your messages — ever. All encryption happens on your device.</p>
+              <strong class="text-[var(--color-text-primary)]">Zero-knowledge architecture</strong>
+              <p class="text-[var(--color-text-secondary)] text-xs mt-0.5">We can't read your messages — ever. All encryption happens on your device.</p>
             </div>
           </div>
           <div class="flex items-start gap-3">
             <span class="text-emerald-600 mt-0.5">✓</span>
             <div>
-              <strong class="text-stone-900">Disposable edges</strong>
-              <p class="text-stone-600 text-xs mt-0.5">Every handle and email alias is isolated. Burn one, keep the rest.</p>
+              <strong class="text-[var(--color-text-primary)]">Disposable edges</strong>
+              <p class="text-[var(--color-text-secondary)] text-xs mt-0.5">Every handle and email alias is isolated. Burn one, keep the rest.</p>
             </div>
           </div>
           <div class="flex items-start gap-3">
             <span class="text-emerald-600 mt-0.5">✓</span>
             <div>
-              <strong class="text-stone-900">You own your identity</strong>
-              <p class="text-stone-600 text-xs mt-0.5">Your cryptographic keys live on your device. No accounts, no passwords stored with us.</p>
+              <strong class="text-[var(--color-text-primary)]">You own your identity</strong>
+              <p class="text-[var(--color-text-secondary)] text-xs mt-0.5">Your cryptographic keys live on your device. No accounts, no passwords stored with us.</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="w-full max-w-md bg-white border border-stone-200 rounded-lg p-4 space-y-3 mb-8">
+      <div class="w-full max-w-md bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg p-4 space-y-3 mb-8">
         {currentIdentity.value?.handle && (
           <div class="flex justify-between items-center">
-            <span class="text-sm font-medium text-stone-600">Handle</span>
-            <span class="text-sm font-semibold text-stone-900">&amp;{currentIdentity.value.handle}</span>
+            <span class="text-sm font-medium text-[var(--color-text-secondary)]">Handle</span>
+            <span class="text-sm font-semibold text-[var(--color-text-primary)]">&amp;{currentIdentity.value.handle}</span>
           </div>
         )}
         <div class="flex justify-between items-center">
-          <span class="text-sm font-medium text-stone-600">Fingerprint</span>
-          <span class="text-xs font-mono text-stone-900 bg-stone-100 px-2 py-1 rounded">{currentIdentity.value?.id.slice(0, 16)}...</span>
+          <span class="text-sm font-medium text-[var(--color-text-secondary)]">Fingerprint</span>
+          <span class="text-xs font-mono text-[var(--color-text-primary)] bg-[var(--color-bg-hover)] px-2 py-1 rounded">{currentIdentity.value?.id.slice(0, 16)}...</span>
         </div>
       </div>
 
       <button
-        class="w-full max-w-md px-6 py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800 transition-colors text-base"
+        class="w-full max-w-md px-6 py-3 bg-[var(--color-primary)] text-[var(--color-text-inverse)] font-semibold rounded-lg hover:bg-[var(--color-primary-hover)] transition-colors text-base"
         onClick={() => completeOnboarding()}
       >
         Start Using Relay

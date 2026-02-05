@@ -48,9 +48,9 @@ export function LockScreen() {
   }
 
   return (
-    <div class="flex items-center justify-center min-h-screen bg-stone-50 px-4">
+    <div class="flex items-center justify-center min-h-screen bg-[var(--color-bg-sunken)] px-4">
       <div class="w-full max-w-sm flex flex-col items-center">
-        <div class="mb-6 text-stone-400">
+        <div class="mb-6 text-[var(--color-text-tertiary)]">
           <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
             <rect x="8" y="20" width="32" height="24" rx="4" stroke="currentColor" stroke-width="2" />
             <path
@@ -63,17 +63,17 @@ export function LockScreen() {
           </svg>
         </div>
 
-        <h1 class="text-2xl font-semibold text-stone-900 mb-2">Relay is Locked</h1>
+        <h1 class="text-2xl font-semibold text-[var(--color-text-primary)] mb-2">Relay is Locked</h1>
         
         {currentIdentity.value?.handle && (
-          <p class="text-sm text-sky-600 font-medium mb-6">&{currentIdentity.value.handle}</p>
+          <p class="text-sm text-[var(--color-accent)] font-medium mb-6">&{currentIdentity.value.handle}</p>
         )}
 
         <div class="w-full mb-4">
           <div class="relative">
             <input
               type={showPassphrase ? 'text' : 'password'}
-              class="w-full px-4 py-3 pr-12 border border-stone-200 rounded-lg text-sm bg-white text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+              class="w-full px-4 py-3 pr-12 border border-[var(--color-border-default)] rounded-lg text-sm bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:border-transparent"
               placeholder="Enter passphrase"
               value={passphrase}
               onInput={(e) => {
@@ -85,7 +85,7 @@ export function LockScreen() {
             />
             <button
               type="button"
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 transition-colors"
+              class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
               onClick={() => setShowPassphrase(!showPassphrase)}
             >
               {showPassphrase ? <EyeOffIcon /> : <EyeIcon />}
@@ -96,7 +96,7 @@ export function LockScreen() {
         {error && <div class="w-full px-4 py-3 mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg">{error}</div>}
 
         <button
-          class="w-full px-6 py-3 text-base font-semibold text-white bg-slate-700 hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          class="w-full px-6 py-3 text-base font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={handleUnlock}
           disabled={!passphrase || isLoading.value}
         >
@@ -104,28 +104,28 @@ export function LockScreen() {
         </button>
 
         {/* Logout / Switch Identity */}
-        <div class="mt-8 pt-6 border-t border-stone-200 w-full">
+        <div class="mt-8 pt-6 border-t border-[var(--color-border-default)] w-full">
           {!showLogoutConfirm ? (
             <button
-              class="w-full px-4 py-2 text-sm text-stone-500 hover:text-stone-700 hover:bg-stone-100 rounded-lg transition-colors"
+              class="w-full px-4 py-2 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-lg transition-colors"
               onClick={() => setShowLogoutConfirm(true)}
             >
               Login to a different identity
             </button>
           ) : (
             <div class="space-y-2">
-              <p class="text-xs text-stone-600 text-center mb-3">
+              <p class="text-xs text-[var(--color-text-secondary)] text-center mb-3">
                 This will clear your current identity from this browser. Make sure you have your backup passphrase.
               </p>
               <div class="flex gap-2">
                 <button
-                  class="flex-1 px-4 py-2 text-sm text-stone-600 hover:text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-lg transition-colors"
+                  class="flex-1 px-4 py-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] bg-[var(--color-bg-hover)] hover:bg-[var(--color-bg-active)] rounded-lg transition-colors"
                   onClick={() => setShowLogoutConfirm(false)}
                 >
                   Cancel
                 </button>
                 <button
-                  class="flex-1 px-4 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors font-medium"
+                  class="flex-1 px-4 py-2 text-sm text-[var(--color-text-inverse)] bg-red-600 hover:bg-red-700 rounded-lg transition-colors font-medium"
                   onClick={handleLogout}
                 >
                   Logout

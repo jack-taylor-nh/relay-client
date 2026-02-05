@@ -78,11 +78,11 @@ function MainApp() {
 
 function FullscreenMainApp() {
   return (
-    <div class="flex flex-col h-screen bg-stone-100">
+    <div class="flex flex-col h-screen bg-[var(--color-bg-hover)]">
       <Header />
       <div class="flex-1 flex overflow-hidden">
         {/* Sidebar navigation for fullscreen */}
-        <nav class="w-16 flex-shrink-0 bg-white border-r border-stone-200 flex flex-col items-center py-4 gap-2">
+        <nav class="w-16 flex-shrink-0 bg-[var(--color-bg-elevated)] border-r border-[var(--color-border-default)] flex flex-col items-center py-4 gap-2">
           <NavButton 
             tab="inbox" 
             icon={<InboxIcon />} 
@@ -126,13 +126,13 @@ function NavButton({ tab, icon, label }: { tab: Tab; icon: preact.JSX.Element; l
       class={`w-12 h-12 flex flex-col items-center justify-center rounded-lg transition-all duration-150 cursor-pointer group ${
         isActive 
           ? 'bg-sky-50 text-sky-600' 
-          : 'text-stone-500 hover:bg-stone-100 hover:text-stone-700'
+          : 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
       }`}
       onClick={() => { activeTab.value = tab; }}
       title={label}
     >
       {icon}
-      <span class={`text-[10px] mt-0.5 font-medium ${isActive ? 'text-sky-600' : 'text-stone-500 group-hover:text-stone-700'}`}>
+      <span class={`text-[10px] mt-0.5 font-medium ${isActive ? 'text-sky-600' : 'text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-primary)]'}`}>
         {label}
       </span>
     </button>

@@ -5,8 +5,8 @@ export function IdentityView() {
 
   if (!identity) {
     return (
-      <div class="h-full flex flex-col bg-stone-50">
-        <div class="flex items-center justify-center h-full text-stone-600">
+      <div class="h-full flex flex-col bg-[var(--color-bg-sunken)]">
+        <div class="flex items-center justify-center h-full text-[var(--color-text-secondary)]">
           <p>No identity loaded</p>
         </div>
       </div>
@@ -33,11 +33,11 @@ export function IdentityView() {
   }
 
   return (
-    <div class="h-full flex flex-col bg-stone-50">
-      <div class="flex items-center justify-between px-4 py-4 border-b border-stone-200 bg-white">
-        <h2 class="text-lg font-semibold text-stone-900 m-0">Identity</h2>
+    <div class="h-full flex flex-col bg-[var(--color-bg-sunken)]">
+      <div class="flex items-center justify-between px-4 py-4 border-b border-[var(--color-border-default)] bg-[var(--color-bg-elevated)]">
+        <h2 class="text-lg font-semibold text-[var(--color-text-primary)] m-0">Identity</h2>
         <button 
-          class="px-4 py-2 bg-stone-100 border border-stone-200 rounded-md text-sm font-medium text-stone-900 hover:bg-stone-200 transition-all duration-200 cursor-pointer"
+          class="px-4 py-2 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded-md text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-active)] transition-all duration-200 cursor-pointer"
           onClick={handleLock}
         >
           Lock
@@ -46,20 +46,20 @@ export function IdentityView() {
 
       <div class="flex-1 overflow-y-auto p-5">
         <div class="mb-8">
-          <h3 class="text-base font-semibold text-stone-900 m-0 mb-2">Your Identity</h3>
-          <p class="text-sm text-stone-600 m-0 mb-4">
+          <h3 class="text-base font-semibold text-[var(--color-text-primary)] m-0 mb-2">Your Identity</h3>
+          <p class="text-sm text-[var(--color-text-secondary)] m-0 mb-4">
             Your identity is cryptographically secured. Only you can decrypt your messages.
           </p>
 
-          <div class="bg-white border border-stone-200 rounded-lg p-4">
+          <div class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg p-4">
             <div class="mb-5">
-              <label class="block text-xs font-medium text-stone-600 mb-1.5 uppercase tracking-wider">Fingerprint</label>
+              <label class="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5 uppercase tracking-wider">Fingerprint</label>
               <div class="flex items-center gap-2">
-                <code class="flex-1 font-mono text-xs px-3 py-2 bg-stone-100 border border-stone-200 rounded overflow-hidden text-ellipsis whitespace-nowrap text-stone-900">
+                <code class="flex-1 font-mono text-xs px-3 py-2 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded overflow-hidden text-ellipsis whitespace-nowrap text-[var(--color-text-primary)]">
                   {identity.id}
                 </code>
                 <button 
-                  class="p-1.5 bg-stone-100 border border-stone-200 rounded cursor-pointer text-stone-600 hover:bg-stone-200 hover:text-stone-900 transition-all duration-200 flex-shrink-0"
+                  class="p-1.5 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded cursor-pointer text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-active)] hover:text-[var(--color-text-primary)] transition-all duration-200 flex-shrink-0"
                   onClick={handleCopyFingerprint}
                   title="Copy"
                 >
@@ -69,18 +69,18 @@ export function IdentityView() {
                   </svg>
                 </button>
               </div>
-              <small class="block mt-1 text-xs text-stone-400">Your unique identity identifier</small>
+              <small class="block mt-1 text-xs text-[var(--color-text-tertiary)]">Your unique identity identifier</small>
             </div>
 
             {identity.publicKey && (
               <div class="mb-5">
-                <label class="block text-xs font-medium text-stone-600 mb-1.5 uppercase tracking-wider">Public Key</label>
+                <label class="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5 uppercase tracking-wider">Public Key</label>
                 <div class="flex items-center gap-2">
-                  <code class="flex-1 font-mono text-xs px-3 py-2 bg-stone-100 border border-stone-200 rounded overflow-hidden text-ellipsis whitespace-nowrap text-stone-900">
+                  <code class="flex-1 font-mono text-xs px-3 py-2 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded overflow-hidden text-ellipsis whitespace-nowrap text-[var(--color-text-primary)]">
                     {identity.publicKey.slice(0, 32)}...
                   </code>
                   <button 
-                    class="p-1.5 bg-stone-100 border border-stone-200 rounded cursor-pointer text-stone-600 hover:bg-stone-200 hover:text-stone-900 transition-all duration-200 flex-shrink-0"
+                    class="p-1.5 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded cursor-pointer text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-active)] hover:text-[var(--color-text-primary)] transition-all duration-200 flex-shrink-0"
                     onClick={handleCopyPublicKey}
                     title="Copy"
                   >
@@ -90,17 +90,17 @@ export function IdentityView() {
                     </svg>
                   </button>
                 </div>
-                <small class="block mt-1 text-xs text-stone-400">Share this with others to receive encrypted messages</small>
+                <small class="block mt-1 text-xs text-[var(--color-text-tertiary)]">Share this with others to receive encrypted messages</small>
               </div>
             )}
 
             {identity.handle && (
               <div class="mb-0">
-                <label class="block text-xs font-medium text-stone-600 mb-1.5 uppercase tracking-wider">Primary Handle</label>
+                <label class="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5 uppercase tracking-wider">Primary Handle</label>
                 <div class="flex items-center gap-2">
                   <span class="text-base font-semibold text-slate-700">&{identity.handle}</span>
                 </div>
-                <small class="block mt-1 text-xs text-stone-400">Manage all handles in the Edges tab</small>
+                <small class="block mt-1 text-xs text-[var(--color-text-tertiary)]">Manage all handles in the Edges tab</small>
               </div>
             )}
           </div>
@@ -108,7 +108,7 @@ export function IdentityView() {
 
         {/* Security highlights - same as onboarding complete screen */}
         <div class="w-full bg-gradient-to-br from-slate-50 to-sky-50 border border-slate-200 rounded-xl p-5 mb-6">
-          <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+          <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-3 flex items-center gap-2">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
             </svg>
@@ -118,22 +118,22 @@ export function IdentityView() {
             <div class="flex items-start gap-3">
               <span class="text-emerald-600 mt-0.5">✓</span>
               <div>
-                <strong class="text-stone-900">Zero-knowledge architecture</strong>
-                <p class="text-stone-600 text-xs mt-0.5">We can't read your messages — ever. All encryption happens on your device.</p>
+                <strong class="text-[var(--color-text-primary)]">Zero-knowledge architecture</strong>
+                <p class="text-[var(--color-text-secondary)] text-xs mt-0.5">We can't read your messages — ever. All encryption happens on your device.</p>
               </div>
             </div>
             <div class="flex items-start gap-3">
               <span class="text-emerald-600 mt-0.5">✓</span>
               <div>
-                <strong class="text-stone-900">Disposable edges</strong>
-                <p class="text-stone-600 text-xs mt-0.5">Every handle and email alias is isolated. Burn one, keep the rest.</p>
+                <strong class="text-[var(--color-text-primary)]">Disposable edges</strong>
+                <p class="text-[var(--color-text-secondary)] text-xs mt-0.5">Every handle and email alias is isolated. Burn one, keep the rest.</p>
               </div>
             </div>
             <div class="flex items-start gap-3">
               <span class="text-emerald-600 mt-0.5">✓</span>
               <div>
-                <strong class="text-stone-900">You own your identity</strong>
-                <p class="text-stone-600 text-xs mt-0.5">Your cryptographic keys live on your device. No accounts, no passwords stored with us.</p>
+                <strong class="text-[var(--color-text-primary)]">You own your identity</strong>
+                <p class="text-[var(--color-text-secondary)] text-xs mt-0.5">Your cryptographic keys live on your device. No accounts, no passwords stored with us.</p>
               </div>
             </div>
           </div>

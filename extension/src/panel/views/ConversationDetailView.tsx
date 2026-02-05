@@ -857,26 +857,26 @@ export function ConversationDetailView() {
         }
         
         .badge-encrypted {
-          background-color: #dcfce7;
-          color: #166534;
+          background-color: var(--color-success-subtle);
+          color: var(--color-success);
         }
         
         .badge-relayed {
-          background-color: #cffafe;
-          color: #0e7490;
+          background-color: var(--color-info-subtle);
+          color: var(--color-info);
         }
         
         .badge-edge {
-          background-color: #f5f5f4;
-          color: #78716c;
+          background-color: var(--color-bg-sunken);
+          color: var(--color-text-tertiary);
           font-weight: 500;
           padding: 4px 10px;
           font-size: 12px;
         }
         
         .badge-contact {
-          background-color: #fef3c7;
-          color: #92400e;
+          background-color: var(--color-warning-subtle);
+          color: var(--color-warning);
         }
         
         .messages-container {
@@ -906,7 +906,7 @@ export function ConversationDetailView() {
         
         .message-bubble.mine {
           align-self: flex-end;
-          background-color: #0ea5e9;
+          background-color: var(--color-accent);
           color: white;
           border-bottom-right-radius: 6px;
           margin-left: 20%;
@@ -914,9 +914,9 @@ export function ConversationDetailView() {
         
         .message-bubble.theirs {
           align-self: flex-start;
-          background-color: #f3f4f6;
+          background-color: var(--color-bg-hover);
           border: none;
-          color: #1f2937;
+          color: var(--color-text-primary);
           border-bottom-left-radius: 6px;
           margin-right: 20%;
         }
@@ -929,15 +929,15 @@ export function ConversationDetailView() {
         }
         
         .message-bubble.webhook-message.theirs {
-          background-color: #fafafa;
-          border: 1px solid #e5e7eb;
+          background-color: var(--color-bg-elevated);
+          border: 1px solid var(--color-border-default);
         }
         
         .webhook-sender {
           padding: 10px 14px 6px;
           font-size: 12px;
           font-weight: 600;
-          color: #6b7280;
+          color: var(--color-text-secondary);
           text-transform: uppercase;
           letter-spacing: 0.5px;
         }
@@ -946,7 +946,7 @@ export function ConversationDetailView() {
           padding: 0 14px 8px;
           font-size: 15px;
           font-weight: 600;
-          color: #111827;
+          color: var(--color-text-primary);
           line-height: 1.3;
         }
         
@@ -954,21 +954,21 @@ export function ConversationDetailView() {
           padding: 0 14px 12px;
           font-size: 14px;
           line-height: 1.5;
-          color: #374151;
+          color: var(--color-text-primary);
           white-space: pre-wrap;
           word-break: break-word;
         }
         
         .webhook-data {
-          border-top: 1px solid #e5e7eb;
+          border-top: 1px solid var(--color-border-default);
           padding: 10px 14px;
-          background-color: #f9fafb;
+          background-color: var(--color-bg-sunken);
         }
         
         .webhook-data-header {
           font-size: 11px;
           font-weight: 600;
-          color: #9ca3af;
+          color: var(--color-text-tertiary);
           text-transform: uppercase;
           letter-spacing: 0.5px;
           margin-bottom: 8px;
@@ -989,13 +989,13 @@ export function ConversationDetailView() {
         }
         
         .webhook-data-key {
-          color: #6b7280;
+          color: var(--color-text-secondary);
           font-weight: 500;
           flex-shrink: 0;
         }
         
         .webhook-data-value {
-          color: #374151;
+          color: var(--color-text-primary);
           text-align: right;
           word-break: break-all;
           font-family: var(--font-mono, monospace);
@@ -1025,17 +1025,17 @@ export function ConversationDetailView() {
           border-radius: 4px;
           font-family: var(--font-mono, 'SF Mono', Monaco, Consolas, monospace);
           font-size: 0.9em;
-          color: #e11d48;
+          color: var(--color-error);
         }
         
         .markdown-link {
-          color: #0ea5e9;
+          color: var(--color-accent);
           text-decoration: underline;
           text-underline-offset: 2px;
         }
         
         .markdown-link:hover {
-          color: #0284c7;
+          color: var(--color-accent-hover);
         }
         
         .markdown-bullet {
@@ -1062,8 +1062,8 @@ export function ConversationDetailView() {
         .webhook-service-badge {
           display: inline-block;
           padding: 2px 6px;
-          background: #dbeafe;
-          color: #1d4ed8;
+          background: var(--color-info-subtle);
+          color: var(--color-info);
           font-size: 10px;
           font-weight: 600;
           border-radius: 4px;
@@ -1075,9 +1075,9 @@ export function ConversationDetailView() {
         .message-bubble.webhook-message .message-time {
           padding: 6px 14px 10px;
           margin-top: 0;
-          background-color: #f9fafb;
-          border-top: 1px solid #e5e7eb;
-          color: #9ca3af;
+          background-color: var(--color-bg-sunken);
+          border-top: 1px solid var(--color-border-default);
+          color: var(--color-text-tertiary);
         }
         
         .message-content {
@@ -1096,7 +1096,7 @@ export function ConversationDetailView() {
         }
         
         .message-bubble.theirs .message-time {
-          color: #6b7280;
+          color: var(--color-text-secondary);
         }
         
         .message-input-container {
@@ -1140,7 +1140,7 @@ export function ConversationDetailView() {
           width: 40px;
           height: 40px;
           border: none;
-          background-color: #475569;
+          background-color: var(--color-primary);
           color: white;
           border-radius: 8px;
           cursor: pointer;
@@ -1149,17 +1149,17 @@ export function ConversationDetailView() {
         }
         
         .send-button:hover:not(:disabled) {
-          background-color: #334155;
+          background-color: var(--color-primary-hover);
         }
         
         .send-button:active:not(:disabled) {
-          background-color: #1e293b;
+          background-color: var(--color-primary-active);
         }
         
         .send-button:disabled {
           opacity: 0.5;
           cursor: not-allowed;
-          background-color: #9ca3af;
+          background-color: var(--color-text-tertiary);
         }
         
         .read-only-notice {
@@ -1183,7 +1183,7 @@ export function ConversationDetailView() {
         }
         
         .contact-link-icon {
-          color: #10b981;
+          color: var(--color-success);
           opacity: 0.8;
         }
         

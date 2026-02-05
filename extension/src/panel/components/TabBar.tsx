@@ -47,25 +47,25 @@ export function TabBar() {
   const showUnreadDot = hasUnreadMessages.value;
   
   return (
-    <nav class="flex bg-white border-t border-stone-200">
+    <nav class="flex bg-[var(--color-bg-elevated)] border-t border-[var(--color-border-default)]">
       {tabs.map((tab) => (
         <button
           key={tab.id}
           class={`flex-1 flex flex-col items-center justify-center gap-1 py-3 text-sm font-medium transition-all duration-150 relative ${
             activeTab.value === tab.id
-              ? 'text-slate-800 bg-slate-50'
-              : 'text-stone-500 hover:text-slate-700 hover:bg-stone-50'
+              ? 'text-[var(--color-text-primary)] bg-[var(--color-bg-sunken)]'
+              : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-sunken)]'
           }`}
           onClick={() => (activeTab.value = tab.id)}
         >
           {activeTab.value === tab.id && (
-            <span class="absolute top-0 left-0 right-0 h-0.5 bg-sky-500" />
+            <span class="absolute top-0 left-0 right-0 h-0.5 bg-[var(--color-accent)]" />
           )}
           {/* Blue dot indicator for unread messages on inbox tab */}
           {tab.id === 'inbox' && showUnreadDot && activeTab.value !== 'inbox' && (
-            <span class="absolute top-2 right-1/4 w-2 h-2 bg-sky-500 rounded-full" />
+            <span class="absolute top-2 right-1/4 w-2 h-2 bg-[var(--color-accent)] rounded-full" />
           )}
-          <span class={activeTab.value === tab.id ? 'text-slate-700' : 'text-stone-400'}>
+          <span class={activeTab.value === tab.id ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}>
             <TabIcon icon={tab.icon} />
           </span>
           <span>{tab.label}</span>
