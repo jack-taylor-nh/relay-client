@@ -881,6 +881,7 @@ export function ConversationDetailView() {
         
         .messages-container {
           flex: 1;
+          min-height: 0; /* Critical for flexbox scrolling */
           overflow-y: auto;
           padding: 16px;
           display: flex;
