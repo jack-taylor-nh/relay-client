@@ -3283,10 +3283,11 @@ async function pollForNewMessages(sseTriggered: boolean = false): Promise<void> 
     // Process conversations with same logic as panel's loadConversations
     const processedConversations: ProcessedConversation[] = rawConversations.map(conv => {
       // Determine conversation type
-      let type: 'native' | 'email' | 'contact_endpoint' | 'discord' = 'native';
+      let type: 'native' | 'email' | 'contact_endpoint' | 'discord' | 'webhook' = 'native';
       if (conv.origin === 'email_inbound' || conv.origin === 'email') type = 'email';
       else if (conv.origin === 'contact_link_inbound' || conv.origin === 'contact_link') type = 'contact_endpoint';
       else if (conv.origin === 'discord') type = 'discord';
+      else if (conv.origin === 'webhook') type = 'webhook';
 
       // Build counterparty name - prioritize decrypted metadata from bridge conversations
       let counterpartyName = 'Unknown';

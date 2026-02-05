@@ -1,12 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
-import Prism from 'prismjs';
-import 'prismjs/themes/prism-tomorrow.css'; // VS Code dark theme
-import 'prismjs/components/prism-bash';
-import 'prismjs/components/prism-javascript';
-import 'prismjs/components/prism-python';
-import 'prismjs/components/prism-go';
-import 'prismjs/components/prism-ruby';
-import 'prismjs/components/prism-json';
+import { CodeBlock as SharedCodeBlock } from '../components/CodeBlock';
 
 // Inline RelayLogo component
 function RelayLogo({ className }: { className?: string }) {
@@ -47,11 +40,6 @@ export function WebhookDocsView({ edgeId, webhookUrl, authToken, onClose }: Webh
   const [activeLanguageTab, setActiveLanguageTab] = useState<'curl' | 'javascript' | 'python' | 'go' | 'ruby'>('curl');
   const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState<string>('');
-
-  useEffect(() => {
-    // Trigger syntax highlighting when tab changes
-    Prism.highlightAll();
-  }, [activeLanguageTab]);
 
   const testWebhook = async () => {
     setTestStatus('loading');
@@ -102,24 +90,22 @@ export function WebhookDocsView({ edgeId, webhookUrl, authToken, onClose }: Webh
   const CopyButton = ({ text, section }: { text: string; section: string }) => (
     <button
       onClick={() => copyToClipboard(text, section)}
-      class="absolute top-2 right-2 px-3 py-1.5 bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-[var(--color-text-inverse)] text-xs rounded-md transition-colors duration-150 font-medium"
+      class="absolute top-2 right-2 px-3 py-1.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-xs rounded-md transition-colors duration-150 font-medium z-10"
     >
       {copiedSection === section ? '✓ Copied' : 'Copy'}
     </button>
   );
 
   const CodeBlock = ({ code, language, section }: { code: string; language: string; section: string }) => {
-    const highlighted = Prism.highlight(code.trim(), Prism.languages[language] || Prism.languages.javascript, language);
-    
     return (
       <div class="relative mb-4">
-        <div class="absolute top-2 left-3 text-xs text-[var(--color-text-tertiary)] font-mono uppercase tracking-wide">
+        <div class="absolute top-2 left-3 text-xs text-[var(--color-text-tertiary)] font-mono uppercase tracking-wide z-10">
           {language}
         </div>
         <CopyButton text={code.trim()} section={section} />
-        <pre class="bg-[var(--color-primary-active)] text-[var(--color-text-inverse)] p-4 pt-10 rounded-lg overflow-x-auto text-sm font-mono leading-relaxed">
-          <code class={`language-${language}`} dangerouslySetInnerHTML={{ __html: highlighted }}></code>
-        </pre>
+        <div class="pt-6">
+          <SharedCodeBlock code={code} language={language} showLanguageLabel={false} />
+        </div>
       </div>
     );
   };
@@ -759,3 +745,5 @@ send_webhook(
     </div>
   );
 }
+
+

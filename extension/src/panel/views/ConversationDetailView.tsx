@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'preact/hooks';
 import { signal } from '@preact/signals';
 import { selectedConversationId, currentIdentity, showToast, sendMessage, conversations } from '../state';
 import type { ConversationType } from '../../types';
+import { CodeBlock } from '../components/CodeBlock';
 
 // ============================================
 // Icons
@@ -322,9 +323,74 @@ function processInlineFormatting(text: string): preact.JSX.Element {
 }
 
 /**
- * Render webhook data object in a readable format
+ * Try to parse a string as JSON and return formatted version
+ */
+function tryParseAndFormatJSON(value: string): { isJSON: boolean; formatted?: string; parsed?: any } {
+  try {
+    const parsed = JSON.parse(value);
+    const formatted = JSON.stringify(parsed, null, 2);
+    return { isJSON: true, formatted, parsed };
+  } catch {
+    return { isJSON: false };
+  }
+}
+
+/**
+ * Individual webhook data item with smart JSON rendering
+ */
+function WebhookDataItem({ dataKey, value }: { dataKey: string; value: any }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  // Format the value
+  let displayValue = formatDataValue(value);
+  let isJSON = false;
+  let jsonFormatted = '';
+  
+  // Check if value is a stringified JSON object
+  if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
+    const result = tryParseAndFormatJSON(value);
+    if (result.isJSON) {
+      isJSON = true;
+      jsonFormatted = result.formatted!;
+      displayValue = value.substring(0, 50) + (value.length > 50 ? '...' : '');
+    }
+  } else if (typeof value === 'object' && value !== null) {
+    // Value is already an object
+    isJSON = true;
+    jsonFormatted = JSON.stringify(value, null, 2);
+    displayValue = JSON.stringify(value).substring(0, 50) + '...';
+  }
+  
+  return (
+    <div class="webhook-data-item-container">
+      <div class="webhook-data-item">
+        <span class="webhook-data-key">{formatDataKey(dataKey)}</span>
+        {isJSON ? (
+          <button 
+            class="webhook-data-json-toggle"
+            onClick={() => setIsExpanded(!isExpanded)}
+            title={isExpanded ? 'Collapse JSON' : 'Expand JSON'}
+          >
+            {isExpanded ? '▼ JSON' : '▶ JSON'}
+          </button>
+        ) : (
+          <span class="webhook-data-value">{displayValue}</span>
+        )}
+      </div>
+      {isJSON && isExpanded && (
+        <div class="webhook-data-json-expanded">
+          <CodeBlock code={jsonFormatted} language="json" maxHeight="300px" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Render webhook data object in a readable format with collapsible sections
  */
 function WebhookDataDisplay({ data, isRaw = false }: { data: Record<string, any>; isRaw?: boolean }) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const entries = Object.entries(data);
   if (entries.length === 0) return null;
   
@@ -335,19 +401,29 @@ function WebhookDataDisplay({ data, isRaw = false }: { data: Record<string, any>
   
   if (displayEntries.length === 0) return null;
   
+  // Show first 3 entries as preview when collapsed
+  const previewCount = 3;
+  const entriesToShow = isExpanded ? displayEntries : displayEntries.slice(0, previewCount);
+  const hasMore = displayEntries.length > previewCount;
+  
   return (
     <div class="webhook-data">
-      <div class="webhook-data-header">{isRaw ? 'Payload Data' : 'Additional Data'}</div>
-      <div class="webhook-data-list">
-        {displayEntries.slice(0, 10).map(([key, value]) => (
-          <div key={key} class="webhook-data-item">
-            <span class="webhook-data-key">{formatDataKey(key)}</span>
-            <span class="webhook-data-value">{formatDataValue(value)}</span>
-          </div>
-        ))}
-        {displayEntries.length > 10 && (
-          <div class="webhook-data-more">+{displayEntries.length - 10} more fields</div>
+      <div class="webhook-data-header">
+        {isRaw ? 'Payload Data' : 'Additional Data'}
+        {hasMore && (
+          <button 
+            class="webhook-data-toggle"
+            onClick={() => setIsExpanded(!isExpanded)}
+            title={isExpanded ? 'Show less' : 'Show all'}
+          >
+            {isExpanded ? '▼ Show less' : `▶ Show ${displayEntries.length - previewCount} more`}
+          </button>
         )}
+      </div>
+      <div class="webhook-data-list">
+        {entriesToShow.map(([key, value]) => (
+          <WebhookDataItem key={key} dataKey={key} value={value} />
+        ))}
       </div>
     </div>
   );
@@ -974,9 +1050,35 @@ export function ConversationDetailView() {
           text-transform: uppercase;
           letter-spacing: 0.5px;
           margin-bottom: 8px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        
+        .webhook-data-toggle {
+          background: none;
+          border: none;
+          color: var(--color-accent);
+          cursor: pointer;
+          font-size: 11px;
+          font-weight: 500;
+          padding: 2px 6px;
+          border-radius: 4px;
+          transition: background-color 0.2s;
+          text-transform: none;
+        }
+        
+        .webhook-data-toggle:hover {
+          background-color: var(--color-bg-hover);
         }
         
         .webhook-data-list {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        
+        .webhook-data-item-container {
           display: flex;
           flex-direction: column;
           gap: 4px;
@@ -985,7 +1087,7 @@ export function ConversationDetailView() {
         .webhook-data-item {
           display: flex;
           justify-content: space-between;
-          align-items: baseline;
+          align-items: center;
           gap: 12px;
           font-size: 12px;
         }
@@ -1002,6 +1104,31 @@ export function ConversationDetailView() {
           word-break: break-all;
           font-family: var(--font-mono, monospace);
           font-size: 11px;
+        }
+        
+        .webhook-data-json-toggle {
+          background: var(--color-bg-elevated);
+          border: 1px solid var(--color-border-default);
+          color: var(--color-accent);
+          cursor: pointer;
+          font-size: 10px;
+          font-weight: 600;
+          padding: 4px 8px;
+          border-radius: 4px;
+          transition: all 0.2s;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        
+        .webhook-data-json-toggle:hover {
+          background-color: var(--color-accent);
+          color: white;
+          border-color: var(--color-accent);
+        }
+        
+        .webhook-data-json-expanded {
+          margin-top: 4px;
+          margin-left: 0;
         }
         
         /* Markdown rendering styles */
