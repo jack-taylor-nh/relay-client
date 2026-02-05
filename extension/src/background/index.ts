@@ -462,7 +462,7 @@ type MessageType =
   | { type: 'CREATE_ALIAS'; payload: { label?: string } }
   // Notification system
   | { type: 'GET_NOTIFICATION_PREFS' }
-  | { type: 'SET_NOTIFICATION_PREFS'; payload: { enabled?: boolean; showDesktopNotifications?: boolean; showBadgeCount?: boolean; playSound?: boolean } }
+  | { type: 'SET_NOTIFICATION_PREFS'; payload: { enabled?: boolean; showBadgeCount?: boolean; playSound?: boolean } }
   | { type: 'MARK_CONVERSATION_SEEN'; payload: { conversationId: string } }
   | { type: 'GET_UNREAD_COUNT' }
   | { type: 'GET_LAST_SEEN_STATE' }
@@ -3099,14 +3099,12 @@ function disconnectSSE(): void {
 // Notification preferences (stored in chrome.storage.local)
 interface NotificationPrefs {
   enabled: boolean;
-  showDesktopNotifications: boolean;
   showBadgeCount: boolean;
   playSound: boolean;
 }
 
 const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   enabled: true,
-  showDesktopNotifications: true,
   showBadgeCount: true,
   playSound: true,
 };
@@ -3355,8 +3353,7 @@ async function pollForNewMessages(sseTriggered: boolean = false): Promise<void> 
     }
     
     // Handle notifications for new messages
-    // If panel is open: play sound only (user is actively viewing)
-    // If panel is closed: show desktop notification only (alert user)
+    // Play sound for new messages (regardless of panel state)
     // Only notify for RECEIVED messages (not ones we sent)
     console.log('[Notifications] Poll completed:', {
       sseTriggered,
@@ -3368,7 +3365,6 @@ async function pollForNewMessages(sseTriggered: boolean = false): Promise<void> 
       })),
       panelIsActive,
       playSound: prefs.playSound,
-      showDesktopNotifications: prefs.showDesktopNotifications,
     });
     
     if (unreadConversations.length > 0) {
@@ -3394,24 +3390,10 @@ async function pollForNewMessages(sseTriggered: boolean = false): Promise<void> 
       });
       
       if (recentMessages.length > 0) {
-        if (panelIsActive) {
-          // Panel is open - play sound only (no desktop notification)
-          if (prefs.playSound) {
-            console.log('[Notifications] Panel open, playing sound for', recentMessages.length, 'new messages');
-            await playNotificationSound();
-          } else {
-            console.log('[Notifications] Panel open but playSound is disabled');
-          }
-        } else {
-          // Panel is closed - show desktop notification only (no sound)
-          if (prefs.showDesktopNotifications) {
-            console.log('[Notifications] Panel closed, showing desktop notification for', recentMessages.length, 'new messages');
-            await showNewMessageNotification(recentMessages.map(c => ({
-              conversationId: c.id,
-              counterpartyName: c.counterpartyName,
-              lastActivityAt: c.lastActivityAt,
-            })));
-          }
+        // Play sound for new messages (works whether panel is open or closed)
+        if (prefs.playSound) {
+          console.log('[Notifications] Playing sound for', recentMessages.length, 'new messages');
+          await playNotificationSound();
         }
       }
     }
@@ -3479,89 +3461,6 @@ async function playNotificationSound(): Promise<void> {
     console.error('[Notifications] Failed to play sound:', error);
   }
 }
-
-async function showNewMessageNotification(
-  messages: Array<{ conversationId: string; counterpartyName: string; lastActivityAt: string }>
-): Promise<void> {
-  try {
-    const iconUrl = chrome.runtime.getURL('icons/icon-128.png');
-    console.log('[Notifications] Creating notification with iconUrl:', iconUrl);
-    
-    if (messages.length === 1) {
-      // Single message notification
-      const msg = messages[0];
-      const notificationId = `relay-msg-${msg.conversationId}`;
-      
-      console.log('[Notifications] Creating single notification:', { 
-        notificationId, 
-        title: 'New message',
-        message: `From ${msg.counterpartyName}`,
-      });
-      
-      chrome.notifications.create(notificationId, {
-        type: 'basic',
-        iconUrl,
-        title: 'New message',
-        message: `From ${msg.counterpartyName}`,
-        priority: 2,
-        silent: false,
-      }, (createdId) => {
-        if (chrome.runtime.lastError) {
-          console.error('[Notifications] chrome.notifications.create error:', chrome.runtime.lastError.message);
-        } else {
-          console.log('[Notifications] Notification created successfully:', createdId);
-        }
-      });
-    } else {
-      // Multiple messages notification
-      const notificationId = `relay-msgs-${Date.now()}`;
-      
-      console.log('[Notifications] Creating multi notification:', { 
-        notificationId,
-        title: 'New messages',
-        message: `${messages.length} unread conversations`,
-      });
-      
-      chrome.notifications.create(notificationId, {
-        type: 'basic',
-        iconUrl,
-        title: 'New messages',
-        message: `${messages.length} unread conversations`,
-        priority: 2,
-        silent: false,
-      }, (createdId) => {
-        if (chrome.runtime.lastError) {
-          console.error('[Notifications] chrome.notifications.create error:', chrome.runtime.lastError.message);
-        } else {
-          console.log('[Notifications] Notification created successfully:', createdId);
-        }
-      });
-    }
-  } catch (error) {
-    console.error('[Notifications] Failed to show notification:', error);
-  }
-}
-
-// Handle notification click - open panel in popup window
-chrome.notifications.onClicked.addListener(async (notificationId) => {
-  console.log('[Notifications] Notification clicked:', notificationId);
-  
-  // Clear the notification
-  await chrome.notifications.clear(notificationId);
-  
-  // Open the panel as a popup window (workaround since sidePanel.open requires user gesture)
-  try {
-    await chrome.windows.create({
-      url: chrome.runtime.getURL('panel/index.html'),
-      type: 'popup',
-      width: 400,
-      height: 600,
-      focused: true,
-    });
-  } catch (error) {
-    console.error('[Notifications] Failed to open panel window:', error);
-  }
-});
 
 // Start polling when unlocked
 function onUnlock() {
