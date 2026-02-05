@@ -67,6 +67,10 @@
   --color-info: #0ea5e9;
   --color-info-subtle: #e0f2fe;
   
+  /* Notification Colors */
+  --color-unread-bg: #e0f2fe;
+  --color-unread-bg-hover: #bae6fd;
+  
   /* Edge Type Colors */
   --color-edge-native: #3b82f6;
   --color-edge-native-subtle: #dbeafe;
@@ -130,6 +134,10 @@
   --color-error-subtle: #7f1d1d;
   --color-info: #38bdf8;
   --color-info-subtle: #0c4a6e;
+  
+  /* Notification Colors */
+  --color-unread-bg: #0c4a6e;
+  --color-unread-bg-hover: #075985;
   
   --color-edge-native: #60a5fa;
   --color-edge-native-subtle: #1e3a5f;

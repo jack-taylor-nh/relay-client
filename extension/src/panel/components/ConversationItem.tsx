@@ -141,7 +141,7 @@ export function ConversationItem({ conversation, isSelected, onClick }: Props) {
   const bgClass = isSelected 
     ? 'bg-[var(--color-bg-active)]' 
     : isUnread 
-      ? 'bg-sky-50 hover:bg-sky-100' 
+      ? 'bg-[var(--color-unread-bg)] hover:bg-[var(--color-unread-bg-hover)]' 
       : 'hover:bg-[var(--color-bg-hover)]';
 
   return (
