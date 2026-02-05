@@ -156,12 +156,119 @@ async function loadMessages(conversationId: string, isPolling = false) {
 // Components
 // ============================================
 
+/**
+ * Try to parse webhook payload JSON from message content
+ */
+function tryParseWebhookPayload(content: string): {
+  isWebhook: boolean;
+  sender?: string;
+  title?: string;
+  body?: string;
+  data?: Record<string, any>;
+} {
+  try {
+    const parsed = JSON.parse(content);
+    // Check if it looks like a webhook payload (has sender, title, body)
+    if (parsed && typeof parsed === 'object' && 
+        (parsed.sender || parsed.title || parsed.body)) {
+      return {
+        isWebhook: true,
+        sender: parsed.sender,
+        title: parsed.title,
+        body: parsed.body,
+        data: parsed.data,
+      };
+    }
+  } catch {
+    // Not JSON, that's fine
+  }
+  return { isWebhook: false };
+}
+
+/**
+ * Render webhook data object in a readable format
+ */
+function WebhookDataDisplay({ data }: { data: Record<string, any> }) {
+  const entries = Object.entries(data);
+  if (entries.length === 0) return null;
+  
+  return (
+    <div class="webhook-data">
+      <div class="webhook-data-header">Additional Data</div>
+      <div class="webhook-data-list">
+        {entries.map(([key, value]) => (
+          <div key={key} class="webhook-data-item">
+            <span class="webhook-data-key">{formatDataKey(key)}</span>
+            <span class="webhook-data-value">{formatDataValue(value)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Format a data key for display (e.g., "source" -> "Source", "user_id" -> "User ID")
+ */
+function formatDataKey(key: string): string {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, str => str.toUpperCase())
+    .trim();
+}
+
+/**
+ * Format a data value for display
+ */
+function formatDataValue(value: any): string {
+  if (value === null || value === undefined) return '—';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'object') {
+    // For nested objects/arrays, show compact JSON
+    return JSON.stringify(value);
+  }
+  // For timestamps, try to format them nicely
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+    try {
+      return new Date(value).toLocaleString();
+    } catch {
+      return value;
+    }
+  }
+  return String(value);
+}
+
 function MessageBubble({ message }: { message: Message }) {
   const time = new Date(message.createdAt).toLocaleTimeString([], { 
     hour: '2-digit', 
     minute: '2-digit' 
   });
   
+  const webhookPayload = tryParseWebhookPayload(message.content);
+  
+  // Render webhook message with structured layout
+  if (webhookPayload.isWebhook) {
+    return (
+      <div class={`message-bubble webhook-message ${message.isMine ? 'mine' : 'theirs'}`}>
+        {webhookPayload.sender && (
+          <div class="webhook-sender">{webhookPayload.sender}</div>
+        )}
+        {webhookPayload.title && (
+          <div class="webhook-title">{webhookPayload.title}</div>
+        )}
+        {webhookPayload.body && (
+          <div class="webhook-body">{webhookPayload.body}</div>
+        )}
+        {webhookPayload.data && Object.keys(webhookPayload.data).length > 0 && (
+          <WebhookDataDisplay data={webhookPayload.data} />
+        )}
+        <div class="message-time">{time}</div>
+      </div>
+    );
+  }
+  
+  // Regular message
   return (
     <div class={`message-bubble ${message.isMine ? 'mine' : 'theirs'}`}>
       <div class="message-content">{message.content}</div>
@@ -654,6 +761,95 @@ export function ConversationDetailView() {
           color: #1f2937;
           border-bottom-left-radius: 6px;
           margin-right: 20%;
+        }
+        
+        /* Webhook message styles */
+        .message-bubble.webhook-message {
+          max-width: 85%;
+          padding: 0;
+          overflow: hidden;
+        }
+        
+        .message-bubble.webhook-message.theirs {
+          background-color: #fafafa;
+          border: 1px solid #e5e7eb;
+        }
+        
+        .webhook-sender {
+          padding: 10px 14px 6px;
+          font-size: 12px;
+          font-weight: 600;
+          color: #6b7280;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        
+        .webhook-title {
+          padding: 0 14px 8px;
+          font-size: 15px;
+          font-weight: 600;
+          color: #111827;
+          line-height: 1.3;
+        }
+        
+        .webhook-body {
+          padding: 0 14px 12px;
+          font-size: 14px;
+          line-height: 1.5;
+          color: #374151;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        
+        .webhook-data {
+          border-top: 1px solid #e5e7eb;
+          padding: 10px 14px;
+          background-color: #f9fafb;
+        }
+        
+        .webhook-data-header {
+          font-size: 11px;
+          font-weight: 600;
+          color: #9ca3af;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin-bottom: 8px;
+        }
+        
+        .webhook-data-list {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        
+        .webhook-data-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          gap: 12px;
+          font-size: 12px;
+        }
+        
+        .webhook-data-key {
+          color: #6b7280;
+          font-weight: 500;
+          flex-shrink: 0;
+        }
+        
+        .webhook-data-value {
+          color: #374151;
+          text-align: right;
+          word-break: break-all;
+          font-family: var(--font-mono, monospace);
+          font-size: 11px;
+        }
+        
+        .message-bubble.webhook-message .message-time {
+          padding: 6px 14px 10px;
+          margin-top: 0;
+          background-color: #f9fafb;
+          border-top: 1px solid #e5e7eb;
+          color: #9ca3af;
         }
         
         .message-content {
