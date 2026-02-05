@@ -903,6 +903,7 @@ export function ConversationDetailView() {
           position: relative;
           box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
           margin: 2px 0;
+          flex-shrink: 0; /* Prevent messages from being compressed */
         }
         
         .message-bubble.mine {

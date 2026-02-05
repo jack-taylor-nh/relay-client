@@ -3004,18 +3004,15 @@ async function connectSSE(): Promise<void> {
   const apiUrl = await getApiUrl();
   const streamUrl = `${apiUrl}/v1/stream`;
 
-  console.log('[SSE] Connecting to real-time stream:', streamUrl);
+  console.log('[SSE] Connecting to real-time stream');
 
   try {
-    console.log('[SSE] Fetching SSE endpoint...');
     const response = await fetch(streamUrl, {
       headers: {
         'Authorization': `Bearer ${session.token}`,
         'Accept': 'text/event-stream',
       },
     });
-
-    console.log('[SSE] Fetch response status:', response.status, response.statusText);
 
     if (!response.ok) {
       throw new Error(`SSE connection failed: ${response.status}`);
@@ -3027,7 +3024,7 @@ async function connectSSE(): Promise<void> {
 
     sseConnected = true;
     sseRetryCount = 0;
-    console.log('[SSE] Connected successfully, reading stream...');
+    console.log('[SSE] Connected successfully');
 
     // Read SSE stream
     const reader = response.body.getReader();
@@ -3052,15 +3049,10 @@ async function connectSSE(): Promise<void> {
       for (const line of lines) {
         if (line.startsWith('event: ')) {
           eventType = line.slice(7).trim();
-          console.log(`[${new Date().toISOString()}] [EXT-SSE] Received event type:`, eventType);
         } else if (line.startsWith('data: ')) {
           eventData = line.slice(6).trim();
-          console.log(`[${new Date().toISOString()}] [EXT-SSE] Received event data:`, eventData.substring(0, 100));
         } else if (line.trim() === '' && eventType && eventData) {
           // Complete event received
-          const handleTimestamp = new Date().toISOString();
-          console.log(`[${handleTimestamp}] [EXT-SSE] Complete event received, calling handleSSEEvent`);
-          console.log(`[${handleTimestamp}] [EXT-SSE] Event details - type: ${eventType}, data:`, eventData);
           await handleSSEEvent(eventType, eventData);
           eventType = '';
           eventData = '';
@@ -3093,31 +3085,17 @@ async function connectSSE(): Promise<void> {
  * Handle SSE events from server
  */
 async function handleSSEEvent(type: string, dataStr: string): Promise<void> {
-  const handleTimestamp = new Date().toISOString();
-  console.log(`[${handleTimestamp}] [EXT-SSE-HANDLER] handleSSEEvent called`);
-  console.log(`[${handleTimestamp}] [EXT-SSE-HANDLER] Event type: ${type}`);
-  console.log(`[${handleTimestamp}] [EXT-SSE-HANDLER] Event data: ${dataStr}`);
-  
   try {
     if (type === 'connected') {
-      console.log(`[${new Date().toISOString()}] [EXT-SSE-HANDLER] Connection confirmed event`);
       return;
     }
 
     if (type === 'conversation_update') {
-      console.log(`[${new Date().toISOString()}] [EXT-SSE-HANDLER] Processing conversation_update event`);
-      const data = JSON.parse(dataStr);
-      console.log(`[${new Date().toISOString()}] [EXT-SSE-HANDLER] Parsed data:`, data);
-      console.log(`[${new Date().toISOString()}] [EXT-SSE-HANDLER] Triggering pollForNewMessages(true)...`);
-      
       // Trigger immediate poll to fetch new messages (mark as SSE-triggered)
       await pollForNewMessages(true);
-      console.log(`[${new Date().toISOString()}] [EXT-SSE-HANDLER] pollForNewMessages completed`);
-    } else {
-      console.log(`[${new Date().toISOString()}] [EXT-SSE-HANDLER] Unknown event type: ${type}`);
     }
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] [EXT-SSE-HANDLER] Failed to handle event:`, error);
+    console.error('[SSE] Failed to handle event:', error);
   }
 }
 
@@ -3525,13 +3503,11 @@ try {
 
 // Restore session state on service worker startup
 (async () => {
-  console.log('[Init] Relay background service worker started at', new Date().toISOString());
+  console.log('[Init] Relay background service worker started');
   
   const restored = await restoreSessionState();
   if (restored) {
     console.log('[Init] Session restored - Relay is unlocked');
-    console.log('[Init] unlockedIdentity exists:', !!unlockedIdentity);
-    console.log('[Init] session.token exists:', !!session.token);
     
     // Reset the lock timer since we just woke up
     await resetLockTimer();
@@ -3541,15 +3517,11 @@ try {
     
     // Connect to SSE if we have a token
     const token = await getAuthToken();
-    console.log('[Init] Auth token retrieved:', !!token);
     if (token) {
-      console.log('[Init] Calling connectSSE()...');
       connectSSE().catch(err => {
         console.error('[SSE] Failed to connect on startup:', err);
         // Continue with polling fallback
       });
-    } else {
-      console.warn('[SSE] No auth token available on startup, falling back to polling only');
     }
   } else {
     console.log('[Init] No active session - Relay is locked');

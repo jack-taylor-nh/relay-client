@@ -139,10 +139,6 @@ export class LinkApiClient {
     },
     encryptedRatchetState?: string
   ): Promise<SendMessageResponse> {
-    const sendTimestamp = new Date().toISOString();
-    console.log(`[${sendTimestamp}] [VISITOR] sendMessage called`);
-    console.log(`[${sendTimestamp}] [VISITOR] Sending POST to ${API_BASE}/link/${this.linkId}/messages`);
-    
     const res = await fetch(`${API_BASE}/link/${this.linkId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -153,17 +149,12 @@ export class LinkApiClient {
       }),
     });
     
-    const responseTimestamp = new Date().toISOString();
-    console.log(`[${responseTimestamp}] [VISITOR] POST response received, status: ${res.status}`);
-    
     if (!res.ok) {
       const error = await res.json().catch(() => ({ message: 'Unknown error' }));
       throw new Error(error.message || 'Failed to send message');
     }
     
-    const result = await res.json();
-    console.log(`[${new Date().toISOString()}] [VISITOR] Message sent successfully, messageId: ${result.messageId}`);
-    return result;
+    return await res.json();
   }
   
   /**
