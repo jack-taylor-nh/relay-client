@@ -1,4 +1,6 @@
 import { currentIdentity, lockWallet, showToast } from '../state';
+import { CopyableField } from '../components/CopyableField';
+import { Button } from '../components/Button';
 
 export function IdentityView() {
   const identity = currentIdentity.value;
@@ -18,30 +20,13 @@ export function IdentityView() {
     showToast('Identity locked');
   }
 
-  async function handleCopyPublicKey() {
-    if (identity?.publicKey) {
-      await navigator.clipboard.writeText(identity.publicKey);
-      showToast('Public key copied');
-    }
-  }
-
-  async function handleCopyFingerprint() {
-    if (identity?.id) {
-      await navigator.clipboard.writeText(identity.id);
-      showToast('Fingerprint copied');
-    }
-  }
-
   return (
     <div class="h-full flex flex-col bg-[var(--color-bg-sunken)]">
       <div class="flex items-center justify-between px-4 py-4 border-b border-[var(--color-border-default)] bg-[var(--color-bg-elevated)]">
         <h2 class="text-lg font-semibold text-[var(--color-text-primary)] m-0">Identity</h2>
-        <button 
-          class="px-4 py-2 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded-md text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-active)] transition-all duration-200 cursor-pointer"
-          onClick={handleLock}
-        >
+        <Button variant="secondary" onClick={handleLock}>
           Lock
-        </button>
+        </Button>
       </div>
 
       <div class="flex-1 overflow-y-auto p-5">
@@ -52,46 +37,22 @@ export function IdentityView() {
           </p>
 
           <div class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg p-4">
-            <div class="mb-5">
-              <label class="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5 uppercase tracking-wider">Fingerprint</label>
-              <div class="flex items-center gap-2">
-                <code class="flex-1 font-mono text-xs px-3 py-2 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded overflow-hidden text-ellipsis whitespace-nowrap text-[var(--color-text-primary)]">
-                  {identity.id}
-                </code>
-                <button 
-                  class="p-1.5 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded cursor-pointer text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-active)] hover:text-[var(--color-text-primary)] transition-all duration-200 flex-shrink-0"
-                  onClick={handleCopyFingerprint}
-                  title="Copy"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                  </svg>
-                </button>
-              </div>
-              <small class="block mt-1 text-xs text-[var(--color-text-tertiary)]">Your unique identity identifier</small>
-            </div>
+            <CopyableField
+              label="Fingerprint"
+              value={identity.id}
+              helperText="Your unique identity identifier"
+              onCopy={() => showToast('Fingerprint copied')}
+              className="mb-5"
+            />
 
             {identity.publicKey && (
-              <div class="mb-5">
-                <label class="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5 uppercase tracking-wider">Public Key</label>
-                <div class="flex items-center gap-2">
-                  <code class="flex-1 font-mono text-xs px-3 py-2 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded overflow-hidden text-ellipsis whitespace-nowrap text-[var(--color-text-primary)]">
-                    {identity.publicKey.slice(0, 32)}...
-                  </code>
-                  <button 
-                    class="p-1.5 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded cursor-pointer text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-active)] hover:text-[var(--color-text-primary)] transition-all duration-200 flex-shrink-0"
-                    onClick={handleCopyPublicKey}
-                    title="Copy"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                    </svg>
-                  </button>
-                </div>
-                <small class="block mt-1 text-xs text-[var(--color-text-tertiary)]">Share this with others to receive encrypted messages</small>
-              </div>
+              <CopyableField
+                label="Public Key"
+                value={identity.publicKey}
+                helperText="Share this with others to receive encrypted messages"
+                onCopy={() => showToast('Public key copied')}
+                className="mb-5"
+              />
             )}
 
             {identity.handle && (

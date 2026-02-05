@@ -3124,7 +3124,7 @@ const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
 // Processed conversation for storage (matches what panel expects)
 interface ProcessedConversation {
   id: string;
-  type: 'native' | 'email' | 'contact_endpoint' | 'discord';
+  type: 'native' | 'email' | 'contact_endpoint' | 'discord' | 'webhook';
   securityLevel: 'e2ee' | 'gateway_secured';
   participants: string[];
   counterpartyName: string;

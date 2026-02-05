@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { CodeBlock as SharedCodeBlock } from '../components/CodeBlock';
+import { CopyableField } from '../components/CopyableField';
+import { AlertCard } from '../components/AlertCard';
 
 // Inline RelayLogo component
 function RelayLogo({ className }: { className?: string }) {
@@ -36,7 +38,6 @@ interface WebhookDocsViewProps {
 }
 
 export function WebhookDocsView({ edgeId, webhookUrl, authToken, onClose }: WebhookDocsViewProps) {
-  const [copiedSection, setCopiedSection] = useState<string | null>(null);
   const [activeLanguageTab, setActiveLanguageTab] = useState<'curl' | 'javascript' | 'python' | 'go' | 'ruby'>('curl');
   const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState<string>('');
@@ -81,28 +82,44 @@ export function WebhookDocsView({ edgeId, webhookUrl, authToken, onClose }: Webh
     }, 5000);
   };
 
-  const copyToClipboard = async (text: string, section: string) => {
-    await navigator.clipboard.writeText(text);
-    setCopiedSection(section);
-    setTimeout(() => setCopiedSection(null), 2000);
-  };
-
-  const CopyButton = ({ text, section }: { text: string; section: string }) => (
-    <button
-      onClick={() => copyToClipboard(text, section)}
-      class="absolute top-2 right-2 px-3 py-1.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-xs rounded-md transition-colors duration-150 font-medium z-10"
-    >
-      {copiedSection === section ? '✓ Copied' : 'Copy'}
-    </button>
-  );
-
   const CodeBlock = ({ code, language, section }: { code: string; language: string; section: string }) => {
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = async () => {
+      try {
+        await navigator.clipboard.writeText(code.trim());
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (error) {
+        console.error('Failed to copy:', error);
+      }
+    };
+
     return (
       <div class="relative mb-4">
         <div class="absolute top-2 left-3 text-xs text-[var(--color-text-tertiary)] font-mono uppercase tracking-wide z-10">
           {language}
         </div>
-        <CopyButton text={code.trim()} section={section} />
+        <button
+          onClick={handleCopy}
+          class={`absolute top-2 right-2 p-1.5 border rounded cursor-pointer transition-all duration-200 z-10 ${
+            copied 
+              ? 'bg-[var(--color-success-subtle)] border-[var(--color-success)] text-[var(--color-success)]' 
+              : 'bg-[var(--color-bg-hover)] border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-active)] hover:text-[var(--color-text-primary)]'
+          }`}
+          title={copied ? 'Copied!' : 'Copy'}
+        >
+          {copied ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+            </svg>
+          )}
+        </button>
         <div class="pt-6">
           <SharedCodeBlock code={code} language={language} showLanguageLabel={false} />
         </div>
@@ -134,57 +151,54 @@ export function WebhookDocsView({ edgeId, webhookUrl, authToken, onClose }: Webh
       {/* Content */}
       <div class="max-w-5xl mx-auto px-6 py-8">
         {/* Overview */}
-        <section class="bg-[var(--color-bg-elevated)] rounded-lg shadow-sm border border-[var(--color-border-default)] p-6 mb-6">
+        <section class="mb-8">
           <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Overview</h2>
           <p class="text-[var(--color-text-primary)] leading-relaxed mb-4">
             This webhook edge allows external services to send messages directly to your Relay inbox. 
             When a webhook is triggered, the message appears instantly in your conversations, encrypted 
             end-to-end with your identity.
           </p>
-          <div class="bg-[var(--color-accent-subtle)] border border-[var(--color-accent)] rounded-lg p-4">
-            <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">Use Cases</h3>
-            <ul class="text-sm text-[var(--color-text-primary)] space-y-1">
+          <AlertCard type="info" title="Use Cases">
+            <ul class="space-y-1">
               <li>• GitHub push notifications, PR comments, workflow results</li>
               <li>• Stripe payment confirmations, failed charges, subscriptions</li>
               <li>• CI/CD pipeline alerts (build failures, deployments)</li>
               <li>• Server monitoring and alerting systems</li>
               <li>• Custom application notifications</li>
             </ul>
-          </div>
+          </AlertCard>
         </section>
+
+        <hr class="border-t border-[var(--color-border-default)] mb-8" />
 
         {/* Quick Start */}
-        <section class="bg-[var(--color-bg-elevated)] rounded-lg shadow-sm border border-[var(--color-border-default)] p-6 mb-6">
+        <section class="mb-8">
           <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Quick Start</h2>
           <div class="space-y-4">
+            <CopyableField
+              label="Webhook URL"
+              value={webhookUrl}
+              helperText="Use this URL to send messages to your inbox"
+            />
             <div>
-              <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">Webhook URL</h3>
-              <div class="relative">
-                <CopyButton text={webhookUrl} section="url" />
-                <code class="block bg-[var(--color-primary-active)] text-[var(--color-text-inverse)] px-4 py-3 pr-20 rounded-lg text-sm font-mono break-all">
-                  {webhookUrl}
-                </code>
-              </div>
-            </div>
-            <div>
-              <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">Authentication Token</h3>
-              <div class="bg-[var(--color-warning-subtle)] border border-[var(--color-warning)] rounded-lg p-3 mb-3">
-                <p class="text-xs text-[var(--color-warning)] font-medium">
-                  ⚠️ <strong>Keep this token secret!</strong> Anyone with this token can send messages to your inbox.
+              <AlertCard type="warning" title="Keep this token secret!" className="mb-3">
+                <p class="text-xs font-medium">
+                  Anyone with this token can send messages to your inbox.
                 </p>
-              </div>
-              <div class="relative">
-                <CopyButton text={authToken} section="token" />
-                <code class="block bg-[var(--color-primary-active)] text-[var(--color-text-inverse)] px-4 py-3 pr-20 rounded-lg text-sm font-mono break-all">
-                  {authToken}
-                </code>
-              </div>
+              </AlertCard>
+              <CopyableField
+                label="Authentication Token"
+                value={authToken}
+                helperText="Include this token in your requests"
+              />
             </div>
           </div>
         </section>
 
+        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+
         {/* Authentication */}
-        <section class="bg-[var(--color-bg-elevated)] rounded-lg shadow-sm border border-[var(--color-border-default)] p-6 mb-6">
+        <section class="mb-8">
           <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Authentication</h2>
           <p class="text-[var(--color-text-primary)] mb-4">
             Include your authentication token in <strong>one</strong> of these ways:
@@ -216,8 +230,10 @@ Content-Type: application/json
           </div>
         </section>
 
+        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+
         {/* Request Format */}
-        <section class="bg-[var(--color-bg-elevated)] rounded-lg shadow-sm border border-[var(--color-border-default)] p-6 mb-6">
+        <section class="mb-8">
           <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Request Format</h2>
           <p class="text-[var(--color-text-primary)] mb-4">
             Send a POST request with <strong>any valid JSON payload</strong>. Relay intelligently extracts 
@@ -225,19 +241,18 @@ Content-Type: application/json
           </p>
 
           {/* Service Auto-Detection */}
-          <div class="bg-emerald-50 border border-[var(--color-success)] rounded-lg p-4 mb-6">
-            <h3 class="text-sm font-semibold text-emerald-900 mb-2">✨ Automatic Service Detection</h3>
-            <p class="text-sm text-emerald-800 mb-2">
+          <AlertCard type="success" title="Automatic Service Detection" className="mb-6">
+            <p class="mb-2">
               Just point your service's webhook directly at this URL! Relay automatically detects and formats:
             </p>
             <div class="flex flex-wrap gap-2">
-              <span class="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-medium rounded">GitHub</span>
-              <span class="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-medium rounded">Stripe</span>
-              <span class="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-medium rounded">Slack</span>
-              <span class="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-medium rounded">Discord</span>
-              <span class="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-medium rounded">Linear</span>
+              <span class="px-2 py-1 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] text-[var(--color-text-primary)] text-xs font-medium rounded">GitHub</span>
+              <span class="px-2 py-1 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] text-[var(--color-text-primary)] text-xs font-medium rounded">Stripe</span>
+              <span class="px-2 py-1 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] text-[var(--color-text-primary)] text-xs font-medium rounded">Slack</span>
+              <span class="px-2 py-1 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] text-[var(--color-text-primary)] text-xs font-medium rounded">Discord</span>
+              <span class="px-2 py-1 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] text-[var(--color-text-primary)] text-xs font-medium rounded">Linear</span>
             </div>
-          </div>
+          </AlertCard>
           
           <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-3">Recommended Format</h3>
           <p class="text-[var(--color-text-primary)] mb-4 text-sm">
@@ -311,8 +326,10 @@ Content-Type: application/json
           />
         </section>
 
+        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+
         {/* Code Examples */}
-        <section class="bg-[var(--color-bg-elevated)] rounded-lg shadow-sm border border-[var(--color-border-default)] p-6 mb-6">
+        <section class="mb-8">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-2xl font-bold text-[var(--color-text-primary)]">Code Examples</h2>
             <button
@@ -597,8 +614,10 @@ send_webhook(
           )}
         </section>
 
+        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+
         {/* Response Format */}
-        <section class="bg-[var(--color-bg-elevated)] rounded-lg shadow-sm border border-[var(--color-border-default)] p-6 mb-6">
+        <section class="mb-8">
           <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Response Format</h2>
           <p class="text-[var(--color-text-primary)] mb-4">Successful webhook requests return a 200 OK status with the following response:</p>
           <CodeBlock
@@ -614,8 +633,10 @@ send_webhook(
           />
         </section>
 
+        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+
         {/* Error Handling */}
-        <section class="bg-[var(--color-bg-elevated)] rounded-lg shadow-sm border border-[var(--color-border-default)] p-6 mb-6">
+        <section class="mb-8">
           <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Error Handling</h2>
           <div class="overflow-x-auto">
             <table class="w-full text-sm border-collapse">
@@ -657,8 +678,10 @@ send_webhook(
           </div>
         </section>
 
+        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+
         {/* Best Practices */}
-        <section class="bg-[var(--color-bg-elevated)] rounded-lg shadow-sm border border-[var(--color-border-default)] p-6 mb-6">
+        <section class="mb-8">
           <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Best Practices</h2>
           <div class="space-y-4">
             <div class="border-l-4 border-[var(--color-accent)] pl-4">
@@ -699,19 +722,20 @@ send_webhook(
           </div>
         </section>
 
+        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+
         {/* Security */}
-        <section class="bg-[var(--color-bg-elevated)] rounded-lg shadow-sm border border-[var(--color-border-default)] p-6 mb-6">
+        <section class="mb-8">
           <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Security</h2>
-          <div class="bg-red-50 border border-[var(--color-error)] rounded-lg p-4 mb-4">
-            <h3 class="text-sm font-semibold text-red-900 mb-2">⚠️ Important Security Considerations</h3>
-            <ul class="text-sm text-red-800 space-y-1">
+          <AlertCard type="error" title="Important Security Considerations" className="mb-4">
+            <ul class="space-y-1">
               <li>• <strong>Never commit tokens to version control</strong> - Use .gitignore for config files</li>
               <li>• <strong>Use HTTPS only</strong> - The webhook URL is already HTTPS, never downgrade</li>
               <li>• <strong>Limit token scope</strong> - Each webhook edge has its own token with isolated access</li>
               <li>• <strong>Monitor for abuse</strong> - Check your inbox for unexpected webhook messages</li>
               <li>• <strong>Dispose if compromised</strong> - If a token leaks, immediately dispose the edge and create a new one</li>
             </ul>
-          </div>
+          </AlertCard>
           <p class="text-[var(--color-text-primary)]">
             All webhook messages are encrypted end-to-end before storage. The webhook worker encrypts 
             your message with your public key, ensuring only you can decrypt and read it. Even Relay's 
@@ -719,8 +743,10 @@ send_webhook(
           </p>
         </section>
 
+        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+
         {/* Support */}
-        <section class="bg-[var(--color-bg-elevated)] rounded-lg shadow-sm border border-[var(--color-border-default)] p-6">
+        <section class="mb-8">
           <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Support & Troubleshooting</h2>
           <p class="text-[var(--color-text-primary)] mb-4">
             If you encounter issues with your webhook edge, check the following:

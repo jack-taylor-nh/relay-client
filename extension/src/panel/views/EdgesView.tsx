@@ -1,6 +1,10 @@
 import { edges, createEdge, burnEdge, showToast, loadEdges, sendMessage, edgeTypes } from '../state';
 import { useState, useEffect } from 'preact/hooks';
-import { EdgeCard } from '../components/EdgeCard';
+import { ListItemCard } from '../components/ListItemCard';
+import { Button } from '../components/Button';
+import { Modal, ConfirmModal } from '../components/Modal';
+import { AlertCard } from '../components/AlertCard';
+import { getEdgeIcon, getEdgeTypeLabel, EdgeType } from '../utils/edgeHelpers';
 
 export function EdgesView() {
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -10,6 +14,7 @@ export function EdgesView() {
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
   const [disposalModal, setDisposalModal] = useState<{ edgeId: string; edgeType: string; address: string } | null>(null);
+  const [manageModal, setManageModal] = useState<{ edgeId: string; edgeType: string; address: string; edge: any } | null>(null);
 
   const edgeList = edges.value;
   const availableEdgeTypes = edgeTypes.value;
@@ -76,6 +81,11 @@ export function EdgesView() {
     setDisposalModal({ edgeId, edgeType, address });
   }
 
+  function openManageModal(edgeId: string, edgeType: string, address: string) {
+    const rawEdge = edgeList.find(e => e.id === edgeId);
+    setManageModal({ edgeId, edgeType, address, edge: rawEdge });
+  }
+
   async function confirmDisposal() {
     if (!disposalModal) return;
     
@@ -125,178 +135,154 @@ export function EdgesView() {
     <div class="h-full flex flex-col">
       <div class="flex items-center justify-between px-4 py-4 border-b border-[var(--color-border-default)]">
         <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Edges</h2>
-        <button 
-          class="px-4 py-2 text-sm font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] rounded-md shadow-sm hover:shadow-md transition-all duration-150 transform hover:-translate-y-0.5"
+        <Button
+          variant="secondary"
+          icon={
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          }
           onClick={() => setShowCreateModal(true)}
         >
-          + New Edge
-        </button>
+          New Edge
+        </Button>
       </div>
 
       <p class="px-4 py-3 text-sm text-[var(--color-text-secondary)] bg-[var(--color-bg-elevated)] border-b border-[var(--color-border-default)] m-0">
         Edges are your communication surfaces. Create handles for native messaging or email aliases.
       </p>
 
-      <div class="flex-1 overflow-y-auto p-4">
+      <div class="flex-1 overflow-y-auto">
         {allEdges.length === 0 ? (
           <div class="text-center py-10 px-5 text-[var(--color-text-secondary)]">
             <p>No edges yet. Create a handle or email alias to get started!</p>
           </div>
         ) : (
-          allEdges.map(edge => {
-            const rawEdge = edgeList.find(e => e.id === edge.id);
-            return (
-              <EdgeCard
-                key={edge.id}
-                id={edge.id}
-                type={edge.type}
-                address={edge.address}
-                subtitle={edge.subtitle}
-                status={edge.status}
-                messageCount={edge.messageCount}
-                createdAt={edge.createdAt}
-                onCopy={() => {
-                  navigator.clipboard.writeText(edge.address);
-                  showToast('Copied!');
-                }}
-                onDispose={() => openDisposalModal(edge.id, edge.type, edge.address)}
-                onViewDocs={edge.type === 'webhook' && rawEdge?.metadata?.webhookUrl && rawEdge?.metadata?.authToken
-                  ? () => {
-                      const params = new URLSearchParams({
-                        edgeId: edge.id,
-                        webhookUrl: rawEdge.metadata.webhookUrl,
-                        authToken: rawEdge.metadata.authToken,
-                      });
-                      chrome.tabs.create({ url: `docs/index.html?${params.toString()}` });
-                    }
-                  : undefined
-                }
-                expandable={true}
-              />
-            );
-          })
+          <div class="bg-[var(--color-bg-elevated)]">
+            {allEdges.map(edge => {
+              const rawEdge = edgeList.find(e => e.id === edge.id);
+              const hasWebhookDocs = edge.type === 'webhook' && rawEdge?.metadata?.webhookUrl && rawEdge?.metadata?.authToken;
+              
+              return (
+                <ListItemCard
+                  key={edge.id}
+                  icon={getEdgeIcon(edge.type as EdgeType)}
+                  title={edge.address}
+                  tags={[getEdgeTypeLabel(edge.type as EdgeType)]}
+                  action={
+                    edge.status === 'active'
+                      ? {
+                          label: 'Manage',
+                          onClick: () => openManageModal(edge.id, edge.type, edge.address),
+                          variant: 'secondary'
+                        }
+                      : undefined
+                  }
+                />
+              );
+            })}
+          </div>
         )}
       </div>
 
-      {showCreateModal && (
-        <div 
-          class="fixed inset-0 bg-[var(--color-bg-overlay)] flex items-center justify-center z-[1000] backdrop-blur-sm"
-          onClick={() => setShowCreateModal(false)}
-        >
-          <div 
-            class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-xl p-6 max-w-[440px] w-[90%] shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 class="m-0 mb-5 text-lg font-semibold text-[var(--color-text-primary)]">Create New Edge</h3>
-            
-            <div class="flex flex-col gap-3">
-              <label class="text-sm font-medium text-[var(--color-text-secondary)] mb-1 mt-1">Edge Type</label>
-              <div class="flex flex-col gap-2 mb-2">
-                {availableEdgeTypes.map(edgeType => (
-                  <label 
-                    key={edgeType.id}
-                    class={`flex items-center p-3 border-2 rounded-lg cursor-pointer transition-all duration-150 ${
-                      selectedEdgeTypeId === edgeType.id
-                        ? 'border-slate-600 bg-slate-50' 
-                        : 'border-[var(--color-border-default)] bg-[var(--color-bg-sunken)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="edgeType"
-                      value={edgeType.id}
-                      checked={selectedEdgeTypeId === edgeType.id}
-                      onChange={() => setSelectedEdgeTypeId(edgeType.id)}
-                      class="mr-3 cursor-pointer w-[18px] h-[18px] flex-shrink-0"
-                    />
-                    <div class="flex-1">
-                      <div class={`text-sm font-semibold mb-0.5 ${selectedEdgeTypeId === edgeType.id ? 'text-slate-700' : 'text-[var(--color-text-primary)]'}`}>
-                        {edgeType.icon} {edgeType.name}
-                      </div>
-                      <div class="text-xs text-[var(--color-text-secondary)]">{edgeType.description}</div>
-                    </div>
-                  </label>
-                ))}
+      {/* Create Edge Modal */}
+      <Modal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title="Create New Edge"
+        size="md"
+      >
+        <div class="flex flex-col gap-4">
+          <div class="grid grid-cols-2 gap-2">
+            {availableEdgeTypes.map(edgeType => (
+              <button
+                key={edgeType.id}
+                onClick={() => setSelectedEdgeTypeId(edgeType.id)}
+                class={`flex items-center gap-2 p-3 border-2 rounded-lg cursor-pointer transition-all duration-150 ${
+                  selectedEdgeTypeId === edgeType.id
+                    ? 'border-[var(--color-accent)] bg-[var(--color-accent-subtle)]' 
+                    : 'border-[var(--color-border-default)] bg-[var(--color-bg-sunken)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg-hover)]'
+                }`}
+              >
+                <span class="text-xl">{getEdgeIcon(edgeType.id as EdgeType)}</span>
+                <span class="text-sm font-medium text-[var(--color-text-primary)]">{edgeType.name}</span>
+              </button>
+            ))}
+          </div>
+
+          {selectedEdgeType?.requiresCustomAddress && (selectedEdgeType.id === 'native' || selectedEdgeType.id === 'discord') ? (
+            <>
+              <div class="flex border border-[var(--color-border-default)] rounded-lg overflow-hidden bg-[var(--color-bg-sunken)]">
+                <span class="px-3 py-2.5 bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] font-semibold">&</span>
+                <input
+                  type="text"
+                  value={handleName}
+                  onInput={(e) => setHandleName((e.target as HTMLInputElement).value)}
+                  placeholder="username"
+                  pattern="[a-z0-9_\-]{3,32}"
+                  maxLength={32}
+                  class="flex-1 border-none px-3 py-2.5 text-sm bg-[var(--color-bg-sunken)] text-[var(--color-text-primary)] focus:outline-none"
+                />
               </div>
 
-              {selectedEdgeType?.requiresCustomAddress && (selectedEdgeType.id === 'native' || selectedEdgeType.id === 'discord') ? (
-                <>
-                  <label class="text-sm font-medium text-[var(--color-text-secondary)] mb-1 mt-1">Handle</label>
-                  <div class="flex border border-[var(--color-border-default)] rounded-lg overflow-hidden bg-[var(--color-bg-sunken)]">
-                    <span class="px-3 py-2.5 bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] font-semibold">&</span>
-                    <input
-                      type="text"
-                      value={handleName}
-                      onInput={(e) => setHandleName((e.target as HTMLInputElement).value)}
-                      placeholder="username"
-                      pattern="[a-z0-9_\-]{3,32}"
-                      maxLength={32}
-                      class="flex-1 border-none px-3 py-2.5 text-sm bg-[var(--color-bg-sunken)] text-[var(--color-text-primary)]"
-                    />
-                  </div>
-                  <small class="text-xs text-[var(--color-text-tertiary)]">3-32 characters, lowercase, alphanumeric, _ or -</small>
+              <input
+                type="text"
+                value={displayName}
+                onInput={(e) => setDisplayName((e.target as HTMLInputElement).value)}
+                placeholder="Display Name (optional)"
+                maxLength={50}
+                class="w-full px-3 py-2.5 border border-[var(--color-border-default)] rounded-lg text-sm bg-[var(--color-bg-sunken)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:border-transparent"
+              />
+            </>
+          ) : (
+            <input
+              type="text"
+              value={label}
+              onInput={(e) => setLabel((e.target as HTMLInputElement).value)}
+              placeholder="Label (optional)"
+              class="w-full px-3 py-2.5 border border-[var(--color-border-default)] rounded-lg text-sm bg-[var(--color-bg-sunken)] text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:border-transparent"
+            />
+          )}
 
-                  <label class="text-sm font-medium text-[var(--color-text-secondary)] mb-1 mt-4">Display Name (optional)</label>
-                  <input
-                    type="text"
-                    value={displayName}
-                    onInput={(e) => setDisplayName((e.target as HTMLInputElement).value)}
-                    placeholder="Your Name"
-                    maxLength={50}
-                    class="w-full px-3 py-2.5 border border-[var(--color-border-default)] rounded-lg text-sm bg-[var(--color-bg-sunken)] text-[var(--color-text-primary)]"
-                  />
-                </>
-              ) : (
-                <>
-                  <label class="text-sm font-medium text-[var(--color-text-secondary)] mb-1 mt-1">Label (optional)</label>
-                  <input
-                    type="text"
-                    value={label}
-                    onInput={(e) => setLabel((e.target as HTMLInputElement).value)}
-                    placeholder="e.g., Amazon, Newsletter"
-                    class="w-full px-3 py-2.5 border border-[var(--color-border-default)] rounded-lg text-sm bg-[var(--color-bg-sunken)] text-[var(--color-text-primary)]"
-                  />
-                </>
-              )}
-
-              <div class="flex gap-2 mt-5">
-                <button 
-                  class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-active)] transition-colors duration-150"
-                  onClick={() => setShowCreateModal(false)}
-                >
-                  Cancel
-                </button>
-                <button 
-                  class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-[var(--color-primary)] text-[var(--color-text-inverse)] hover:bg-[var(--color-primary-hover)] transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={(selectedEdgeTypeId === 'native' || selectedEdgeTypeId === 'discord') ? handleCreateHandle : handleCreateEdge}
-                  disabled={loading}
-                >
-                  {loading ? 'Creating...' : `Create ${selectedEdgeType?.name || 'Edge'}`}
-                </button>
-              </div>
-            </div>
+          <div class="flex gap-2 pt-2">
+            <Button
+              variant="secondary"
+              fullWidth
+              onClick={() => setShowCreateModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              fullWidth
+              loading={loading}
+              onClick={(selectedEdgeTypeId === 'native' || selectedEdgeTypeId === 'discord') ? handleCreateHandle : handleCreateEdge}
+              disabled={loading}
+            >
+              {loading ? 'Creating...' : `Create ${selectedEdgeType?.name || 'Edge'}`}
+            </Button>
           </div>
         </div>
-      )}
+      </Modal>
 
       {/* Disposal Confirmation Modal */}
-      {disposalModal && (
-        <div 
-          class="fixed inset-0 bg-[var(--color-bg-overlay)] flex items-center justify-center z-[1000] backdrop-blur-sm"
-          onClick={() => setDisposalModal(null)}
-        >
-          <div 
-            class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-xl p-6 max-w-[480px] w-[90%] shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 class="m-0 mb-4 text-lg font-semibold text-red-600">Permanently Dispose Edge</h3>
-            
-            <div class="mb-5 p-4 bg-[var(--color-bg-sunken)] border border-[var(--color-border-default)] rounded-lg">
+      <ConfirmModal
+        isOpen={!!disposalModal}
+        onClose={() => setDisposalModal(null)}
+        onConfirm={confirmDisposal}
+        title="Permanently Dispose Edge"
+        confirmLabel="Dispose Edge"
+        confirmVariant="danger"
+      >
+        {disposalModal && (
+          <>
+            <div class="mb-4 p-4 bg-[var(--color-bg-sunken)] border border-[var(--color-border-default)] rounded-lg">
               <div class="text-sm font-medium text-[var(--color-text-primary)] mb-1">Edge: {disposalModal.address}</div>
               <div class="text-xs text-[var(--color-text-secondary)]">Type: {disposalModal.edgeType}</div>
             </div>
 
-            <div class="mb-5 space-y-2">
+            <div class="mb-4 space-y-2">
               <p class="text-sm text-[var(--color-text-primary)] m-0">This action will:</p>
               <ul class="text-sm text-[var(--color-text-secondary)] space-y-1 ml-5 list-disc">
                 <li>Permanently dispose of this edge (cannot be recovered or reused)</li>
@@ -305,27 +291,132 @@ export function EdgesView() {
               </ul>
             </div>
 
-            <div class="p-3 bg-red-50 border border-red-200 rounded-lg mb-5">
-              <p class="text-sm text-red-700 font-medium m-0">This action is irreversible.</p>
+            <AlertCard type="error">
+              This action is irreversible.
+            </AlertCard>
+          </>
+        )}
+      </ConfirmModal>
+
+      {/* Manage Edge Modal */}
+      <Modal
+        isOpen={!!manageModal}
+        onClose={() => setManageModal(null)}
+        title="Manage Edge"
+        size="md"
+      >
+        {manageModal && (
+          <div class="space-y-4">
+            {/* Edge Info */}
+            <div class="p-4 bg-[var(--color-bg-sunken)] border border-[var(--color-border-default)] rounded-lg">
+              <div class="flex items-center gap-3 mb-2">
+                <span class="text-2xl">{getEdgeIcon(manageModal.edgeType as EdgeType)}</span>
+                <div class="flex-1">
+                  <div class="text-sm font-semibold text-[var(--color-text-primary)]">{manageModal.address}</div>
+                  <div class="text-xs text-[var(--color-text-secondary)]">{getEdgeTypeLabel(manageModal.edgeType as EdgeType)}</div>
+                </div>
+              </div>
+              
+              {manageModal.edge?.metadata?.displayName && (
+                <div class="text-xs text-[var(--color-text-secondary)] mt-2">
+                  Display Name: {manageModal.edge.metadata.displayName}
+                </div>
+              )}
+              
+              {manageModal.edge?.label && (
+                <div class="text-xs text-[var(--color-text-secondary)] mt-2">
+                  Label: {manageModal.edge.label}
+                </div>
+              )}
             </div>
 
-            <div class="flex gap-3">
-              <button 
-                class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-active)] transition-colors duration-150"
-                onClick={() => setDisposalModal(null)}
+            {/* Actions */}
+            <div class="space-y-2">
+              <div class="text-sm font-medium text-[var(--color-text-secondary)] mb-2">Actions</div>
+              
+              {/* Copy Address */}
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(manageModal.address);
+                  showToast('Address copied to clipboard');
+                }}
+                class="w-full flex items-center gap-3 p-3 rounded-lg bg-[var(--color-bg-hover)] hover:bg-[var(--color-bg-active)] border border-[var(--color-border-default)] transition-colors text-left"
               >
-                Cancel
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-[var(--color-text-secondary)]">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                <div class="flex-1">
+                  <div class="text-sm font-medium text-[var(--color-text-primary)]">Copy Address</div>
+                  <div class="text-xs text-[var(--color-text-secondary)]">Copy edge address to clipboard</div>
+                </div>
               </button>
-              <button 
-                class="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-red-600 text-[var(--color-text-inverse)] hover:bg-red-700 transition-colors duration-150"
-                onClick={confirmDisposal}
+
+              {/* View Webhook Docs (for webhooks) */}
+              {manageModal.edgeType === 'webhook' && manageModal.edge?.metadata?.webhookUrl && (
+                <button
+                  onClick={() => {
+                    const params = new URLSearchParams({
+                      edgeId: manageModal.edgeId,
+                      webhookUrl: manageModal.edge.metadata.webhookUrl,
+                      authToken: manageModal.edge.metadata.authToken,
+                    });
+                    chrome.tabs.create({ url: `docs/index.html?${params.toString()}` });
+                    setManageModal(null);
+                  }}
+                  class="w-full flex items-center gap-3 p-3 rounded-lg bg-[var(--color-bg-hover)] hover:bg-[var(--color-bg-active)] border border-[var(--color-border-default)] transition-colors text-left"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-[var(--color-accent)]">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                    <polyline points="10 9 9 9 8 9" />
+                  </svg>
+                  <div class="flex-1">
+                    <div class="text-sm font-medium text-[var(--color-text-primary)]">View Documentation</div>
+                    <div class="text-xs text-[var(--color-text-secondary)]">API docs and integration guide</div>
+                  </div>
+                </button>
+              )}
+
+              {/* Dispose Edge */}
+              <button
+                onClick={() => {
+                  setManageModal(null);
+                  setDisposalModal({ 
+                    edgeId: manageModal.edgeId, 
+                    edgeType: manageModal.edgeType, 
+                    address: manageModal.address 
+                  });
+                }}
+                class="w-full flex items-center gap-3 p-3 rounded-lg bg-[var(--color-error-subtle)] hover:opacity-90 border border-[var(--color-error)] transition-all text-left"
               >
-                Dispose Edge
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-[var(--color-error)]">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <line x1="10" y1="11" x2="10" y2="17" />
+                  <line x1="14" y1="11" x2="14" y2="17" />
+                </svg>
+                <div class="flex-1">
+                  <div class="text-sm font-medium text-[var(--color-error)]">Dispose Edge</div>
+                  <div class="text-xs text-[var(--color-text-secondary)]">Permanently delete this edge</div>
+                </div>
               </button>
             </div>
+
+            <div class="pt-2">
+              <Button
+                variant="secondary"
+                fullWidth
+                onClick={() => setManageModal(null)}
+              >
+                Close
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
     </div>
   );
 }

@@ -1,4 +1,6 @@
 import { currentIdentity, lockWallet, showToast } from '../state';
+import { CopyableField } from '../components/CopyableField';
+import { Button } from '../components/Button';
 
 export function FullscreenIdentityView() {
   const identity = currentIdentity.value;
@@ -18,20 +20,6 @@ export function FullscreenIdentityView() {
     showToast('Identity locked');
   }
 
-  async function handleCopyPublicKey() {
-    if (identity?.publicKey) {
-      await navigator.clipboard.writeText(identity.publicKey);
-      showToast('Public key copied');
-    }
-  }
-
-  async function handleCopyFingerprint() {
-    if (identity?.id) {
-      await navigator.clipboard.writeText(identity.id);
-      showToast('Fingerprint copied');
-    }
-  }
-
   return (
     <div class="h-full flex flex-col bg-[var(--color-bg-sunken)]">
       {/* Full-width Header */}
@@ -42,12 +30,9 @@ export function FullscreenIdentityView() {
             Your cryptographic identity is secured locally on your device.
           </p>
         </div>
-        <button 
-          class="px-5 py-2.5 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded-lg text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-active)] transition-all duration-200 cursor-pointer"
-          onClick={handleLock}
-        >
+        <Button variant="secondary" onClick={handleLock}>
           Lock Identity
-        </button>
+        </Button>
       </div>
 
       {/* Two-column Grid Layout */}
@@ -60,48 +45,22 @@ export function FullscreenIdentityView() {
               Your identity is cryptographically secured. Only you can decrypt your messages.
             </p>
 
-            {/* Fingerprint */}
-            <div class="mb-5">
-              <label class="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5 uppercase tracking-wider">Fingerprint</label>
-              <div class="flex items-center gap-2">
-                <code class="flex-1 font-mono text-sm px-3 py-2.5 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded-lg overflow-hidden text-ellipsis whitespace-nowrap text-[var(--color-text-primary)]">
-                  {identity.id}
-                </code>
-                <button 
-                  class="p-2 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded-lg cursor-pointer text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-active)] hover:text-[var(--color-text-primary)] transition-all duration-200 flex-shrink-0"
-                  onClick={handleCopyFingerprint}
-                  title="Copy fingerprint"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                  </svg>
-                </button>
-              </div>
-              <small class="block mt-1.5 text-xs text-[var(--color-text-tertiary)]">Your unique identity identifier</small>
-            </div>
+            <CopyableField
+              label="Fingerprint"
+              value={identity.id}
+              helperText="Your unique identity identifier"
+              onCopy={() => showToast('Fingerprint copied')}
+              className="mb-5"
+            />
 
-            {/* Public Key */}
             {identity.publicKey && (
-              <div class="mb-5">
-                <label class="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5 uppercase tracking-wider">Public Key</label>
-                <div class="flex items-center gap-2">
-                  <code class="flex-1 font-mono text-sm px-3 py-2.5 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded-lg overflow-hidden text-ellipsis whitespace-nowrap text-[var(--color-text-primary)]">
-                    {identity.publicKey.slice(0, 32)}...
-                  </code>
-                  <button 
-                    class="p-2 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded-lg cursor-pointer text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-active)] hover:text-[var(--color-text-primary)] transition-all duration-200 flex-shrink-0"
-                    onClick={handleCopyPublicKey}
-                    title="Copy public key"
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                    </svg>
-                  </button>
-                </div>
-                <small class="block mt-1.5 text-xs text-[var(--color-text-tertiary)]">Share this with others to receive encrypted messages</small>
-              </div>
+              <CopyableField
+                label="Public Key"
+                value={identity.publicKey}
+                helperText="Share this with others to receive encrypted messages"
+                onCopy={() => showToast('Public key copied')}
+                className="mb-5"
+              />
             )}
 
             {/* Primary Handle */}

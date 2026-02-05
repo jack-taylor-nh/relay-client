@@ -2,6 +2,7 @@ import { useEffect } from 'preact/hooks';
 import { conversations, selectedConversationId, loadConversations, isRefreshing } from '../state';
 import { ConversationItem } from '../components/ConversationItem';
 import { ConversationDetailView } from './ConversationDetailView';
+import { Button } from '../components/Button';
 import { activeTab } from '../App';
 
 export function InboxView() {
@@ -29,12 +30,12 @@ export function InboxView() {
         </svg>
         <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-2">No conversations yet</h3>
         <p class="text-sm text-[var(--color-text-secondary)] mb-4">Start a chat with another handle or create an email alias to receive messages.</p>
-        <button 
-          class="px-4 py-2.5 text-sm font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] rounded-md transition-colors duration-150"
+        <Button 
+          variant="primary"
           onClick={() => { activeTab.value = 'new'; }}
         >
           Start a chat
-        </button>
+        </Button>
       </div>
     );
   }

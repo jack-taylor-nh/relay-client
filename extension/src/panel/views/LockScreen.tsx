@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { unlockIdentity, logoutIdentity, isLoading, currentIdentity } from '../state';
+import { Button } from '../components/Button';
 
 function EyeIcon() {
   return (
@@ -95,41 +96,50 @@ export function LockScreen() {
 
         {error && <div class="w-full px-4 py-3 mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg">{error}</div>}
 
-        <button
-          class="w-full px-6 py-3 text-base font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        <Button
+          variant="primary"
+          size="lg"
+          fullWidth
           onClick={handleUnlock}
           disabled={!passphrase || isLoading.value}
+          loading={isLoading.value}
         >
-          {isLoading.value ? 'Unlocking...' : 'Unlock'}
-        </button>
+          Unlock
+        </Button>
 
         {/* Logout / Switch Identity */}
         <div class="mt-8 pt-6 border-t border-[var(--color-border-default)] w-full">
           {!showLogoutConfirm ? (
-            <button
-              class="w-full px-4 py-2 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-lg transition-colors"
+            <Button
+              variant="ghost"
+              size="md"
+              fullWidth
               onClick={() => setShowLogoutConfirm(true)}
             >
               Login to a different identity
-            </button>
+            </Button>
           ) : (
             <div class="space-y-2">
               <p class="text-xs text-[var(--color-text-secondary)] text-center mb-3">
                 This will clear your current identity from this browser. Make sure you have your backup passphrase.
               </p>
               <div class="flex gap-2">
-                <button
-                  class="flex-1 px-4 py-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] bg-[var(--color-bg-hover)] hover:bg-[var(--color-bg-active)] rounded-lg transition-colors"
+                <Button
+                  variant="secondary"
+                  size="md"
                   onClick={() => setShowLogoutConfirm(false)}
+                  className="flex-1"
                 >
                   Cancel
-                </button>
-                <button
-                  class="flex-1 px-4 py-2 text-sm text-[var(--color-text-inverse)] bg-red-600 hover:bg-red-700 rounded-lg transition-colors font-medium"
+                </Button>
+                <Button
+                  variant="danger"
+                  size="md"
                   onClick={handleLogout}
+                  className="flex-1"
                 >
                   Logout
-                </button>
+                </Button>
               </div>
             </div>
           )}
