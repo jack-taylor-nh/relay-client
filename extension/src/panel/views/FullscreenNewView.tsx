@@ -8,9 +8,16 @@ import { FullscreenInboxView } from './FullscreenInboxView';
 // Track state for fullscreen new view
 const selectedEdge = signal<string | null>(null);
 
+interface RecentContact {
+  handle: string;
+  counterpartyName: string;
+  lastActivityAt: string;
+}
+
 export function FullscreenNewView() {
   const [recipientHandle, setRecipientHandle] = useState('');
-  const [message, setMessage] = useState('');
+  const [recents, setRecents] = useState<RecentContact[]>([]);
+  const [filteredRecents, setFilteredRecents] = useState<RecentContact[]>([]);
   const [resolvedUser, setResolvedUser] = useState<{ 
     handle: string; 
     fingerprint: string; 
@@ -19,9 +26,8 @@ export function FullscreenNewView() {
     edgeId?: string;
   } | null>(null);
   const [isResolving, setIsResolving] = useState(false);
-  const [isSending, setIsSending] = useState(false);
+  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [messageSent, setMessageSent] = useState(false);
 
   const allEdges = edges.value;
   const nativeEdges = allEdges.filter(e => e.type === 'native' && e.status === 'active');
@@ -33,17 +39,75 @@ export function FullscreenNewView() {
     loadEdges();
   }, []);
 
+  // Load recents from chrome.storage.local on mount
+  useEffect(() => {
+    loadRecents();
+  }, []);
+
+  async function loadRecents() {
+    try {
+      const storage = await chrome.storage.local.get(['processedConversations']);
+      const storedConversations = storage.processedConversations || [];
+      
+      // Extract unique native contacts sorted by last activity
+      const uniqueContacts = new Map<string, RecentContact>();
+      
+      storedConversations
+        .filter((c: any) => c.type === 'native' && c.counterpartyName?.startsWith('&'))
+        .forEach((c: any) => {
+          const handle = c.counterpartyName.replace(/^&/, '');
+          if (!uniqueContacts.has(handle) || 
+              new Date(c.lastActivityAt) > new Date(uniqueContacts.get(handle)!.lastActivityAt)) {
+            uniqueContacts.set(handle, {
+              handle,
+              counterpartyName: c.counterpartyName,
+              lastActivityAt: c.lastActivityAt,
+            });
+          }
+        });
+      
+      const recentsList = Array.from(uniqueContacts.values())
+        .sort((a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime())
+        .slice(0, 10); // Top 10 recents
+      
+      setRecents(recentsList);
+      setFilteredRecents(recentsList);
+    } catch (error) {
+      console.error('Failed to load recents:', error);
+    }
+  }
+
+  // Filter recents as user types
+  useEffect(() => {
+    if (!cleanHandle) {
+      setFilteredRecents(recents);
+      return;
+    }
+    
+    const filtered = recents.filter(r => 
+      r.handle.toLowerCase().includes(cleanHandle.toLowerCase())
+    );
+    setFilteredRecents(filtered);
+  }, [recipientHandle, recents]);
+
   // Reset state when edge selection changes
   useEffect(() => {
     setResolvedUser(null);
     setRecipientHandle('');
-    setMessage('');
     setError(null);
   }, [selectedEdge.value]);
 
+  // Select a recent contact
+  function selectRecent(handle: string) {
+    setRecipientHandle(handle);
+    handleResolve(handle);
+  }
+
   // Resolve recipient handle
-  async function handleResolve() {
-    if (!cleanHandle || cleanHandle.length < 3) {
+  async function handleResolve(handleToResolve?: string) {
+    const targetHandle = handleToResolve || cleanHandle;
+    
+    if (!targetHandle || targetHandle.length < 3) {
       setError('Handle must be at least 3 characters');
       return;
     }
@@ -51,28 +115,31 @@ export function FullscreenNewView() {
     setError(null);
     setIsResolving(true);
     
-    const result = await resolveHandle(cleanHandle);
+    const result = await resolveHandle(targetHandle);
     
     if (result.success && result.x25519PublicKey && result.edgeId) {
       setResolvedUser({
-        handle: result.handle || cleanHandle,
+        handle: result.handle || targetHandle,
         fingerprint: result.edgeId,
         publicKey: result.x25519PublicKey,
         x25519PublicKey: result.x25519PublicKey,
         edgeId: result.edgeId,
       });
+      
+      // Create conversation immediately
+      await createConversation(result.handle || targetHandle, result.edgeId);
     } else {
-      setError(result.error || `Handle &${cleanHandle} not found`);
+      setError(result.error || `Handle &${targetHandle} not found`);
     }
     
     setIsResolving(false);
   }
 
-  // Send message
-  async function handleSend() {
-    if (!resolvedUser || !message.trim() || !selectedEdge.value) return;
+  // Create conversation and navigate to it
+  async function createConversation(recipientHandle: string, recipientEdgeId: string) {
+    if (!selectedEdge.value) return;
     
-    setIsSending(true);
+    setIsCreatingConversation(true);
     
     try {
       const edgeId = selectedEdge.value.replace('edge:', '');
@@ -80,18 +147,19 @@ export function FullscreenNewView() {
       
       if (!senderEdge) {
         setError('Sender edge not found');
-        setIsSending(false);
+        setIsCreatingConversation(false);
         return;
       }
 
       if (senderEdge.type !== 'native') {
         setError('Native messaging requires using a native handle edge');
-        setIsSending(false);
+        setIsCreatingConversation(false);
         return;
       }
 
       const senderHandle = senderEdge.address.replace(/^&/, '');
 
+      // Send empty initialization message to create conversation
       const result = await sendMessage<{
         success: boolean;
         conversationId?: string;
@@ -100,15 +168,15 @@ export function FullscreenNewView() {
       }>({
         type: 'SEND_NATIVE_MESSAGE',
         payload: {
-          recipientHandle: resolvedUser.handle,
-          senderHandle: senderHandle,
-          content: message.trim(),
+          recipientHandle,
+          senderHandle,
+          content: '', // Empty message just creates the conversation
         },
       });
 
       if (!result.success) {
-        setError(result.error || 'Failed to send message');
-        setIsSending(false);
+        setError(result.error || 'Failed to create conversation');
+        setIsCreatingConversation(false);
         return;
       }
       
@@ -117,33 +185,27 @@ export function FullscreenNewView() {
         id: result.conversationId!,
         type: 'native' as const,
         securityLevel: 'e2ee' as const,
-        participants: [resolvedUser.fingerprint],
-        counterpartyName: `&${resolvedUser.handle}`,
-        lastMessagePreview: message.trim().slice(0, 50),
+        participants: [recipientEdgeId],
+        counterpartyName: `&${recipientHandle}`,
+        lastMessagePreview: '',
         lastActivityAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
         unreadCount: 0,
+        myEdgeId: senderEdge.id,
+        counterpartyEdgeId: recipientEdgeId,
       };
       
       conversations.value = [newConversation, ...conversations.value];
       selectedConversationId.value = result.conversationId!;
       
-      showToast(`Message sent to &${resolvedUser.handle}`);
-      
       // Switch to inbox view showing the new conversation
-      setMessageSent(true);
       activeTab.value = 'inbox';
     } catch (error) {
-      console.error('Send error:', error);
+      console.error('Create conversation error:', error);
       setError('Network error');
     }
     
-    setIsSending(false);
-  }
-
-  // If message was sent, switch to inbox
-  if (messageSent) {
-    return <FullscreenInboxView />;
+    setIsCreatingConversation(false);
   }
 
   return (
@@ -253,7 +315,7 @@ export function FullscreenNewView() {
             <p class="text-[var(--color-text-tertiary)]">Select an edge to send from</p>
           </div>
         ) : (
-          // Edge selected - show compose form
+          // Edge selected - show recipient lookup
           <div class="flex-1 flex flex-col max-w-2xl mx-auto w-full p-6">
             <div class="flex items-center gap-3 mb-6 pb-4 border-b border-[var(--color-border-default)]">
               <div class="w-10 h-10 rounded-full bg-sky-100 flex items-center justify-center">
@@ -269,87 +331,114 @@ export function FullscreenNewView() {
               </div>
             </div>
 
-            {!resolvedUser ? (
-              // Step 1: Enter recipient
-              <div class="flex-1">
-                <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">Recipient handle</label>
-                <div class="flex gap-2 mb-2">
-                  <div class="relative flex-1">
-                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)] font-medium">&</span>
-                    <input
-                      type="text"
-                      class="w-full pl-7 pr-3 py-3 text-base border border-[var(--color-border-strong)] rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-                      placeholder="username"
-                      value={recipientHandle}
-                      onInput={(e) => {
-                        setRecipientHandle((e.target as HTMLInputElement).value);
-                        setError(null);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleResolve();
-                        }
-                      }}
-                    />
-                  </div>
-                  <button
-                    class="px-6 py-3 text-base font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] disabled:bg-[var(--color-text-tertiary)] rounded-lg transition-colors"
-                    onClick={handleResolve}
-                    disabled={isResolving || cleanHandle.length < 3}
-                  >
-                    {isResolving ? 'Finding...' : 'Find'}
-                  </button>
-                </div>
-                {error && <p class="text-sm text-red-600 mt-2">{error}</p>}
-              </div>
-            ) : (
-              // Step 2: Compose message
-              <div class="flex-1 flex flex-col">
-                {/* Recipient card */}
-                <div class="p-4 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg mb-4">
-                  <div class="flex items-center justify-between">
-                    <div>
-                      <div class="text-base font-semibold text-[var(--color-text-primary)]">&{resolvedUser.handle}</div>
-                      <div class="text-sm font-mono text-[var(--color-text-tertiary)]">{resolvedUser.fingerprint.slice(0, 16)}...</div>
-                    </div>
-                    <button
-                      class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] font-medium"
-                      onClick={() => {
-                        setResolvedUser(null);
-                        setError(null);
-                      }}
-                    >
-                      Change
-                    </button>
-                  </div>
-                </div>
-
-                {/* Message textarea */}
-                <div class="flex-1 flex flex-col">
-                  <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">Message</label>
-                  <textarea
-                    class="flex-1 min-h-[200px] px-4 py-3 text-base border border-[var(--color-border-strong)] rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent resize-none"
-                    placeholder="Type your message..."
-                    value={message}
-                    onInput={(e) => setMessage((e.target as HTMLTextAreaElement).value)}
+            {/* Recipient lookup */}
+            <div class="flex-1">
+              <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">Find recipient</label>
+              <div class="flex gap-2 mb-4">
+                <div class="relative flex-1">
+                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)] font-medium">&</span>
+                  <input
+                    type="text"
+                    class="w-full pl-7 pr-3 py-3 text-base border border-[var(--color-border-strong)] rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)]"
+                    placeholder="username"
+                    value={recipientHandle}
+                    onInput={(e) => {
+                      setRecipientHandle((e.target as HTMLInputElement).value);
+                      setError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && cleanHandle.length >= 3) {
+                        e.preventDefault();
+                        handleResolve();
+                      }
+                    }}
+                    disabled={isResolving || isCreatingConversation}
                   />
                 </div>
-
-                {error && <div class="mt-4 p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded-lg">{error}</div>}
-
                 <button
-                  class="mt-4 w-full px-6 py-3 text-base font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] disabled:bg-[var(--color-text-tertiary)] disabled:cursor-not-allowed rounded-lg transition-colors"
-                  onClick={handleSend}
-                  disabled={isSending || !message.trim()}
+                  class="px-6 py-3 text-base font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] disabled:bg-[var(--color-text-tertiary)] rounded-lg transition-colors"
+                  onClick={() => handleResolve()}
+                  disabled={isResolving || isCreatingConversation || cleanHandle.length < 3}
                 >
-                  {isSending ? 'Sending...' : 'Send message'}
+                  {isResolving || isCreatingConversation ? 'Finding...' : 'Find'}
                 </button>
               </div>
-            )}
+              
+              {error && (
+                <div class="mb-4 p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded-lg dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
+                  {error}
+                </div>
+              )}
+
+              {/* Recents list */}
+              {filteredRecents.length > 0 && !isResolving && !isCreatingConversation && (
+                <div class="mt-4">
+                  <h4 class="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">
+                    {cleanHandle ? 'Matching contacts' : 'Recent contacts'}
+                  </h4>
+                  <div class="space-y-1">
+                    {filteredRecents.map((recent) => (
+                      <button
+                        key={recent.handle}
+                        class="w-full flex items-center justify-between px-4 py-3 text-left rounded-lg bg-[var(--color-bg-elevated)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] transition-colors"
+                        onClick={() => selectRecent(recent.handle)}
+                      >
+                        <div class="flex items-center gap-3">
+                          <div class="w-8 h-8 rounded-full bg-sky-100 dark:bg-sky-900 flex items-center justify-center">
+                            <svg class="w-4 h-4 text-sky-600 dark:text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+                              <circle cx="12" cy="7" r="4" />
+                            </svg>
+                          </div>
+                          <div>
+                            <div class="text-sm font-medium text-[var(--color-text-primary)]">{recent.counterpartyName}</div>
+                            <div class="text-xs text-[var(--color-text-tertiary)]">
+                              Last active {formatRelativeTime(recent.lastActivityAt)}
+                            </div>
+                          </div>
+                        </div>
+                        <svg class="w-5 h-5 text-[var(--color-text-tertiary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="9 18 15 12 9 6" />
+                        </svg>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {filteredRecents.length === 0 && cleanHandle && !isResolving && !isCreatingConversation && (
+                <div class="mt-4 text-center py-8 text-[var(--color-text-tertiary)]">
+                  <p class="text-sm">No matching recent contacts</p>
+                  <p class="text-xs mt-1">Press Enter or click Find to search</p>
+                </div>
+              )}
+
+              {recents.length === 0 && !cleanHandle && !isResolving && !isCreatingConversation && (
+                <div class="mt-4 text-center py-8 text-[var(--color-text-tertiary)]">
+                  <p class="text-sm">No recent contacts yet</p>
+                  <p class="text-xs mt-1">Enter a handle to start a new conversation</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
     </div>
   );
+}
+
+function formatRelativeTime(isoString: string): string {
+  const date = new Date(isoString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
