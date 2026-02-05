@@ -234,16 +234,36 @@ Content-Type: application/json
         <section class="bg-white rounded-lg shadow-sm border border-stone-200 p-6 mb-6">
           <h2 class="text-2xl font-bold text-stone-900 mb-4">Request Format</h2>
           <p class="text-stone-700 mb-4">
-            Send a POST request with a JSON payload containing the following fields:
+            Send a POST request with <strong>any valid JSON payload</strong>. Relay intelligently extracts 
+            message content from your payload, with special support for popular services.
+          </p>
+
+          {/* Service Auto-Detection */}
+          <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-6">
+            <h3 class="text-sm font-semibold text-emerald-900 mb-2">✨ Automatic Service Detection</h3>
+            <p class="text-sm text-emerald-800 mb-2">
+              Just point your service's webhook directly at this URL! Relay automatically detects and formats:
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <span class="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-medium rounded">GitHub</span>
+              <span class="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-medium rounded">Stripe</span>
+              <span class="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-medium rounded">Slack</span>
+              <span class="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-medium rounded">Discord</span>
+              <span class="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-medium rounded">Linear</span>
+            </div>
+          </div>
+          
+          <h3 class="text-lg font-semibold text-stone-900 mb-3">Recommended Format</h3>
+          <p class="text-stone-700 mb-4 text-sm">
+            For the best display, use our structured format. All fields are optional:
           </p>
           
-          <div class="overflow-x-auto mb-4">
+          <div class="overflow-x-auto mb-6">
             <table class="w-full text-sm border-collapse">
               <thead>
                 <tr class="border-b-2 border-stone-300">
                   <th class="text-left py-2 px-3 font-semibold text-stone-900">Field</th>
                   <th class="text-left py-2 px-3 font-semibold text-stone-900">Type</th>
-                  <th class="text-left py-2 px-3 font-semibold text-stone-900">Required</th>
                   <th class="text-left py-2 px-3 font-semibold text-stone-900">Description</th>
                 </tr>
               </thead>
@@ -251,55 +271,57 @@ Content-Type: application/json
                 <tr class="border-b border-stone-200">
                   <td class="py-2 px-3"><code class="text-sky-600 font-mono">sender</code></td>
                   <td class="py-2 px-3">string</td>
-                  <td class="py-2 px-3"><span class="text-red-600 font-semibold">Yes</span></td>
-                  <td class="py-2 px-3">Identifier for the sender (alphanumeric, max 64 chars)</td>
+                  <td class="py-2 px-3">Sender name (falls back to edge name or service detection)</td>
                 </tr>
                 <tr class="border-b border-stone-200">
                   <td class="py-2 px-3"><code class="text-sky-600 font-mono">title</code></td>
                   <td class="py-2 px-3">string</td>
-                  <td class="py-2 px-3"><span class="text-red-600 font-semibold">Yes</span></td>
-                  <td class="py-2 px-3">Message title/subject (max 200 chars)</td>
+                  <td class="py-2 px-3">Message title/subject (supports **bold** and *italic*)</td>
                 </tr>
                 <tr class="border-b border-stone-200">
                   <td class="py-2 px-3"><code class="text-sky-600 font-mono">body</code></td>
                   <td class="py-2 px-3">string</td>
-                  <td class="py-2 px-3"><span class="text-red-600 font-semibold">Yes</span></td>
-                  <td class="py-2 px-3">Message body/content (max 10KB)</td>
+                  <td class="py-2 px-3">Message body (supports markdown: bold, italic, code, links, bullets)</td>
                 </tr>
                 <tr class="border-b border-stone-200">
                   <td class="py-2 px-3"><code class="text-sky-600 font-mono">data</code></td>
                   <td class="py-2 px-3">object</td>
-                  <td class="py-2 px-3"><span class="text-stone-500">No</span></td>
-                  <td class="py-2 px-3">Optional structured data (max 5KB JSON)</td>
-                </tr>
-                <tr class="border-b border-stone-200">
-                  <td class="py-2 px-3"><code class="text-sky-600 font-mono">timestamp</code></td>
-                  <td class="py-2 px-3">string</td>
-                  <td class="py-2 px-3"><span class="text-stone-500">No</span></td>
-                  <td class="py-2 px-3">ISO 8601 timestamp (defaults to current time)</td>
+                  <td class="py-2 px-3">Structured key-value data displayed below the message</td>
                 </tr>
               </tbody>
             </table>
           </div>
 
-          <h3 class="text-sm font-semibold text-stone-900 mb-2">Example Payload</h3>
+          <p class="text-stone-700 mb-4 text-sm">
+            You can also set a custom sender via the <code class="text-sky-600 font-mono">X-Webhook-Sender</code> header.
+          </p>
+
+          <h3 class="text-sm font-semibold text-stone-900 mb-2">Example: Structured Payload</h3>
           <CodeBlock
             language="json"
             section="example-payload"
-            code={`
-{
-  "sender": "github-actions",
-  "title": "Deploy succeeded",
-  "body": "Production deployment completed successfully in 2m 34s",
+            code={`{
+  "sender": "deploy-bot",
+  "title": "Deploy succeeded ✓",
+  "body": "Production deployment completed in **2m 34s**\\n\\n- Commit: \`a1b2c3d\`\\n- Branch: main",
   "data": {
     "repository": "mycompany/api-server",
-    "branch": "main",
-    "commit": "a1b2c3d",
-    "duration_seconds": 154
-  },
-  "timestamp": "2026-02-04T14:30:00Z"
-}
-`}
+    "duration": "154s"
+  }
+}`}
+          />
+
+          <h3 class="text-sm font-semibold text-stone-900 mb-2 mt-6">Example: Any JSON (Auto-Formatted)</h3>
+          <p class="text-stone-600 text-sm mb-2">Any valid JSON works - it will be displayed as structured data:</p>
+          <CodeBlock
+            language="json"
+            section="example-raw"
+            code={`{
+  "event": "user_signup",
+  "user_id": 12345,
+  "email": "user@example.com",
+  "plan": "premium"
+}`}
           />
         </section>
 
@@ -627,7 +649,7 @@ send_webhook(
                 <tr class="border-b border-stone-200">
                   <td class="py-2 px-3"><code class="text-red-600 font-mono">400</code></td>
                   <td class="py-2 px-3">Bad Request</td>
-                  <td class="py-2 px-3">Validate payload format and field requirements</td>
+                  <td class="py-2 px-3">Ensure payload is valid JSON</td>
                 </tr>
                 <tr class="border-b border-stone-200">
                   <td class="py-2 px-3"><code class="text-red-600 font-mono">413</code></td>
@@ -668,17 +690,17 @@ send_webhook(
               </p>
             </div>
             <div class="border-l-4 border-sky-500 pl-4">
-              <h3 class="font-semibold text-stone-900 mb-1">Validate Payloads</h3>
+              <h3 class="font-semibold text-stone-900 mb-1">Use Structured Format When Possible</h3>
               <p class="text-sm text-stone-700">
-                Validate your payload before sending to catch errors early. Ensure sender is alphanumeric, 
-                title ≤ 200 chars, body ≤ 10KB.
+                While any JSON works, using our structured format (sender, title, body) gives you the 
+                best display with markdown support and clean formatting.
               </p>
             </div>
             <div class="border-l-4 border-sky-500 pl-4">
-              <h3 class="font-semibold text-stone-900 mb-1">Use Meaningful Senders</h3>
+              <h3 class="font-semibold text-stone-900 mb-1">Connect Services Directly</h3>
               <p class="text-sm text-stone-700">
-                Messages from the same sender are grouped into conversations. Use consistent, descriptive 
-                sender identifiers like "github-actions", "stripe-billing", or "monitoring-system".
+                For GitHub, Stripe, and other supported services, just paste the webhook URL directly into 
+                their settings. Relay auto-detects and formats the messages intelligently.
               </p>
             </div>
             <div class="border-l-4 border-amber-500 pl-4">
@@ -719,10 +741,10 @@ send_webhook(
           </p>
           <ul class="text-stone-700 space-y-2 mb-4">
             <li>• Verify the webhook URL and authentication token are correct</li>
-            <li>• Ensure your request payload matches the required format</li>
             <li>• Check that Content-Type is set to "application/json"</li>
-            <li>• Verify your sender field contains only alphanumeric characters</li>
-            <li>• Confirm body and data fields are within size limits</li>
+            <li>• Ensure your payload is valid JSON (any structure works)</li>
+            <li>• For custom senders, use the X-Webhook-Sender header or sender field</li>
+            <li>• Large payloads may be truncated - keep total size reasonable</li>
           </ul>
           <div class="bg-stone-100 border border-stone-300 rounded-lg p-4">
             <p class="text-sm text-stone-700">
