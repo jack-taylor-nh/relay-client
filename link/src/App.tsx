@@ -563,6 +563,10 @@ function NameEntryView({ linkId }: { linkId: string }) {
       sessionId.value = session.sessionId;
       conversationId.value = session.conversationId;
       visitorName.value = name.trim();
+      
+      // Give the server a moment to complete DB writes before navigating
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       currentView.value = 'chat';
     } catch (err: any) {
       console.error('Session creation error:', err);
@@ -762,7 +766,10 @@ function ChatView({ linkId }: { linkId: string }) {
     }
     
     function connectSSE() {
-      if (!visitorKeys.value) return;
+      if (!visitorKeys.value || !sessionId.value) {
+        console.log('[Link SSE] Skipping connection - no session yet');
+        return;
+      }
       
       const sseUrl = `${api.baseUrl}/link/${linkId}/stream/${encodeURIComponent(visitorKeys.value.publicKeyBase64)}`;
       console.log('[Link SSE] Connecting to:', sseUrl);
