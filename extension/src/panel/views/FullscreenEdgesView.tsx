@@ -131,73 +131,84 @@ export function FullscreenEdgesView() {
   return (
     <div class="h-full flex flex-col bg-[var(--color-bg-sunken)]">
       {/* Full-width Header */}
-      <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border-default)] bg-[var(--color-bg-elevated)]">
-        <div>
-          <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">Edges</h2>
-          <p class="text-sm text-[var(--color-text-secondary)] mt-0.5">
-            Edges are your communication surfaces. Create handles for native messaging or email aliases.
-          </p>
-        </div>
-        <Button
-          variant="secondary"
-          icon={
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-          }
-          onClick={() => setShowCreateModal(true)}
-        >
-          New Edge
-        </Button>
+      <div class="px-6 py-4 border-b border-[var(--color-border-default)] bg-[var(--color-bg-elevated)]">
+        <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">Edges</h2>
+        <p class="text-sm text-[var(--color-text-secondary)] mt-0.5">
+          Edges are your communication surfaces. Create handles for native messaging or email aliases.
+        </p>
       </div>
 
-      {/* Grid Layout Content */}
-      <div class="flex-1 overflow-y-auto p-6">
-        {allEdges.length === 0 ? (
-          <div class="flex flex-col items-center justify-center py-16 text-center">
-            <svg class="w-16 h-16 text-[var(--color-text-tertiary)] mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-            </svg>
-            <h3 class="text-xl font-semibold text-[var(--color-text-primary)] mb-2">No edges yet</h3>
-            <p class="text-base text-[var(--color-text-secondary)] mb-6 max-w-md">
-              Create a handle or email alias to get started!
-            </p>
-            <Button
-              variant="primary"
-              size="lg"
-              onClick={() => setShowCreateModal(true)}
-            >
-              Create your first edge
-            </Button>
-          </div>
-        ) : (
-          <div class="bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border-default)]">
-            {allEdges.map(edge => {
-              const rawEdge = edgeList.find(e => e.id === edge.id);
-              const hasWebhookDocs = edge.type === 'webhook' && rawEdge?.metadata?.webhookUrl && rawEdge?.metadata?.authToken;
-              
-              return (
-                <ListItemCard
-                  key={edge.id}
-                  icon={getEdgeIcon(edge.type as EdgeType)}
-                  title={edge.address}
-                  tags={[getEdgeTypeLabel(edge.type as EdgeType)]}
-                  action={
-                    edge.status === 'active'
-                      ? {
-                          label: 'Manage',
-                          onClick: () => openManageModal(edge.id, edge.type, edge.address),
-                          variant: 'secondary'
-                        }
-                      : undefined
+      {/* Centered Content Container */}
+      <div class="flex-1 overflow-y-auto p-6 flex justify-center">
+        <div class="w-full max-w-4xl">
+          {allEdges.length === 0 ? (
+            <div class="flex flex-col items-center justify-center py-16 text-center">
+              <svg class="w-16 h-16 text-[var(--color-text-tertiary)] mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+              <h3 class="text-xl font-semibold text-[var(--color-text-primary)] mb-2">No edges yet</h3>
+              <p class="text-base text-[var(--color-text-secondary)] mb-6 max-w-md">
+                Create a handle or email alias to get started!
+              </p>
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={() => setShowCreateModal(true)}
+              >
+                Create your first edge
+              </Button>
+            </div>
+          ) : (
+            <div class="space-y-4">
+              {/* New Edge Card */}
+              <div class="bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border-default)] p-4 flex items-center justify-between">
+                <div>
+                  <h3 class="text-base font-semibold text-[var(--color-text-primary)] mb-1">Create New Edge</h3>
+                  <p class="text-sm text-[var(--color-text-secondary)]">Add a new handle, email alias, or communication surface</p>
+                </div>
+                <Button
+                  variant="primary"
+                  icon={
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
                   }
-                />
-              );
-            })}
-          </div>
-        )}
+                  onClick={() => setShowCreateModal(true)}
+                >
+                  New Edge
+                </Button>
+              </div>
+
+              {/* Edge List */}
+              <div class="bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border-default)]">
+                {allEdges.map(edge => {
+                  const rawEdge = edgeList.find(e => e.id === edge.id);
+                  const hasWebhookDocs = edge.type === 'webhook' && rawEdge?.metadata?.webhookUrl && rawEdge?.metadata?.authToken;
+                  
+                  return (
+                    <ListItemCard
+                      key={edge.id}
+                      icon={getEdgeIcon(edge.type as EdgeType)}
+                      title={edge.address}
+                      tags={[getEdgeTypeLabel(edge.type as EdgeType)]}
+                      action={
+                        edge.status === 'active'
+                          ? {
+                              label: 'Manage',
+                              onClick: () => openManageModal(edge.id, edge.type, edge.address),
+                              variant: 'secondary'
+                            }
+                          : undefined
+                      }
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Create Edge Modal */}
