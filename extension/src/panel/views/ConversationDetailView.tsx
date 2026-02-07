@@ -1269,7 +1269,7 @@ export function ConversationDetailView() {
           width: 40px;
           height: 40px;
           border: none;
-          background-color: var(--color-primary);
+          background-color: var(--accent-9);
           color: white;
           border-radius: 8px;
           cursor: pointer;
