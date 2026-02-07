@@ -1,5 +1,16 @@
+/**
+ * TabBar Component - Enhanced with Radix Icons
+ * Custom tab navigation for extension (not using Radix Tabs due to custom layout needs)
+ */
+
 import { activeTab, type Tab } from '../App';
 import { hasUnreadMessages } from '../state';
+import { 
+  EnvelopeClosedIcon, 
+  PlusCircledIcon, 
+  LinkBreak2Icon, 
+  PersonIcon 
+} from '@radix-ui/react-icons';
 
 const tabs: { id: Tab; label: string; icon: string }[] = [
   { id: 'inbox', label: 'Inbox', icon: 'inbox' },
@@ -9,35 +20,17 @@ const tabs: { id: Tab; label: string; icon: string }[] = [
 ];
 
 function TabIcon({ icon }: { icon: string }) {
+  const iconProps = { width: 20, height: 20 };
+  
   switch (icon) {
     case 'inbox':
-      return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 12h-6l-2 3H10l-2-3H2" />
-          <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" />
-        </svg>
-      );
+      return <EnvelopeClosedIcon {...iconProps} />;
     case 'plus':
-      return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-      );
-    case 'user':
-      return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-          <circle cx="12" cy="7" r="4" />
-        </svg>
-      );
+      return <PlusCircledIcon {...iconProps} />;
     case 'edges':
-      return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-        </svg>
-      );
+      return <LinkBreak2Icon {...iconProps} />;
+    case 'user':
+      return <PersonIcon {...iconProps} />;
     default:
       return null;
   }
@@ -47,25 +40,29 @@ export function TabBar() {
   const showUnreadDot = hasUnreadMessages.value;
   
   return (
-    <nav class="flex bg-[var(--color-bg-elevated)] border-t border-[var(--color-border-default)]">
+    <nav class="flex" style={{ background: 'var(--gray-1)', borderTop: '1px solid var(--gray-6)' }}>
       {tabs.map((tab) => (
         <button
           key={tab.id}
           class={`flex-1 flex flex-col items-center justify-center gap-1 py-3 text-sm font-medium transition-all duration-150 relative ${
             activeTab.value === tab.id
-              ? 'text-[var(--color-text-primary)] bg-[var(--color-bg-sunken)]'
-              : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-sunken)]'
+              ? 'text-[var(--gray-12)]'
+              : 'text-[var(--gray-9)] hover:text-[var(--gray-11)]'
           }`}
+          style={{
+            background: activeTab.value === tab.id ? 'var(--gray-3)' : 'transparent',
+            cursor: 'pointer'
+          }}
           onClick={() => (activeTab.value = tab.id)}
         >
           {activeTab.value === tab.id && (
-            <span class="absolute top-0 left-0 right-0 h-0.5 bg-[var(--color-accent)]" />
+            <span class="absolute top-0 left-0 right-0 h-0.5" style={{ background: 'var(--blue-9)' }} />
           )}
           {/* Blue dot indicator for unread messages on inbox tab */}
           {tab.id === 'inbox' && showUnreadDot && activeTab.value !== 'inbox' && (
-            <span class="absolute top-2 right-1/4 w-2 h-2 bg-[var(--color-accent)] rounded-full" />
+            <span class="absolute top-2 right-1/4 w-2 h-2 rounded-full" style={{ background: 'var(--blue-9)' }} />
           )}
-          <span class={activeTab.value === tab.id ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}>
+          <span style={{ color: activeTab.value === tab.id ? 'var(--gray-12)' : 'var(--gray-9)' }}>
             <TabIcon icon={tab.icon} />
           </span>
           <span>{tab.label}</span>

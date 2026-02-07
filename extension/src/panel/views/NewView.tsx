@@ -1,312 +1,404 @@
-import { useState, useEffect } from 'preact/hooks';
-import { showToast, selectedConversationId, conversations, resolveHandle, edges, sendMessage, loadEdges } from '../state';
+import { useState, useEffect, useRef } from 'preact/hooks';
+import { showToast, selectedConversationId, conversations, resolveHandle, edges, sendMessage, loadEdges, loadConversations } from '../state';
 import { activeTab } from '../App';
-import { EdgeCard } from '../components/EdgeCard';
+import { ListItemCard } from '../components/ListItemCard';
+import { Button } from '../components/Button';
+import { getEdgeIcon, getEdgeTypeLabel, EdgeType } from '../utils/edgeHelpers';
+import type { Conversation } from '../../types';
+import { Box, Flex, Heading, Text, TextField } from '@radix-ui/themes';
+import { ChevronLeftIcon, ChevronRightIcon, LinkBreak2Icon } from '@radix-ui/react-icons';
+
+interface PreviousRecipient {
+  identifier: string; // handle or email
+  type: 'native' | 'email';
+  displayName?: string;
+  lastUsed: string;
+}
 
 export function NewView() {
-  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
-  const [recipientHandle, setRecipientHandle] = useState('');
-  const [message, setMessage] = useState('');
-  const [resolvedUser, setResolvedUser] = useState<{ 
-    handle: string; 
-    fingerprint: string; 
-    publicKey: string;
-    x25519PublicKey?: string;
-    edgeId?: string;
-  } | null>(null);
+  const [step, setStep] = useState<'selectEdge' | 'selectRecipient' | 'compose'>('selectEdge');
+  const [selectedEdge, setSelectedEdge] = useState<{ id: string; type: 'native' | 'email'; address: string } | null>(null);
+  const [recipientInput, setRecipientInput] = useState('');
+  const [filteredRecipients, setFilteredRecipients] = useState<PreviousRecipient[]>([]);
   const [isResolving, setIsResolving] = useState(false);
-  const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const allEdges = edges.value;
   const nativeEdges = allEdges.filter(e => e.type === 'native' && e.status === 'active');
   const emailEdges = allEdges.filter(e => e.type === 'email' && e.status === 'active');
-  const cleanHandle = recipientHandle.toLowerCase().replace(/^&/, '').trim();
 
   // Load edges when component mounts
   useEffect(() => {
     loadEdges();
   }, []);
 
-  // Step 1: Select which edge to use
-  if (!selectedEdge) {
+  // Focus input when entering recipient selection step
+  useEffect(() => {
+    if (step === 'selectRecipient' && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [step]);
+
+  // Get previous recipients from existing conversations
+  useEffect(() => {
+    if (step !== 'selectRecipient' || !recipientInput) {
+      setFilteredRecipients([]);
+      return;
+    }
+
+    const query = recipientInput.toLowerCase().replace(/^&/, '').trim();
+    if (query.length < 1) {
+      setFilteredRecipients([]);
+      return;
+    }
+
+    // Extract unique recipients from conversations
+    const recipients = new Map<string, PreviousRecipient>();
+    
+    conversations.value.forEach(conv => {
+      // For native conversations
+      if (conv.type === 'native' && selectedEdge?.type === 'native') {
+        const handle = conv.counterpartyName?.replace(/^&/, '');
+        if (handle && handle.toLowerCase().includes(query)) {
+          recipients.set(handle, {
+            identifier: handle,
+            type: 'native',
+            displayName: conv.counterpartyName || undefined,
+            lastUsed: conv.lastActivityAt || conv.createdAt
+          });
+        }
+      }
+      // For email conversations
+      if (conv.type === 'email' && selectedEdge?.type === 'email') {
+        const email = conv.counterpartyName;
+        if (email && email.toLowerCase().includes(query)) {
+          recipients.set(email, {
+            identifier: email,
+            type: 'email',
+            displayName: email,
+            lastUsed: conv.lastActivityAt || conv.createdAt
+          });
+        }
+      }
+    });
+
+    // Sort by last used
+    const sorted = Array.from(recipients.values()).sort((a, b) => 
+      new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime()
+    );
+
+    setFilteredRecipients(sorted.slice(0, 5)); // Show top 5
+  }, [recipientInput, step, selectedEdge, conversations.value]);
+
+  // Reset state
+  function resetFlow() {
+    setStep('selectEdge');
+    setSelectedEdge(null);
+    setRecipientInput('');
+    setFilteredRecipients([]);
+    setError(null);
+  }
+
+  // Step 1: Select edge
+  function handleEdgeSelect(edgeId: string, edgeType: 'native' | 'email', address: string) {
+    const edge = allEdges.find(e => e.id === edgeId);
+    if (!edge) return;
+
+    setSelectedEdge({ id: edgeId, type: edgeType, address });
+    setStep('selectRecipient');
+  }
+
+  // Step 2: Handle recipient selection/input
+  async function handleRecipientSubmit(recipientIdentifier?: string) {
+    const recipient = recipientIdentifier || recipientInput.trim();
+    
+    if (!recipient) {
+      setError('Please enter a recipient');
+      return;
+    }
+
+    if (!selectedEdge) return;
+
+    setError(null);
+
+    if (selectedEdge.type === 'native') {
+      // For native, resolve the handle
+      const cleanHandle = recipient.toLowerCase().replace(/^&/, '').trim();
+      
+      if (cleanHandle.length < 3) {
+        setError('Handle must be at least 3 characters');
+        return;
+      }
+
+      setIsResolving(true);
+      const result = await resolveHandle(cleanHandle);
+      setIsResolving(false);
+
+      if (!result.success || !result.x25519PublicKey || !result.edgeId) {
+        setError(result.error || `Handle &${cleanHandle} not found`);
+        return;
+      }
+
+      // Create local conversation immediately
+      createLocalConversation({
+        type: 'native',
+        counterpartyName: `&${cleanHandle}`,
+        counterpartyIdentifier: result.edgeId,
+        counterpartyPublicKey: result.x25519PublicKey,
+        senderEdgeId: selectedEdge.id,
+      });
+
+    } else if (selectedEdge.type === 'email') {
+      // For email, validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(recipient)) {
+        setError('Please enter a valid email address');
+        return;
+      }
+
+      // Create local conversation immediately
+      createLocalConversation({
+        type: 'email',
+        counterpartyName: recipient,
+        counterpartyIdentifier: recipient,
+        senderEdgeId: selectedEdge.id,
+      });
+    }
+  }
+
+  // Create a local conversation and switch to compose mode
+  function createLocalConversation(params: {
+    type: 'native' | 'email';
+    counterpartyName: string;
+    counterpartyIdentifier: string;
+    counterpartyPublicKey?: string;
+    senderEdgeId: string;
+  }) {
+    // Check if conversation already exists
+    const existingConv = conversations.value.find(c => 
+      c.type === params.type && 
+      c.counterpartyName === params.counterpartyName &&
+      c.myEdgeId === params.senderEdgeId
+    );
+
+    if (existingConv) {
+      // Navigate to existing conversation
+      selectedConversationId.value = existingConv.id;
+      activeTab.value = 'inbox';
+      showToast('Conversation already exists');
+      return;
+    }
+
+    // Create new local conversation with temporary ID
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const newConversation: Conversation = {
+      id: tempId,
+      type: params.type,
+      securityLevel: params.type === 'native' ? 'e2ee' : 'gateway_secured',
+      participants: [params.counterpartyIdentifier],
+      counterpartyName: params.counterpartyName,
+      lastMessagePreview: '',
+      lastActivityAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      unreadCount: 0,
+      myEdgeId: params.senderEdgeId,
+      counterpartyEdgeId: params.counterpartyIdentifier,
+      counterpartyX25519PublicKey: params.counterpartyPublicKey,
+    };
+
+    // Add to conversations list
+    conversations.value = [newConversation, ...conversations.value];
+    
+    // Navigate to the conversation
+    selectedConversationId.value = tempId;
+    activeTab.value = 'inbox';
+  }
+
+  // Step 1: Select Edge
+  if (step === 'selectEdge') {
     return (
-      <div class="flex flex-col h-full bg-[var(--color-bg-sunken)]">
-        <div class="px-4 py-4 bg-[var(--color-bg-elevated)] border-b border-[var(--color-border-default)]">
-          <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Start new conversation</h2>
-          <p class="text-sm text-[var(--color-text-secondary)] mt-1">Choose which edge to use</p>
-        </div>
+      <Box style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <Box px="4" py="4" style={{ borderBottom: '1px solid var(--gray-6)' }}>
+          <Heading as="h2" size="5" weight="medium">Start New Conversation</Heading>
+          <Text size="2" color="gray" style={{ marginTop: '4px' }}>Choose which edge to send from</Text>
+        </Box>
 
-        <div class="flex-1 overflow-y-auto p-4 space-y-3">
-          {/* Native Handles */}
-          {nativeEdges.length > 0 && (
-            <div>
-              <h3 class="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">Your Handles</h3>
-              {nativeEdges.map((edge) => (
-                <div key={edge.id} onClick={() => setSelectedEdge(`edge:${edge.id}`)}>
-                  <EdgeCard
-                    id={edge.id}
-                    type="native"
-                    address={edge.address.startsWith('&') ? edge.address : `&${edge.address}`}
-                    subtitle={edge.metadata?.displayName || null}
-                    status="active"
-                    createdAt={edge.createdAt}
-                    onCopy={() => {}}
-                    onDispose={() => {}}
-                    expandable={false}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
+        <Box style={{ flex: 1, overflow: 'auto' }} p="4">
+          {(nativeEdges.length > 0 || emailEdges.length > 0) ? (
+            <Flex direction="column" gap="4">
+              {/* Native Handles */}
+              {nativeEdges.length > 0 && (
+                <Box>
+                  <Heading as="h3" size="1" weight="medium" color="gray" style={{ textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', paddingLeft: '4px' }}>Your Handles</Heading>
+                  <Box style={{ backgroundColor: 'var(--gray-2)', borderRadius: 'var(--radius-3)', border: '1px solid var(--gray-6)' }}>
+                    {nativeEdges.map((edge) => {
+                      const displayAddress = edge.address.startsWith('&') ? edge.address : `&${edge.address}`;
+                      return (
+                        <ListItemCard
+                          key={edge.id}
+                          icon={getEdgeIcon('native')}
+                          title={displayAddress}
+                          tags={edge.metadata?.displayName ? [edge.metadata.displayName] : []}
+                          action={{
+                            label: 'Select',
+                            onClick: () => handleEdgeSelect(edge.id, 'native', displayAddress),
+                            variant: 'secondary'
+                          }}
+                        />
+                      );
+                    })}
+                  </Box>
+                </Box>
+              )}
 
-          {/* Email Aliases */}
-          {emailEdges.length > 0 && (
-            <div>
-              <h3 class="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">Email Aliases</h3>
-              {emailEdges.map((edge) => (
-                <div key={edge.id} onClick={() => setSelectedEdge(`edge:${edge.id}`)}>
-                  <EdgeCard
-                    id={edge.id}
-                    type="email"
-                    address={edge.address}
-                    subtitle={edge.label}
-                    status={edge.status}
-                    messageCount={edge.messageCount}
-                    createdAt={edge.createdAt}
-                    onCopy={() => {}}
-                    onDispose={() => {}}
-                    expandable={false}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Empty state */}
-          {allEdges.length === 0 && (
-            <div class="flex flex-col items-center justify-center py-12 text-center">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="text-[var(--color-text-tertiary)] mb-3">
-                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-              <h3 class="text-base font-semibold text-[var(--color-text-primary)] mb-1">No identities yet</h3>
-              <p class="text-sm text-[var(--color-text-secondary)] mb-4">Claim a handle or create an alias in the Edges tab</p>
-              <button
-                class="px-4 py-2 text-sm font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] rounded-md transition-colors"
+              {/* Email Aliases */}
+              {emailEdges.length > 0 && (
+                <Box>
+                  <Heading as="h3" size="1" weight="medium" color="gray" style={{ textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', paddingLeft: '4px' }}>Email Aliases</Heading>
+                  <Box style={{ backgroundColor: 'var(--gray-2)', borderRadius: 'var(--radius-3)', border: '1px solid var(--gray-6)' }}>
+                    {emailEdges.map((edge) => (
+                      <ListItemCard
+                        key={edge.id}
+                        icon={getEdgeIcon('email')}
+                        title={edge.address}
+                        tags={edge.label ? [edge.label] : []}
+                        action={{
+                          label: 'Select',
+                          onClick: () => handleEdgeSelect(edge.id, 'email', edge.address),
+                          variant: 'secondary'
+                        }}
+                      />
+                    ))}
+                  </Box>
+                </Box>
+              )}
+            </Flex>
+          ) : (
+            <Flex direction="column" align="center" justify="center" style={{ padding: '64px 0', textAlign: 'center' }}>
+              <LinkBreak2Icon width="48" height="48" color="gray" style={{ opacity: 0.4, marginBottom: '16px' }} />
+              <Heading as="h3" size="4" mb="2">No edges yet</Heading>
+              <Text size="2" color="gray" mb="5">Create a handle or email alias to start conversations</Text>
+              <Button
+                variant="primary"
                 onClick={() => { activeTab.value = 'edges'; }}
               >
                 Go to Edges
-              </button>
-            </div>
+              </Button>
+            </Flex>
           )}
-        </div>
-      </div>
+        </Box>
+      </Box>
     );
   }
 
-  // Step 2: Resolve recipient handle
-  async function handleResolve() {
-    if (!cleanHandle || cleanHandle.length < 3) {
-      setError('Handle must be at least 3 characters');
-      return;
-    }
-    
-    setError(null);
-    setIsResolving(true);
-    
-    const result = await resolveHandle(cleanHandle);
-    
-    // Phase 6: Use edge-based resolution (no identity data)
-    if (result.success && result.x25519PublicKey && result.edgeId) {
-      setResolvedUser({
-        handle: result.handle || cleanHandle,
-        fingerprint: result.edgeId,  // Use edgeId as identifier
-        publicKey: result.x25519PublicKey,  // Use edge key
-        x25519PublicKey: result.x25519PublicKey,
-        edgeId: result.edgeId,
-      });
-    } else {
-      setError(result.error || `Handle &${cleanHandle} not found`);
-    }
-    
-    setIsResolving(false);
-  }
+  // Step 2: Select/Enter Recipient
+  if (step === 'selectRecipient') {
+    return (
+      <Box style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <Box px="4" py="3" style={{ borderBottom: '1px solid var(--gray-6)' }}>
+          <button
+            class="flex items-center gap-2 text-sm transition-colors mb-2"
+            style={{ color: 'var(--gray-11)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+            onClick={resetFlow}
+          >
+            <ChevronLeftIcon width="16" height="16" />
+            Back
+          </button>
+          <Heading as="h2" size="5" weight="medium">Select Recipient</Heading>
+          <Text size="2" color="gray" style={{ marginTop: '4px' }}>
+            Sending from: <Text weight="medium" style={{ color: 'var(--gray-12)' }}>{selectedEdge?.address}</Text>
+          </Text>
+        </Box>
 
-  // Step 3: Send message using Double Ratchet encryption
-  async function handleSend() {
-    if (!resolvedUser || !message.trim() || !selectedEdge) return;
-    
-    setIsSending(true);
-    
-    try {
-      // Get sender edge
-      const edgeId = selectedEdge.replace('edge:', '');
-      const senderEdge = allEdges.find(e => e.id === edgeId);
-      
-      if (!senderEdge) {
-        setError('Sender edge not found');
-        setIsSending(false);
-        return;
-      }
-
-      if (senderEdge.type !== 'native') {
-        setError('Native messaging requires using a native handle edge');
-        setIsSending(false);
-        return;
-      }
-
-      // Get the sender handle address (without the & prefix)
-      const senderHandle = senderEdge.address.replace(/^&/, '');
-
-      // Use background worker's SEND_NATIVE_MESSAGE which handles Double Ratchet encryption
-      const result = await sendMessage<{
-        success: boolean;
-        conversationId?: string;
-        messageId?: string;
-        error?: string;
-      }>({
-        type: 'SEND_NATIVE_MESSAGE',
-        payload: {
-          recipientHandle: resolvedUser.handle,
-          senderHandle: senderHandle,
-          content: message.trim(),
-        },
-      });
-
-      if (!result.success) {
-        setError(result.error || 'Failed to send message');
-        setIsSending(false);
-        return;
-      }
-      
-      // Add conversation to list
-      const newConversation = {
-        id: result.conversationId!,
-        type: 'native' as const,
-        securityLevel: 'e2ee' as const,
-        participants: [resolvedUser.fingerprint],
-        counterpartyName: `&${resolvedUser.handle}`,
-        lastMessagePreview: message.trim().slice(0, 50),
-        lastActivityAt: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-        unreadCount: 0,
-      };
-      
-      conversations.value = [newConversation, ...conversations.value];
-      selectedConversationId.value = result.conversationId!;
-      activeTab.value = 'inbox';
-      
-      showToast(`Message sent to &${resolvedUser.handle}`);
-    } catch (error) {
-      console.error('Send error:', error);
-      setError('Network error');
-    }
-    
-    setIsSending(false);
-  }
-
-  // Compose UI
-  return (
-    <div class="flex flex-col h-full bg-[var(--color-bg-sunken)]">
-      <div class="px-4 py-3 bg-[var(--color-bg-elevated)] border-b border-[var(--color-border-default)]">
-        <button
-          class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] mb-2"
-          onClick={() => {
-            setSelectedEdge(null);
-            setResolvedUser(null);
-            setRecipientHandle('');
-            setMessage('');
-            setError(null);
-          }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          Back
-        </button>
-        <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">New conversation</h2>
-      </div>
-
-      <div class="flex-1 overflow-y-auto p-4 space-y-4">
-        {!resolvedUser ? (
-          <>
-            <div>
-              <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">Recipient handle</label>
-              <div class="flex gap-2">
-                <div class="relative flex-1">
-                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)] font-medium">&</span>
-                  <input
-                    type="text"
-                    class="w-full pl-7 pr-3 py-2.5 text-sm border border-[var(--color-border-strong)] rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-                    placeholder="username"
-                    value={recipientHandle}
-                    onInput={(e) => {
-                      setRecipientHandle((e.target as HTMLInputElement).value);
-                      setError(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleResolve();
-                      }
-                    }}
-                  />
-                </div>
-                <button
-                  class="px-4 py-2.5 text-sm font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] disabled:bg-[var(--color-text-tertiary)] rounded-lg transition-colors"
-                  onClick={handleResolve}
-                  disabled={isResolving || cleanHandle.length < 3}
-                >
-                  {isResolving ? 'Finding...' : 'Find'}
-                </button>
-              </div>
-              {error && <p class="text-xs text-red-600 mt-1.5">{error}</p>}
-            </div>
-          </>
-        ) : (
-          <>
-            <div class="p-4 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg">
-              <div class="flex items-center justify-between mb-2">
-                <div>
-                  <div class="text-sm font-semibold text-[var(--color-text-primary)]">&{resolvedUser.handle}</div>
-                  <div class="text-xs font-mono text-[var(--color-text-tertiary)]">{resolvedUser.fingerprint.slice(0, 16)}...</div>
-                </div>
-                <button
-                  class="text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] font-medium"
-                  onClick={() => {
-                    setResolvedUser(null);
-                    setError(null);
-                  }}
-                >
-                  Change
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">Message</label>
-              <textarea
-                class="w-full px-3 py-2.5 text-sm border border-[var(--color-border-strong)] rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent resize-none"
-                placeholder="Type your message..."
-                rows={6}
-                value={message}
-                onInput={(e) => setMessage((e.target as HTMLTextAreaElement).value)}
+        <Box style={{ flex: 1, overflow: 'auto' }} p="4">
+          <Box mb="4">
+            <div class="relative">
+              {selectedEdge?.type === 'native' && (
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 font-semibold text-sm" style={{ color: 'var(--gray-10)' }}>&</span>
+              )}
+              <input
+                ref={inputRef}
+                type="text"
+                class={`w-full ${selectedEdge?.type === 'native' ? 'pl-7' : 'pl-3'} pr-3 py-3 text-sm rounded-lg`}
+                style={{ 
+                  border: '1px solid var(--gray-7)', 
+                  backgroundColor: 'var(--gray-2)', 
+                  color: 'var(--gray-12)'
+                }}
+                placeholder={selectedEdge?.type === 'native' ? 'Enter handle (e.g., username)' : 'Enter email address'}
+                value={recipientInput}
+                onInput={(e) => {
+                  setRecipientInput((e.target as HTMLInputElement).value);
+                  setError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && recipientInput.trim()) {
+                    e.preventDefault();
+                    handleRecipientSubmit();
+                  }
+                }}
               />
             </div>
+            {error && (
+              <Text size="1" style={{ color: 'var(--red-11)', marginTop: '8px' }}>{error}</Text>
+            )}
+          </Box>
 
-            {error && <div class="p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded-lg">{error}</div>}
+          {/* Previous Recipients */}
+          {filteredRecipients.length > 0 && (
+            <Box>
+              <Heading as="h3" size="1" weight="medium" color="gray" style={{ textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', paddingLeft: '4px' }}>Recent Conversations</Heading>
+              <Box style={{ backgroundColor: 'var(--gray-2)', borderRadius: 'var(--radius-3)', border: '1px solid var(--gray-6)' }}>
+                {filteredRecipients.map((recipient) => (
+                  <button
+                    key={recipient.identifier}
+                    onClick={() => {
+                      setRecipientInput(recipient.identifier);
+                      handleRecipientSubmit(recipient.identifier);
+                    }}
+                    class="w-full flex items-center gap-3 p-3 transition-colors text-left"
+                    style={{ 
+                      backgroundColor: 'transparent',
+                      borderBottom: '1px solid var(--gray-6)',
+                      border: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <span class="text-xl">{recipient.type === 'native' ? '👤' : '✉️'}</span>
+                    <Box style={{ flex: 1, minWidth: 0 }}>
+                      <Text size="2" weight="medium" style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {recipient.displayName}
+                      </Text>
+                      <Text size="1" color="gray">
+                        {recipient.type === 'native' ? 'Native handle' : 'Email'}
+                      </Text>
+                    </Box>
+                    <ChevronRightIcon width="16" height="16" color="gray" style={{ flexShrink: 0 }} />
+                  </button>
+                ))}
+              </Box>
+            </Box>
+          )}
 
-            <button
-              class="w-full px-6 py-3 text-base font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] disabled:bg-[var(--color-text-tertiary)] disabled:cursor-not-allowed rounded-lg transition-colors"
-              onClick={handleSend}
-              disabled={isSending || !message.trim()}
-            >
-              {isSending ? 'Sending...' : 'Send message'}
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
+          {/* Action button for manual entry */}
+          {recipientInput.trim() && (
+            <Box mt="6">
+              <Button
+                variant="primary"
+                fullWidth
+                onClick={() => handleRecipientSubmit()}
+                disabled={isResolving}
+                loading={isResolving}
+              >
+                {isResolving ? 'Resolving...' : `Continue with ${selectedEdge?.type === 'native' ? `&${recipientInput.replace(/^&/, '')}` : recipientInput}`}
+              </Button>
+            </Box>
+          )}
+        </Box>
+      </Box>
+    );
+  }
+
+  return null;
 }

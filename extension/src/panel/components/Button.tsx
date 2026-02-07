@@ -1,10 +1,15 @@
-import { ComponentChildren } from 'preact';
+/**
+ * Button Component - Radix UI Migration
+ * Uses Radix Button with Relay-specific prop mappings
+ */
+
+import { Button as RadixButton } from '@radix-ui/themes';
+import type { ComponentChildren } from 'preact';
 
 interface ButtonProps {
-  variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
-  size?: 'sm' | 'md' | 'lg';
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'soft' | 'outline';
+  size?: 'sm' | 'md' | 'lg' | '1' | '2' | '3';
   icon?: ComponentChildren;
-  iconPosition?: 'left' | 'right';
   disabled?: boolean;
   loading?: boolean;
   fullWidth?: boolean;
@@ -15,10 +20,9 @@ interface ButtonProps {
 }
 
 export function Button({
-  variant = 'secondary',
+  variant = 'soft',
   size = 'md',
   icon,
-  iconPosition = 'left',
   disabled = false,
   loading = false,
   fullWidth = false,
@@ -27,66 +31,51 @@ export function Button({
   children,
   className = ''
 }: ButtonProps) {
-  const getVariantClasses = () => {
+  // Map legacy variants to Radix variants and colors
+  const getRadixProps = () => {
     switch (variant) {
       case 'primary':
-        return 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] border-transparent';
+        return { variant: 'solid' as const, color: 'blue' as const };
       case 'danger':
-        return 'bg-[var(--color-error)] text-white hover:bg-[var(--color-error)] hover:opacity-90 border-transparent';
+        return { variant: 'solid' as const, color: 'red' as const };
       case 'ghost':
-        return 'bg-transparent text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] border-transparent';
+        return { variant: 'ghost' as const, color: 'gray' as const };
       case 'secondary':
+        return { variant: 'outline' as const, color: 'gray' as const };
+      case 'soft':
       default:
-        return 'bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] border-[var(--color-border-default)]';
+        return { variant: 'soft' as const, color: 'gray' as const };
     }
   };
 
-  const getSizeClasses = () => {
+  // Map size to Radix size (1=sm, 2=md, 3=lg)
+  const getRadixSize = () => {
+    if (size === '1' || size === '2' || size === '3') return size;
     switch (size) {
-      case 'sm':
-        return 'px-3 py-1.5 text-xs';
-      case 'lg':
-        return 'px-6 py-3 text-base';
+      case 'sm': return '1' as const;
+      case 'lg': return '3' as const;
       case 'md':
-      default:
-        return 'px-4 py-2 text-sm';
+      default: return '2' as const;
     }
   };
 
-  const iconSize = size === 'sm' ? 14 : size === 'lg' ? 20 : 16;
+  const { variant: radixVariant, color } = getRadixProps();
+  const radixSize = getRadixSize();
 
   return (
-    <button
-      type={type}
+    <RadixButton
+      variant={radixVariant}
+      color={color}
+      size={radixSize}
+      disabled={disabled}
+      loading={loading}
       onClick={onClick}
-      disabled={disabled || loading}
-      class={`
-        inline-flex items-center justify-center gap-2 font-medium rounded-lg
-        border transition-all duration-150
-        disabled:opacity-50 disabled:cursor-not-allowed
-        ${getVariantClasses()}
-        ${getSizeClasses()}
-        ${fullWidth ? 'w-full' : ''}
-        ${className}
-      `}
+      type={type}
+      className={`${fullWidth ? 'w-full' : ''} ${className}`}
+      style={{ width: fullWidth ? '100%' : undefined }}
     >
-      {loading && (
-        <svg class="animate-spin" width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-      )}
-      {!loading && icon && iconPosition === 'left' && (
-        <span class="flex-shrink-0" style={`width: ${iconSize}px; height: ${iconSize}px;`}>
-          {icon}
-        </span>
-      )}
-      <span>{children}</span>
-      {!loading && icon && iconPosition === 'right' && (
-        <span class="flex-shrink-0" style={`width: ${iconSize}px; height: ${iconSize}px;`}>
-          {icon}
-        </span>
-      )}
-    </button>
+      {icon && <span>{icon}</span>}
+      {children}
+    </RadixButton>
   );
 }

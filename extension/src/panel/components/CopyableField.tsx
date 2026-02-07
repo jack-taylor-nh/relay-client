@@ -1,4 +1,11 @@
+/**
+ * CopyableField Component - Radix UI Migration
+ * Uses Radix TextField and IconButton
+ */
+
 import { useState } from 'preact/hooks';
+import { TextField, IconButton, Flex, Text, Code } from '@radix-ui/themes';
+import { CopyIcon, CheckIcon } from '@radix-ui/react-icons';
 
 interface CopyableFieldProps {
   value: string;
@@ -6,9 +13,10 @@ interface CopyableFieldProps {
   helperText?: string;
   onCopy?: () => void;
   className?: string;
+  variant?: 'field' | 'code';
 }
 
-export function CopyableField({ value, label, helperText, onCopy, className = '' }: CopyableFieldProps) {
+export function CopyableField({ value, label, helperText, onCopy, className = '', variant = 'field' }: CopyableFieldProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -23,40 +31,37 @@ export function CopyableField({ value, label, helperText, onCopy, className = ''
   };
 
   return (
-    <div class={className}>
+    <Flex direction="column" gap="2" className={className}>
       {label && (
-        <label class="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5 uppercase tracking-wider">
+        <Text size="2" weight="medium" style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           {label}
-        </label>
+        </Text>
       )}
-      <div class="flex items-center gap-2">
-        <code class="flex-1 font-mono text-xs px-3 py-2 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded overflow-hidden text-ellipsis whitespace-nowrap text-[var(--color-text-primary)]">
-          {value}
-        </code>
-        <button 
-          class={`p-1.5 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded cursor-pointer transition-all duration-200 flex-shrink-0 ${
-            copied 
-              ? 'text-[var(--color-success)] border-[var(--color-success)]' 
-              : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-active)] hover:text-[var(--color-text-primary)]'
-          }`}
+      <Flex gap="2" align="center">
+        {variant === 'code' ? (
+          <Code size="2" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {value}
+          </Code>
+        ) : (
+          <TextField.Root
+            value={value}
+            readOnly
+            size="2"
+            style={{ flex: 1 }}
+          />
+        )}
+        <IconButton
+          variant="soft"
+          color={copied ? 'green' : 'gray'}
           onClick={handleCopy}
           title={copied ? 'Copied!' : 'Copy'}
         >
-          {copied ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-            </svg>
-          )}
-        </button>
-      </div>
+          {copied ? <CheckIcon /> : <CopyIcon />}
+        </IconButton>
+      </Flex>
       {helperText && (
-        <small class="block mt-1 text-xs text-[var(--color-text-tertiary)]">{helperText}</small>
+        <Text size="1" color="gray">{helperText}</Text>
       )}
-    </div>
+    </Flex>
   );
 }

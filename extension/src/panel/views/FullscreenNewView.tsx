@@ -4,6 +4,8 @@ import { showToast, selectedConversationId, conversations, resolveHandle, edges,
 import { activeTab } from '../App';
 import { EdgeCard } from '../components/EdgeCard';
 import { FullscreenInboxView } from './FullscreenInboxView';
+import { Box, Flex, Heading, Text } from '@radix-ui/themes';
+import { ChevronLeftIcon } from '@radix-ui/react-icons';
 
 // Track state for fullscreen new view
 const selectedEdge = signal<string | null>(null);

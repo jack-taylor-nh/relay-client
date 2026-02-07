@@ -4,6 +4,8 @@ import { ConversationItem } from '../components/ConversationItem';
 import { ConversationDetailView } from './ConversationDetailView';
 import { Button } from '../components/Button';
 import { activeTab } from '../App';
+import { Box, Flex, Heading, Text, IconButton } from '@radix-ui/themes';
+import { EnvelopeClosedIcon, ReloadIcon } from '@radix-ui/react-icons';
 
 export function InboxView() {
   const convos = conversations.value;
@@ -23,49 +25,47 @@ export function InboxView() {
 
   if (isEmpty) {
     return (
-      <div class="flex flex-col items-center justify-center h-full text-center px-5 py-10 bg-[var(--color-bg-sunken)]">
-        <svg class="w-12 h-12 text-[var(--color-text-tertiary)] mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M22 12h-6l-2 3H10l-2-3H2" />
-          <path d="M5.45 5.11L2 12v6a2 2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" />
-        </svg>
-        <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-2">No conversations yet</h3>
-        <p class="text-sm text-[var(--color-text-secondary)] mb-4">Start a chat with another handle or create an email alias to receive messages.</p>
+      <Flex direction="column" align="center" justify="center" style={{ height: '100%' }} className="text-center px-5 py-10" p="5">
+        <EnvelopeClosedIcon width="48" height="48" color="gray" style={{ opacity: 0.4, marginBottom: '16px' }} />
+        <Heading as="h3" size="5" mb="2">No conversations yet</Heading>
+        <Text size="2" color="gray" mb="4" style={{ maxWidth: '300px' }}>
+          Start a chat with another handle or create an email alias to receive messages.
+        </Text>
         <Button 
           variant="primary"
           onClick={() => { activeTab.value = 'new'; }}
         >
           Start a chat
         </Button>
-      </div>
+      </Flex>
     );
   }
 
   return (
-    <div class="flex-1 overflow-y-auto flex flex-col">
+    <Box style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       {/* Header with refresh button */}
-      <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border-default)] bg-[var(--color-bg-elevated)]">
-        <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Inbox</h2>
-        <button
-          class={`p-2 rounded-md transition-all duration-150 ${refreshing ? 'text-sky-600' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'}`}
+      <Flex 
+        align="center" 
+        justify="between" 
+        px="4" 
+        py="3" 
+        style={{ borderBottom: '1px solid var(--gray-6)' }}
+      >
+        <Heading as="h2" size="5" weight="medium">Inbox</Heading>
+        <IconButton
+          variant="ghost"
+          color={refreshing ? 'blue' : 'gray'}
           onClick={() => loadConversations()}
           disabled={refreshing}
           title="Refresh conversations"
+          className={refreshing ? 'animate-spin' : ''}
         >
-          <svg 
-            class={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            stroke="currentColor" 
-            stroke-width="2"
-          >
-            <path d="M21 12a9 9 0 11-2.52-6.25" />
-            <path d="M21 3v6h-6" />
-          </svg>
-        </button>
-      </div>
+          <ReloadIcon width="18" height="18" />
+        </IconButton>
+      </Flex>
 
       {/* Conversation list */}
-      <div class="flex-1 overflow-y-auto">
+      <Box style={{ flex: 1, overflow: 'auto' }}>
         {convos.map((convo) => (
           <ConversationItem
             key={convo.id}
@@ -76,7 +76,7 @@ export function InboxView() {
             }}
           />
         ))}
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 }

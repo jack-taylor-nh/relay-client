@@ -1,17 +1,19 @@
 import { currentIdentity, lockWallet, showToast } from '../state';
 import { CopyableField } from '../components/CopyableField';
 import { Button } from '../components/Button';
+import { Box, Flex, Heading, Text, Strong } from '@radix-ui/themes';
+import { LockClosedIcon } from '@radix-ui/react-icons';
 
 export function IdentityView() {
   const identity = currentIdentity.value;
 
   if (!identity) {
     return (
-      <div class="h-full flex flex-col bg-[var(--color-bg-sunken)]">
-        <div class="flex items-center justify-center h-full text-[var(--color-text-secondary)]">
-          <p>No identity loaded</p>
-        </div>
-      </div>
+      <Box style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <Flex align="center" justify="center" style={{ height: '100%' }}>
+          <Text color="gray">No identity loaded</Text>
+        </Flex>
+      </Box>
     );
   }
 
@@ -21,22 +23,28 @@ export function IdentityView() {
   }
 
   return (
-    <div class="h-full flex flex-col bg-[var(--color-bg-sunken)]">
-      <div class="flex items-center justify-between px-4 py-4 border-b border-[var(--color-border-default)] bg-[var(--color-bg-elevated)]">
-        <h2 class="text-lg font-semibold text-[var(--color-text-primary)] m-0">Identity</h2>
+    <Box style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Flex 
+        align="center" 
+        justify="between" 
+        px="4" 
+        py="4" 
+        style={{ borderBottom: '1px solid var(--gray-6)' }}
+      >
+        <Heading as="h2" size="5" weight="medium">Identity</Heading>
         <Button variant="secondary" onClick={handleLock}>
           Lock
         </Button>
-      </div>
+      </Flex>
 
-      <div class="flex-1 overflow-y-auto p-5">
-        <div class="mb-8">
-          <h3 class="text-base font-semibold text-[var(--color-text-primary)] m-0 mb-2">Your Identity</h3>
-          <p class="text-sm text-[var(--color-text-secondary)] m-0 mb-4">
+      <Box style={{ flex: 1, overflow: 'auto' }} p="5">
+        <Box mb="6">
+          <Heading as="h3" size="4" mb="2">Your Identity</Heading>
+          <Text size="2" color="gray" mb="4">
             Your identity is cryptographically secured. Only you can decrypt your messages.
-          </p>
+          </Text>
 
-          <div class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg p-4">
+          <Box style={{ backgroundColor: 'var(--gray-2)', border: '1px solid var(--gray-6)', borderRadius: 'var(--radius-3)' }} p="4">
             <CopyableField
               label="Fingerprint"
               value={identity.id}
@@ -56,50 +64,66 @@ export function IdentityView() {
             )}
 
             {identity.handle && (
-              <div class="mb-0">
-                <label class="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5 uppercase tracking-wider">Primary Handle</label>
-                <div class="flex items-center gap-2">
-                  <span class="text-base font-semibold text-slate-700">&{identity.handle}</span>
-                </div>
-                <small class="block mt-1 text-xs text-[var(--color-text-tertiary)]">Manage all handles in the Edges tab</small>
-              </div>
+              <Box mb="0">
+                <Text as="label" size="1" weight="medium" color="gray" style={{ display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
+                  Primary Handle
+                </Text>
+                <Flex align="center" gap="2">
+                  <Text size="4" weight="bold" style={{ color: 'var(--slate-700)' }}>&{identity.handle}</Text>
+                </Flex>
+                <Text size="1" color="gray" style={{ display: 'block', marginTop: '4px' }}>
+                  Manage all handles in the Edges tab
+                </Text>
+              </Box>
             )}
-          </div>
-        </div>
+          </Box>
+        </Box>
 
         {/* Security highlights - same as onboarding complete screen */}
-        <div class="w-full bg-gradient-to-br from-slate-50 to-sky-50 border border-slate-200 rounded-xl p-5 mb-6">
-          <h3 class="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            </svg>
+        <Box 
+          style={{ 
+            background: 'linear-gradient(to bottom right, var(--gray-2), var(--blue-2))', 
+            border: '1px solid var(--gray-6)',
+            borderRadius: 'var(--radius-3)'
+          }} 
+          p="5" 
+          mb="6"
+        >
+          <Heading as="h3" size="3" mb="3" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <LockClosedIcon width="16" height="16" />
             Your privacy, by design
-          </h3>
-          <div class="space-y-3 text-sm">
-            <div class="flex items-start gap-3">
-              <span class="text-emerald-600 mt-0.5">✓</span>
-              <div>
-                <strong class="text-slate-800">Zero-knowledge architecture</strong>
-                <p class="text-slate-600 text-xs mt-0.5">We can't read your messages — ever. All encryption happens on your device.</p>
-              </div>
-            </div>
-            <div class="flex items-start gap-3">
-              <span class="text-emerald-600 mt-0.5">✓</span>
-              <div>
-                <strong class="text-slate-800">Disposable edges</strong>
-                <p class="text-slate-600 text-xs mt-0.5">Every handle and email alias is isolated. Burn one, keep the rest.</p>
-              </div>
-            </div>
-            <div class="flex items-start gap-3">
-              <span class="text-emerald-600 mt-0.5">✓</span>
-              <div>
-                <strong class="text-slate-800">You own your identity</strong>
-                <p class="text-slate-600 text-xs mt-0.5">Your cryptographic keys live on your device. No accounts, no passwords stored with us.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+          </Heading>
+          <Flex direction="column" gap="3">
+            <Flex align="start" gap="3">
+              <Text style={{ color: 'var(--green-10)', marginTop: '2px' }}>✓</Text>
+              <Box>
+                <Strong>Zero-knowledge architecture</Strong>
+                <Text as="p" size="1" color="gray" style={{ marginTop: '2px' }}>
+                  We can't read your messages — ever. All encryption happens on your device.
+                </Text>
+              </Box>
+            </Flex>
+            <Flex align="start" gap="3">
+              <Text style={{ color: 'var(--green-10)', marginTop: '2px' }}>✓</Text>
+              <Box>
+                <Strong>Disposable edges</Strong>
+                <Text as="p" size="1" color="gray" style={{ marginTop: '2px' }}>
+                  Every handle and email alias is isolated. Burn one, keep the rest.
+                </Text>
+              </Box>
+            </Flex>
+            <Flex align="start" gap="3">
+              <Text style={{ color: 'var(--green-10)', marginTop: '2px' }}>✓</Text>
+              <Box>
+                <Strong>You own your identity</Strong>
+                <Text as="p" size="1" color="gray" style={{ marginTop: '2px' }}>
+                  Your cryptographic keys live on your device. No accounts, no passwords stored with us.
+                </Text>
+              </Box>
+            </Flex>
+          </Flex>
+        </Box>
+      </Box>
+    </Box>
   );
 }

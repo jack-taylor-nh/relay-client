@@ -5,6 +5,8 @@ import { ListItemCard } from '../components/ListItemCard';
 import { Modal, ConfirmModal } from '../components/Modal';
 import { AlertCard } from '../components/AlertCard';
 import { getEdgeIcon, getEdgeTypeLabel, EdgeType } from '../utils/edgeHelpers';
+import { Box, Flex, Heading, Text } from '@radix-ui/themes';
+import { PlusIcon } from '@radix-ui/react-icons';
 
 export function FullscreenEdgesView() {
   const [showCreateModal, setShowCreateModal] = useState(false);

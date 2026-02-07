@@ -18,6 +18,7 @@ import {
   CompleteScreen,
 } from './views/OnboardingViews';
 import { appState, onboardingStep, toastMessage } from './state';
+import { RadixThemeProvider } from '../lib/RadixThemeProvider';
 
 export type Tab = 'inbox' | 'new' | 'edges' | 'identity';
 
@@ -187,12 +188,12 @@ function Toast() {
 
 export function App() {
   return (
-    <>
+    <RadixThemeProvider>
       {appState.value === 'loading' && <LoadingScreen />}
       {appState.value === 'onboarding' && <OnboardingFlow />}
       {appState.value === 'locked' && <LockScreen />}
       {appState.value === 'unlocked' && <MainApp />}
       <Toast />
-    </>
+    </RadixThemeProvider>
   );
 }

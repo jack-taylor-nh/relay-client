@@ -5,6 +5,8 @@ import { Button } from '../components/Button';
 import { Modal, ConfirmModal } from '../components/Modal';
 import { AlertCard } from '../components/AlertCard';
 import { getEdgeIcon, getEdgeTypeLabel, EdgeType } from '../utils/edgeHelpers';
+import { Box, Flex, Heading, Text } from '@radix-ui/themes';
+import { PlusIcon } from '@radix-ui/react-icons';
 
 export function EdgesView() {
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -132,34 +134,29 @@ export function EdgesView() {
   });
 
   return (
-    <div class="h-full flex flex-col">
-      <div class="flex items-center justify-between px-4 py-4 border-b border-[var(--color-border-default)]">
-        <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Edges</h2>
+    <Box style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Flex align="center" justify="between" px="4" py="4" style={{ borderBottom: '1px solid var(--gray-6)' }}>
+        <Heading as="h2" size="5" weight="medium">Edges</Heading>
         <Button
           variant="secondary"
-          icon={
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-          }
+          icon={<PlusIcon width="16" height="16" />}
           onClick={() => setShowCreateModal(true)}
         >
           New Edge
         </Button>
-      </div>
+      </Flex>
 
-      <p class="px-4 py-3 text-sm text-[var(--color-text-secondary)] bg-[var(--color-bg-elevated)] border-b border-[var(--color-border-default)] m-0">
+      <Text size="2" color="gray" px="4" py="3" style={{ backgroundColor: 'var(--gray-2)', borderBottom: '1px solid var(--gray-6)', margin: 0 }}>
         Edges are your communication surfaces. Create handles for native messaging or email aliases.
-      </p>
+      </Text>
 
-      <div class="flex-1 overflow-y-auto">
+      <Box style={{ flex: 1, overflow: 'auto' }}>
         {allEdges.length === 0 ? (
-          <div class="text-center py-10 px-5 text-[var(--color-text-secondary)]">
-            <p>No edges yet. Create a handle or email alias to get started!</p>
-          </div>
+          <Flex align="center" justify="center" direction="column" style={{ textAlign: 'center', padding: '40px 20px' }}>
+            <Text color="gray">No edges yet. Create a handle or email alias to get started!</Text>
+          </Flex>
         ) : (
-          <div class="bg-[var(--color-bg-elevated)]">
+          <Box>
             {allEdges.map(edge => {
               const rawEdge = edgeList.find(e => e.id === edge.id);
               const hasWebhookDocs = edge.type === 'webhook' && rawEdge?.metadata?.webhookUrl && rawEdge?.metadata?.authToken;
@@ -182,9 +179,9 @@ export function EdgesView() {
                 />
               );
             })}
-          </div>
+          </Box>
         )}
-      </div>
+      </Box>
 
       {/* Create Edge Modal */}
       <Modal
@@ -417,6 +414,6 @@ export function EdgesView() {
           </div>
         )}
       </Modal>
-    </div>
+    </Box>
   );
 }

@@ -2,6 +2,8 @@ import { useState, useEffect } from 'preact/hooks';
 import { CodeBlock as SharedCodeBlock } from '../components/CodeBlock';
 import { CopyableField } from '../components/CopyableField';
 import { AlertCard } from '../components/AlertCard';
+import { Box, Flex, Heading, Text, IconButton, Button as RadixButton, Code, Strong, Separator, Table } from '@radix-ui/themes';
+import { Cross2Icon, CheckIcon, CopyIcon } from '@radix-ui/react-icons';
 
 // Inline RelayLogo component
 function RelayLogo({ className }: { className?: string }) {
@@ -96,68 +98,83 @@ export function WebhookDocsView({ edgeId, webhookUrl, authToken, onClose }: Webh
     };
 
     return (
-      <div class="relative mb-4">
-        <div class="absolute top-2 left-3 text-xs text-[var(--color-text-tertiary)] font-mono uppercase tracking-wide z-10">
+      <Box style={{ position: 'relative' }} mb="4">
+        <Text 
+          size="1" 
+          color="gray" 
+          style={{ 
+            position: 'absolute', 
+            top: '8px', 
+            left: '12px', 
+            fontFamily: 'monospace', 
+            textTransform: 'uppercase', 
+            letterSpacing: '0.05em',
+            zIndex: 10 
+          }}
+        >
           {language}
-        </div>
+        </Text>
         <button
           onClick={handleCopy}
-          class={`absolute top-2 right-2 p-1.5 border rounded cursor-pointer transition-all duration-200 z-10 ${
-            copied 
-              ? 'bg-[var(--color-success-subtle)] border-[var(--color-success)] text-[var(--color-success)]' 
-              : 'bg-[var(--color-bg-hover)] border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-active)] hover:text-[var(--color-text-primary)]'
-          }`}
+          class="absolute top-2 right-2 p-1.5 border rounded cursor-pointer transition-all duration-200 z-10"
+          style={{
+            backgroundColor: copied ? 'var(--green-3)' : 'var(--gray-3)',
+            borderColor: copied ? 'var(--green-8)' : 'var(--gray-7)',
+            color: copied ? 'var(--green-11)' : 'var(--gray-11)'
+          }}
           title={copied ? 'Copied!' : 'Copy'}
         >
           {copied ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
+            <CheckIcon width="16" height="16" />
           ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-            </svg>
+            <CopyIcon width="16" height="16" />
           )}
         </button>
-        <div class="pt-6">
+        <Box pt="6">
           <SharedCodeBlock code={code} language={language} showLanguageLabel={false} />
-        </div>
-      </div>
+        </Box>
+      </Box>
     );
   };
 
   return (
-    <div class="fixed inset-0 bg-[var(--color-bg-hover)] z-50 overflow-y-auto">
+    <Box style={{ position: 'fixed', inset: 0, zIndex: 50, overflow: 'auto' }}>
       {/* Header */}
-      <div class="bg-[var(--color-bg-elevated)] border-b border-[var(--color-border-default)] sticky top-0 z-10">
-        <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div class="flex items-center gap-3">
+      <Box style={{ borderBottom: '1px solid var(--gray-6)', position: 'sticky', top: 0, zIndex: 10, backgroundColor: 'var(--gray-2)' }}>
+        <Flex 
+          align="center" 
+          justify="between" 
+          px="6" 
+          py="4" 
+          style={{ maxWidth: '1280px', margin: '0 auto' }}
+        >
+          <Flex align="center" gap="3">
             <RelayLogo className="w-8 h-8" />
-            <div>
-              <h1 class="text-xl font-bold text-[var(--color-text-primary)]">Webhook Edge Documentation</h1>
-              <p class="text-sm text-[var(--color-text-secondary)]">Technical Reference for Edge {edgeId.slice(0, 8)}...</p>
-            </div>
-          </div>
+            <Box>
+              <Heading as="h1" size="6" weight="bold" mb="1">Webhook Edge Documentation</Heading>
+              <Text size="2" color="gray">Technical Reference for Edge {edgeId.slice(0, 8)}...</Text>
+            </Box>
+          </Flex>
           <button
             onClick={onClose}
-            class="px-4 py-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-lg transition-colors font-medium"
+            class="px-4 py-2 rounded-lg transition-colors font-medium"
+            style={{ color: 'var(--gray-11)', backgroundColor: 'transparent', border: 'none', cursor: 'pointer' }}
           >
             ✕ Close
           </button>
-        </div>
-      </div>
+        </Flex>
+      </Box>
 
       {/* Content */}
-      <div class="max-w-5xl mx-auto px-6 py-8">
+      <Box style={{ maxWidth: '1280px', margin: '0 auto' }} px="6" py="8">
         {/* Overview */}
-        <section class="mb-8">
-          <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Overview</h2>
-          <p class="text-[var(--color-text-primary)] leading-relaxed mb-4">
+        <Box mb="8">
+          <Heading as="h2" size="7" weight="bold" mb="4">Overview</Heading>
+          <Text size="3" style={{ lineHeight: '1.6', display: 'block' }} mb="4">
             This webhook edge allows external services to send messages directly to your Relay inbox. 
             When a webhook is triggered, the message appears instantly in your conversations, encrypted 
             end-to-end with your identity.
-          </p>
+          </Text>
           <AlertCard type="info" title="Use Cases">
             <ul class="space-y-1">
               <li>• GitHub push notifications, PR comments, workflow results</li>
@@ -167,45 +184,45 @@ export function WebhookDocsView({ edgeId, webhookUrl, authToken, onClose }: Webh
               <li>• Custom application notifications</li>
             </ul>
           </AlertCard>
-        </section>
+        </Box>
 
-        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+        <Separator size="4" mb="8" />
 
         {/* Quick Start */}
-        <section class="mb-8">
-          <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Quick Start</h2>
-          <div class="space-y-4">
+        <Box mb="8">
+          <Heading as="h2" size="7" weight="bold" mb="4">Quick Start</Heading>
+          <Flex direction="column" gap="4">
             <CopyableField
               label="Webhook URL"
               value={webhookUrl}
               helperText="Use this URL to send messages to your inbox"
             />
-            <div>
+            <Box>
               <AlertCard type="warning" title="Keep this token secret!" className="mb-3">
-                <p class="text-xs font-medium">
+                <Text size="1" weight="medium">
                   Anyone with this token can send messages to your inbox.
-                </p>
+                </Text>
               </AlertCard>
               <CopyableField
                 label="Authentication Token"
                 value={authToken}
                 helperText="Include this token in your requests"
               />
-            </div>
-          </div>
-        </section>
+            </Box>
+          </Flex>
+        </Box>
 
-        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+        <Separator size="4" mb="8" />
 
         {/* Authentication */}
-        <section class="mb-8">
-          <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Authentication</h2>
-          <p class="text-[var(--color-text-primary)] mb-4">
-            Include your authentication token in <strong>one</strong> of these ways:
-          </p>
-          <div class="space-y-4">
-            <div>
-              <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">Option 1: Authorization Header (Recommended)</h3>
+        <Box mb="8">
+          <Heading as="h2" size="7" weight="bold" mb="4">Authentication</Heading>
+          <Text size="3" mb="4">
+            Include your authentication token in <Strong>one</Strong> of these ways:
+          </Text>
+          <Flex direction="column" gap="4">
+            <Box>
+              <Heading as="h3" size="2" weight="bold" mb="2">Option 1: Authorization Header (Recommended)</Heading>
               <CodeBlock
                 language="http"
                 section="auth-header"
@@ -215,89 +232,99 @@ Authorization: Bearer ${authToken}
 Content-Type: application/json
 `}
               />
-            </div>
-            <div>
-              <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">Option 2: Query Parameter</h3>
+            </Box>
+            <Box>
+              <Heading as="h3" size="2" weight="bold" mb="2">Option 2: Query Parameter</Heading>
               <CodeBlock
                 language="http"
                 section="auth-query"
                 code={`
-POST ${webhookUrl} HTTP/1.1
+POST ${webhookUrl}?auth=${authToken} HTTP/1.1
 Content-Type: application/json
 `}
               />
-            </div>
-          </div>
-        </section>
+            </Box>
+          </Flex>
+        </Box>
 
-        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+        <Separator size="4" mb="8" />
 
         {/* Request Format */}
-        <section class="mb-8">
-          <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Request Format</h2>
-          <p class="text-[var(--color-text-primary)] mb-4">
-            Send a POST request with <strong>any valid JSON payload</strong>. Relay intelligently extracts 
+        <Box mb="8">
+          <Heading as="h2" size="7" weight="bold" mb="4">Request Format</Heading>
+          <Text size="3" mb="4">
+            Send a POST request with <Strong>any valid JSON payload</Strong>. Relay intelligently extracts 
             message content from your payload, with special support for popular services.
-          </p>
+          </Text>
 
           {/* Service Auto-Detection */}
           <AlertCard type="success" title="Automatic Service Detection" className="mb-6">
-            <p class="mb-2">
+            <Text mb="2">
               Just point your service's webhook directly at this URL! Relay automatically detects and formats:
-            </p>
-            <div class="flex flex-wrap gap-2">
-              <span class="px-2 py-1 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] text-[var(--color-text-primary)] text-xs font-medium rounded">GitHub</span>
-              <span class="px-2 py-1 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] text-[var(--color-text-primary)] text-xs font-medium rounded">Stripe</span>
-              <span class="px-2 py-1 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] text-[var(--color-text-primary)] text-xs font-medium rounded">Slack</span>
-              <span class="px-2 py-1 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] text-[var(--color-text-primary)] text-xs font-medium rounded">Discord</span>
-              <span class="px-2 py-1 bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] text-[var(--color-text-primary)] text-xs font-medium rounded">Linear</span>
-            </div>
+            </Text>
+            <Flex gap="2" wrap="wrap">
+              <Box px="2" py="1" style={{ backgroundColor: 'var(--gray-3)', border: '1px solid var(--gray-6)', borderRadius: 'var(--radius-2)' }}>
+                <Text size="1" weight="medium">GitHub</Text>
+              </Box>
+              <Box px="2" py="1" style={{ backgroundColor: 'var(--gray-3)', border: '1px solid var(--gray-6)', borderRadius: 'var(--radius-2)' }}>
+                <Text size="1" weight="medium">Stripe</Text>
+              </Box>
+              <Box px="2" py="1" style={{ backgroundColor: 'var(--gray-3)', border: '1px solid var(--gray-6)', borderRadius: 'var(--radius-2)' }}>
+                <Text size="1" weight="medium">Slack</Text>
+              </Box>
+              <Box px="2" py="1" style={{ backgroundColor: 'var(--gray-3)', border: '1px solid var(--gray-6)', borderRadius: 'var(--radius-2)' }}>
+                <Text size="1" weight="medium">Discord</Text>
+              </Box>
+              <Box px="2" py="1" style={{ backgroundColor: 'var(--gray-3)', border: '1px solid var(--gray-6)', borderRadius: 'var(--radius-2)' }}>
+                <Text size="1" weight="medium">Linear</Text>
+              </Box>
+            </Flex>
           </AlertCard>
           
-          <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-3">Recommended Format</h3>
-          <p class="text-[var(--color-text-primary)] mb-4 text-sm">
+          <Heading as="h3" size="5" weight="bold" mb="3">Recommended Format</Heading>
+          <Text size="2" mb="4">
             For the best display, use our structured format. All fields are optional:
-          </p>
+          </Text>
           
-          <div class="overflow-x-auto mb-6">
-            <table class="w-full text-sm border-collapse">
-              <thead>
-                <tr class="border-b-2 border-[var(--color-border-strong)]">
-                  <th class="text-left py-2 px-3 font-semibold text-[var(--color-text-primary)]">Field</th>
-                  <th class="text-left py-2 px-3 font-semibold text-[var(--color-text-primary)]">Type</th>
-                  <th class="text-left py-2 px-3 font-semibold text-[var(--color-text-primary)]">Description</th>
-                </tr>
-              </thead>
-              <tbody class="text-[var(--color-text-primary)]">
-                <tr class="border-b border-[var(--color-border-default)]">
-                  <td class="py-2 px-3"><code class="text-[var(--color-accent)] font-mono">sender</code></td>
-                  <td class="py-2 px-3">string</td>
-                  <td class="py-2 px-3">Sender name (falls back to edge name or service detection)</td>
-                </tr>
-                <tr class="border-b border-[var(--color-border-default)]">
-                  <td class="py-2 px-3"><code class="text-[var(--color-accent)] font-mono">title</code></td>
-                  <td class="py-2 px-3">string</td>
-                  <td class="py-2 px-3">Message title/subject (supports **bold** and *italic*)</td>
-                </tr>
-                <tr class="border-b border-[var(--color-border-default)]">
-                  <td class="py-2 px-3"><code class="text-[var(--color-accent)] font-mono">body</code></td>
-                  <td class="py-2 px-3">string</td>
-                  <td class="py-2 px-3">Message body (supports markdown: bold, italic, code, links, bullets)</td>
-                </tr>
-                <tr class="border-b border-[var(--color-border-default)]">
-                  <td class="py-2 px-3"><code class="text-[var(--color-accent)] font-mono">data</code></td>
-                  <td class="py-2 px-3">object</td>
-                  <td class="py-2 px-3">Structured key-value data displayed below the message</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <Box style={{ overflow: 'auto' }} mb="6">
+            <Table.Root variant="surface" size="2">
+              <Table.Header>
+                <Table.Row>
+                  <Table.ColumnHeaderCell>Field</Table.ColumnHeaderCell>
+                  <Table.ColumnHeaderCell>Type</Table.ColumnHeaderCell>
+                  <Table.ColumnHeaderCell>Description</Table.ColumnHeaderCell>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                <Table.Row>
+                  <Table.Cell><Code color="blue">sender</Code></Table.Cell>
+                  <Table.Cell>string</Table.Cell>
+                  <Table.Cell>Sender name (falls back to edge name or service detection)</Table.Cell>
+                </Table.Row>
+                <Table.Row>
+                  <Table.Cell><Code color="blue">title</Code></Table.Cell>
+                  <Table.Cell>string</Table.Cell>
+                  <Table.Cell>Message title/subject (supports **bold** and *italic*)</Table.Cell>
+                </Table.Row>
+                <Table.Row>
+                  <Table.Cell><Code color="blue">body</Code></Table.Cell>
+                  <Table.Cell>string</Table.Cell>
+                  <Table.Cell>Message body (supports markdown: bold, italic, code, links, bullets)</Table.Cell>
+                </Table.Row>
+                <Table.Row>
+                  <Table.Cell><Code color="blue">data</Code></Table.Cell>
+                  <Table.Cell>object</Table.Cell>
+                  <Table.Cell>Structured key-value data displayed below the message</Table.Cell>
+                </Table.Row>
+              </Table.Body>
+            </Table.Root>
+          </Box>
 
-          <p class="text-[var(--color-text-primary)] mb-4 text-sm">
-            You can also set a custom sender via the <code class="text-[var(--color-accent)] font-mono">X-Webhook-Sender</code> header.
-          </p>
+          <Text size="2" mb="4">
+            You can also set a custom sender via the <Code color="blue">X-Webhook-Sender</Code> header.
+          </Text>
 
-          <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">Example: Structured Payload</h3>
+          <Heading as="h3" size="2" weight="bold" mb="2">Example: Structured Payload</Heading>
           <CodeBlock
             language="json"
             section="example-payload"
@@ -312,8 +339,8 @@ Content-Type: application/json
 }`}
           />
 
-          <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2 mt-6">Example: Any JSON (Auto-Formatted)</h3>
-          <p class="text-[var(--color-text-secondary)] text-sm mb-2">Any valid JSON works - it will be displayed as structured data:</p>
+          <Heading as="h3" size="2" weight="bold" mb="2" mt="6">Example: Any JSON (Auto-Formatted)</Heading>
+          <Text size="2" color="gray" mb="2">Any valid JSON works - it will be displayed as structured data:</Text>
           <CodeBlock
             language="json"
             section="example-raw"
@@ -324,26 +351,31 @@ Content-Type: application/json
   "plan": "premium"
 }`}
           />
-        </section>
+        </Box>
 
-        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+        <Separator size="4" mb="8" />
 
         {/* Code Examples */}
-        <section class="mb-8">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-2xl font-bold text-[var(--color-text-primary)]">Code Examples</h2>
+        <Box mb="8">
+          <Flex align="center" justify="between" mb="4">
+            <Heading as="h2" size="7" weight="bold">Code Examples</Heading>
             <button
               onClick={testWebhook}
               disabled={testStatus === 'loading'}
-              class={`px-4 py-2 rounded-lg font-medium text-sm transition-all duration-150 flex items-center gap-2 ${
-                testStatus === 'loading'
-                  ? 'bg-[var(--color-text-tertiary)] text-[var(--color-text-inverse)] cursor-not-allowed'
-                  : testStatus === 'success'
-                  ? 'bg-[var(--color-success)] text-[var(--color-text-inverse)] hover:bg-[var(--color-success)]'
-                  : testStatus === 'error'
-                  ? 'bg-[var(--color-error)] text-[var(--color-text-inverse)] hover:bg-[var(--color-error)]'
-                  : 'bg-[var(--color-accent)] text-[var(--color-text-inverse)] hover:bg-[var(--color-accent-hover)] shadow-sm'
-              }`}
+              class="px-4 py-2 rounded-lg font-medium text-sm transition-all duration-150 flex items-center gap-2"
+              style={{
+                backgroundColor: testStatus === 'loading' 
+                  ? 'var(--gray-9)' 
+                  : testStatus === 'success' 
+                  ? 'var(--green-9)' 
+                  : testStatus === 'error' 
+                  ? 'var(--red-9)' 
+                  : 'var(--blue-9)',
+                color: 'white',
+                border: 'none',
+                cursor: testStatus === 'loading' ? 'not-allowed' : 'pointer',
+                boxShadow: 'var(--shadow-2)'
+              }}
             >
               {testStatus === 'loading' ? (
                 <>
@@ -361,21 +393,26 @@ Content-Type: application/json
                 <>▶ Run Example</>
               )}
             </button>
-          </div>
+          </Flex>
 
           {/* Test Status Message */}
           {testMessage && (
-            <div class={`mb-4 p-3 rounded-lg text-sm font-medium ${
-              testStatus === 'success'
-                ? 'bg-[var(--color-success-subtle)] text-[var(--color-success)] border border-[var(--color-success)]'
-                : 'bg-[var(--color-error-subtle)] text-[var(--color-error)] border border-[var(--color-error)]'
-            }`}>
-              {testMessage}
-            </div>
+            <Box 
+              mb="4" 
+              p="3" 
+              style={{ 
+                borderRadius: 'var(--radius-3)',
+                backgroundColor: testStatus === 'success' ? 'var(--green-3)' : 'var(--red-3)',
+                color: testStatus === 'success' ? 'var(--green-11)' : 'var(--red-11)',
+                border: `1px solid ${testStatus === 'success' ? 'var(--green-8)' : 'var(--red-8)'}`
+              }}
+            >
+              <Text size="2" weight="medium">{testMessage}</Text>
+            </Box>
           )}
           
           {/* Language Tabs */}
-          <div class="flex flex-wrap gap-2 mb-4 border-b border-[var(--color-border-default)]">
+          <Flex gap="2" mb="4" style={{ borderBottom: '1px solid var(--gray-6)', flexWrap: 'wrap' }}>
             {[
               { id: 'curl', label: 'cURL' },
               { id: 'javascript', label: 'JavaScript' },
@@ -386,16 +423,19 @@ Content-Type: application/json
               <button
                 key={lang.id}
                 onClick={() => setActiveLanguageTab(lang.id as any)}
-                class={`px-4 py-2 font-medium text-sm transition-colors duration-150 border-b-2 ${
-                  activeLanguageTab === lang.id
-                    ? 'border-[var(--color-accent)] text-[var(--color-accent)]'
-                    : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-border-strong)]'
-                }`}
+                class="px-4 py-2 font-medium text-sm transition-colors duration-150"
+                style={{
+                  color: activeLanguageTab === lang.id ? 'var(--blue-11)' : 'var(--gray-11)',
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  borderBottom: activeLanguageTab === lang.id ? '2px solid var(--blue-9)' : '2px solid transparent',
+                  cursor: 'pointer'
+                }}
               >
                 {lang.label}
               </button>
             ))}
-          </div>
+          </Flex>
 
           {/* Code Content */}
           {activeLanguageTab === 'curl' && (
@@ -612,14 +652,14 @@ send_webhook(
 )`}
             />
           )}
-        </section>
+        </Box>
 
-        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+        <Separator size="4" mb="8" />
 
         {/* Response Format */}
-        <section class="mb-8">
-          <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Response Format</h2>
-          <p class="text-[var(--color-text-primary)] mb-4">Successful webhook requests return a 200 OK status with the following response:</p>
+        <Box mb="8">
+          <Heading as="h2" size="7" weight="bold" mb="4">Response Format</Heading>
+          <Text size="3" mb="4">Successful webhook requests return a 200 OK status with the following response:</Text>
           <CodeBlock
             language="json"
             section="response"
@@ -631,144 +671,144 @@ send_webhook(
 }
 `}
           />
-        </section>
+        </Box>
 
-        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+        <Separator size="4" mb="8" />
 
         {/* Error Handling */}
-        <section class="mb-8">
-          <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Error Handling</h2>
-          <div class="overflow-x-auto">
-            <table class="w-full text-sm border-collapse">
-              <thead>
-                <tr class="border-b-2 border-[var(--color-border-strong)]">
-                  <th class="text-left py-2 px-3 font-semibold text-[var(--color-text-primary)]">Status Code</th>
-                  <th class="text-left py-2 px-3 font-semibold text-[var(--color-text-primary)]">Meaning</th>
-                  <th class="text-left py-2 px-3 font-semibold text-[var(--color-text-primary)]">Resolution</th>
-                </tr>
-              </thead>
-              <tbody class="text-[var(--color-text-primary)]">
-                <tr class="border-b border-[var(--color-border-default)]">
-                  <td class="py-2 px-3"><code class="text-red-600 font-mono">401</code></td>
-                  <td class="py-2 px-3">Unauthorized</td>
-                  <td class="py-2 px-3">Check your authentication token</td>
-                </tr>
-                <tr class="border-b border-[var(--color-border-default)]">
-                  <td class="py-2 px-3"><code class="text-red-600 font-mono">400</code></td>
-                  <td class="py-2 px-3">Bad Request</td>
-                  <td class="py-2 px-3">Ensure payload is valid JSON</td>
-                </tr>
-                <tr class="border-b border-[var(--color-border-default)]">
-                  <td class="py-2 px-3"><code class="text-red-600 font-mono">413</code></td>
-                  <td class="py-2 px-3">Payload Too Large</td>
-                  <td class="py-2 px-3">Reduce body or data size (max 10KB body, 5KB data)</td>
-                </tr>
-                <tr class="border-b border-[var(--color-border-default)]">
-                  <td class="py-2 px-3"><code class="text-red-600 font-mono">429</code></td>
-                  <td class="py-2 px-3">Too Many Requests</td>
-                  <td class="py-2 px-3">Implement exponential backoff and retry logic</td>
-                </tr>
-                <tr class="border-b border-[var(--color-border-default)]">
-                  <td class="py-2 px-3"><code class="text-red-600 font-mono">500</code></td>
-                  <td class="py-2 px-3">Server Error</td>
-                  <td class="py-2 px-3">Retry with exponential backoff</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <Box mb="8">
+          <Heading as="h2" size="7" weight="bold" mb="4">Error Handling</Heading>
+          <Box style={{ overflow: 'auto' }}>
+            <Table.Root variant="surface" size="2">
+              <Table.Header>
+                <Table.Row>
+                  <Table.ColumnHeaderCell>Status Code</Table.ColumnHeaderCell>
+                  <Table.ColumnHeaderCell>Meaning</Table.ColumnHeaderCell>
+                  <Table.ColumnHeaderCell>Resolution</Table.ColumnHeaderCell>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                <Table.Row>
+                  <Table.Cell><Code color="red">401</Code></Table.Cell>
+                  <Table.Cell>Unauthorized</Table.Cell>
+                  <Table.Cell>Check your authentication token</Table.Cell>
+                </Table.Row>
+                <Table.Row>
+                  <Table.Cell><Code color="red">400</Code></Table.Cell>
+                  <Table.Cell>Bad Request</Table.Cell>
+                  <Table.Cell>Ensure payload is valid JSON</Table.Cell>
+                </Table.Row>
+                <Table.Row>
+                  <Table.Cell><Code color="red">413</Code></Table.Cell>
+                  <Table.Cell>Payload Too Large</Table.Cell>
+                  <Table.Cell>Reduce body or data size (max 10KB body, 5KB data)</Table.Cell>
+                </Table.Row>
+                <Table.Row>
+                  <Table.Cell><Code color="red">429</Code></Table.Cell>
+                  <Table.Cell>Too Many Requests</Table.Cell>
+                  <Table.Cell>Implement exponential backoff and retry logic</Table.Cell>
+                </Table.Row>
+                <Table.Row>
+                  <Table.Cell><Code color="red">500</Code></Table.Cell>
+                  <Table.Cell>Server Error</Table.Cell>
+                  <Table.Cell>Retry with exponential backoff</Table.Cell>
+                </Table.Row>
+              </Table.Body>
+            </Table.Root>
+          </Box>
+        </Box>
 
-        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+        <Separator size="4" mb="8" />
 
         {/* Best Practices */}
-        <section class="mb-8">
-          <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Best Practices</h2>
-          <div class="space-y-4">
-            <div class="border-l-4 border-[var(--color-accent)] pl-4">
-              <h3 class="font-semibold text-[var(--color-text-primary)] mb-1">Use Environment Variables</h3>
-              <p class="text-sm text-[var(--color-text-primary)]">
+        <Box mb="8">
+          <Heading as="h2" size="7" weight="bold" mb="4">Best Practices</Heading>
+          <Flex direction="column" gap="4">
+            <Box style={{ borderLeft: '4px solid var(--blue-9)', paddingLeft: '16px' }}>
+              <Heading as="h3" size="3" weight="bold" mb="1">Use Environment Variables</Heading>
+              <Text size="2">
                 Never hardcode your authentication token in source code. Store it as an environment 
                 variable or in a secure secrets manager.
-              </p>
-            </div>
-            <div class="border-l-4 border-[var(--color-accent)] pl-4">
-              <h3 class="font-semibold text-[var(--color-text-primary)] mb-1">Implement Retry Logic</h3>
-              <p class="text-sm text-[var(--color-text-primary)]">
+              </Text>
+            </Box>
+            <Box style={{ borderLeft: '4px solid var(--blue-9)', paddingLeft: '16px' }}>
+              <Heading as="h3" size="3" weight="bold" mb="1">Implement Retry Logic</Heading>
+              <Text size="2">
                 Use exponential backoff for retries on 5xx errors and rate limits. Start with 1 second, 
                 then 2s, 4s, 8s, etc.
-              </p>
-            </div>
-            <div class="border-l-4 border-[var(--color-accent)] pl-4">
-              <h3 class="font-semibold text-[var(--color-text-primary)] mb-1">Use Structured Format When Possible</h3>
-              <p class="text-sm text-[var(--color-text-primary)]">
+              </Text>
+            </Box>
+            <Box style={{ borderLeft: '4px solid var(--blue-9)', paddingLeft: '16px' }}>
+              <Heading as="h3" size="3" weight="bold" mb="1">Use Structured Format When Possible</Heading>
+              <Text size="2">
                 While any JSON works, using our structured format (sender, title, body) gives you the 
                 best display with markdown support and clean formatting.
-              </p>
-            </div>
-            <div class="border-l-4 border-[var(--color-accent)] pl-4">
-              <h3 class="font-semibold text-[var(--color-text-primary)] mb-1">Connect Services Directly</h3>
-              <p class="text-sm text-[var(--color-text-primary)]">
+              </Text>
+            </Box>
+            <Box style={{ borderLeft: '4px solid var(--blue-9)', paddingLeft: '16px' }}>
+              <Heading as="h3" size="3" weight="bold" mb="1">Connect Services Directly</Heading>
+              <Text size="2">
                 For GitHub, Stripe, and other supported services, just paste the webhook URL directly into 
                 their settings. Relay auto-detects and formats the messages intelligently.
-              </p>
-            </div>
-            <div class="border-l-4 border-[var(--color-warning)] pl-4">
-              <h3 class="font-semibold text-[var(--color-text-primary)] mb-1">Rotate Tokens Periodically</h3>
-              <p class="text-sm text-[var(--color-text-primary)]">
+              </Text>
+            </Box>
+            <Box style={{ borderLeft: '4px solid var(--yellow-9)', paddingLeft: '16px' }}>
+              <Heading as="h3" size="3" weight="bold" mb="1">Rotate Tokens Periodically</Heading>
+              <Text size="2">
                 For security, regenerate your authentication token periodically and update all services 
                 using the webhook.
-              </p>
-            </div>
-          </div>
-        </section>
+              </Text>
+            </Box>
+          </Flex>
+        </Box>
 
-        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+        <Separator size="4" mb="8" />
 
         {/* Security */}
-        <section class="mb-8">
-          <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Security</h2>
+        <Box mb="8">
+          <Heading as="h2" size="7" weight="bold" mb="4">Security</Heading>
           <AlertCard type="error" title="Important Security Considerations" className="mb-4">
             <ul class="space-y-1">
-              <li>• <strong>Never commit tokens to version control</strong> - Use .gitignore for config files</li>
-              <li>• <strong>Use HTTPS only</strong> - The webhook URL is already HTTPS, never downgrade</li>
-              <li>• <strong>Limit token scope</strong> - Each webhook edge has its own token with isolated access</li>
-              <li>• <strong>Monitor for abuse</strong> - Check your inbox for unexpected webhook messages</li>
-              <li>• <strong>Dispose if compromised</strong> - If a token leaks, immediately dispose the edge and create a new one</li>
+              <li>• <Strong>Never commit tokens to version control</Strong> - Use .gitignore for config files</li>
+              <li>• <Strong>Use HTTPS only</Strong> - The webhook URL is already HTTPS, never downgrade</li>
+              <li>• <Strong>Limit token scope</Strong> - Each webhook edge has its own token with isolated access</li>
+              <li>• <Strong>Monitor for abuse</Strong> - Check your inbox for unexpected webhook messages</li>
+              <li>• <Strong>Dispose if compromised</Strong> - If a token leaks, immediately dispose the edge and create a new one</li>
             </ul>
           </AlertCard>
-          <p class="text-[var(--color-text-primary)]">
+          <Text size="3">
             All webhook messages are encrypted end-to-end before storage. The webhook worker encrypts 
             your message with your public key, ensuring only you can decrypt and read it. Even Relay's 
             servers cannot access your webhook content.
-          </p>
-        </section>
+          </Text>
+        </Box>
 
-        <hr class="border-t border-[var(--color-border-default)] mb-8" />
+        <Separator size="4" mb="8" />
 
         {/* Support */}
-        <section class="mb-8">
-          <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-4">Support & Troubleshooting</h2>
-          <p class="text-[var(--color-text-primary)] mb-4">
+        <Box mb="8">
+          <Heading as="h2" size="7" weight="bold" mb="4">Support & Troubleshooting</Heading>
+          <Text size="3" mb="4">
             If you encounter issues with your webhook edge, check the following:
-          </p>
-          <ul class="text-[var(--color-text-primary)] space-y-2 mb-4">
-            <li>• Verify the webhook URL and authentication token are correct</li>
-            <li>• Check that Content-Type is set to "application/json"</li>
-            <li>• Ensure your payload is valid JSON (any structure works)</li>
-            <li>• For custom senders, use the X-Webhook-Sender header or sender field</li>
-            <li>• Large payloads may be truncated - keep total size reasonable</li>
+          </Text>
+          <ul class="space-y-2" style={{ marginBottom: '16px' }}>
+            <Text as="li" size="3">• Verify the webhook URL and authentication token are correct</Text>
+            <Text as="li" size="3">• Check that Content-Type is set to "application/json"</Text>
+            <Text as="li" size="3">• Ensure your payload is valid JSON (any structure works)</Text>
+            <Text as="li" size="3">• For custom senders, use the X-Webhook-Sender header or sender field</Text>
+            <Text as="li" size="3">• Large payloads may be truncated - keep total size reasonable</Text>
           </ul>
-          <div class="bg-[var(--color-bg-hover)] border border-[var(--color-border-strong)] rounded-lg p-4">
-            <p class="text-sm text-[var(--color-text-primary)]">
-              <strong>Edge ID:</strong> <code class="font-mono text-[var(--color-accent)]">{edgeId}</code>
-            </p>
-            <p class="text-sm text-[var(--color-text-primary)] mt-2">
+          <Box p="4" style={{ backgroundColor: 'var(--gray-3)', border: '1px solid var(--gray-7)', borderRadius: 'var(--radius-3)' }}>
+            <Text size="2">
+              <Strong>Edge ID:</Strong> <Code color="blue">{edgeId}</Code>
+            </Text>
+            <Text size="2" mt="2">
               For additional support, refer to the main Relay documentation or contact support with this Edge ID.
-            </p>
-          </div>
-        </section>
-      </div>
-    </div>
+            </Text>
+          </Box>
+        </Box>
+      </Box>
+    </Box>
   );
 }
 

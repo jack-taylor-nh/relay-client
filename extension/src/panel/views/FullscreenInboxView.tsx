@@ -4,6 +4,8 @@ import { conversations, selectedConversationId, loadConversations, isRefreshing,
 import { ConversationItem } from '../components/ConversationItem';
 import { ConversationDetailView } from './ConversationDetailView';
 import { activeTab } from '../App';
+import { Box, Flex, Heading, Text, IconButton } from '@radix-ui/themes';
+import { EnvelopeClosedIcon, ReloadIcon } from '@radix-ui/react-icons';
 
 // Track if we're showing the detail panel in fullscreen
 const showDetailPanel = signal(false);
@@ -40,56 +42,71 @@ export function FullscreenInboxView() {
 
   if (isEmpty) {
     return (
-      <div class="flex h-full">
+      <Flex style={{ height: '100%' }}>
         {/* Empty state - full width */}
-        <div class="flex-1 flex flex-col items-center justify-center text-center px-5 py-10 bg-[var(--color-bg-sunken)]">
-          <svg class="w-16 h-16 text-[var(--color-text-tertiary)] mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M22 12h-6l-2 3H10l-2-3H2" />
-            <path d="M5.45 5.11L2 12v6a2 2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" />
-          </svg>
-          <h3 class="text-xl font-semibold text-[var(--color-text-primary)] mb-2">No conversations yet</h3>
-          <p class="text-base text-[var(--color-text-secondary)] mb-6 max-w-md">
+        <Flex 
+          direction="column" 
+          align="center" 
+          justify="center" 
+          style={{ flex: 1, textAlign: 'center', padding: '40px 20px' }}
+        >
+          <EnvelopeClosedIcon width="64" height="64" color="gray" style={{ opacity: 0.4, marginBottom: '16px' }} />
+          <Heading as="h3" size="6" mb="2">No conversations yet</Heading>
+          <Text size="3" color="gray" mb="6" style={{ maxWidth: '500px' }}>
             Start a chat with another handle or create an edge to receive messages from email, Discord, and more.
-          </p>
+          </Text>
           <button 
-            class="px-6 py-3 text-base font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] rounded-lg transition-colors duration-150"
+            class="px-6 py-3 text-base font-semibold rounded-lg transition-colors duration-150"
+            style={{ 
+              color: 'white', 
+              backgroundColor: 'var(--blue-9)', 
+              border: 'none', 
+              cursor: 'pointer' 
+            }}
             onClick={() => { activeTab.value = 'new'; }}
           >
             Start a conversation
           </button>
-        </div>
-      </div>
+        </Flex>
+      </Flex>
     );
   }
 
   return (
-    <div class="flex h-full">
+    <Flex style={{ height: '100%' }}>
       {/* Conversation List - Left Panel */}
-      <div class="w-80 flex-shrink-0 flex flex-col border-r border-[var(--color-border-default)] bg-[var(--color-bg-elevated)]">
+      <Box 
+        style={{ 
+          width: '320px', 
+          flexShrink: 0, 
+          display: 'flex', 
+          flexDirection: 'column', 
+          borderRight: '1px solid var(--gray-6)' 
+        }}
+      >
         {/* Header with refresh button */}
-        <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border-default)]">
-          <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Inbox</h2>
-          <button
-            class={`p-2 rounded-md transition-all duration-150 ${refreshing ? 'text-sky-600' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'}`}
+        <Flex 
+          align="center" 
+          justify="between" 
+          px="4" 
+          py="3" 
+          style={{ borderBottom: '1px solid var(--gray-6)' }}
+        >
+          <Heading as="h2" size="5" weight="medium">Inbox</Heading>
+          <IconButton
+            variant="ghost"
+            color={refreshing ? 'blue' : 'gray'}
             onClick={() => loadConversations()}
             disabled={refreshing}
             title="Refresh conversations"
+            className={refreshing ? 'animate-spin' : ''}
           >
-            <svg 
-              class={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} 
-              viewBox="0 0 24 24" 
-              fill="none" 
-              stroke="currentColor" 
-              stroke-width="2"
-            >
-              <path d="M21 12a9 9 0 11-2.52-6.25" />
-              <path d="M21 3v6h-6" />
-            </svg>
-          </button>
-        </div>
+            <ReloadIcon width="18" height="18" />
+          </IconButton>
+        </Flex>
 
         {/* Conversation list */}
-        <div class="flex-1 overflow-y-auto">
+        <Box style={{ flex: 1, overflow: 'auto' }}>
           {convos.map((convo) => (
             <ConversationItem
               key={convo.id}
@@ -98,23 +115,23 @@ export function FullscreenInboxView() {
               onClick={() => handleSelectConversation(convo.id)}
             />
           ))}
-        </div>
-      </div>
+        </Box>
+      </Box>
 
       {/* Message Detail - Right Panel */}
-      <div class="flex-1 flex flex-col bg-[var(--color-bg-sunken)]">
+      <Box style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         {showDetailPanel.value && selectedId ? (
           <FullscreenConversationDetail onClose={handleCloseDetail} />
         ) : (
-          <div class="flex-1 flex flex-col items-center justify-center text-center px-5">
-            <svg class="w-12 h-12 text-[var(--color-text-tertiary)] mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <Flex direction="column" align="center" justify="center" style={{ flex: 1, textAlign: 'center', padding: '20px' }}>
+            <svg class="w-12 h-12 mb-4" style={{ color: 'var(--gray-9)' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
             </svg>
-            <p class="text-[var(--color-text-tertiary)]">Select a conversation to view messages</p>
-          </div>
+            <Text color="gray">Select a conversation to view messages</Text>
+          </Flex>
         )}
-      </div>
-    </div>
+      </Box>
+    </Flex>
   );
 }
 

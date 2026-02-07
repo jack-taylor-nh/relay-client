@@ -1,77 +1,65 @@
-import { ComponentChildren } from 'preact';
+/**
+ * Modal Component - Radix UI Migration
+ * Uses Radix Dialog for accessible modals
+ */
+
+import { Dialog, Flex, Button } from '@radix-ui/themes';
+import type { ComponentChildren } from 'preact';
 
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
-  size?: 'sm' | 'md' | 'lg';
+  description?: string;
+  size?: 'sm' | 'md' | 'lg' | '1' | '2' | '3' | '4';
   children: ComponentChildren;
   showCloseButton?: boolean;
+  footer?: ComponentChildren;
 }
 
-/**
- * Unified Modal component for consistent UI/UX across the app
- * Supports light/dark theme and matches design system
- */
 export function Modal({
   isOpen,
   onClose,
   title,
+  description,
   size = 'md',
   children,
-  showCloseButton = true
+  showCloseButton = true,
+  footer
 }: ModalProps) {
-  if (!isOpen) return null;
-
-  const getSizeClasses = () => {
+  // Map size to Radix Dialog size
+  const getRadixSize = () => {
+    if (size === '1' || size === '2' || size === '3' || size === '4') return size;
     switch (size) {
-      case 'sm':
-        return 'max-w-[400px]';
-      case 'lg':
-        return 'max-w-[600px]';
+      case 'sm': return '2' as const;
+      case 'lg': return '4' as const;
       case 'md':
-      default:
-        return 'max-w-[480px]';
+      default: return '3' as const;
     }
   };
 
   return (
-    <div 
-      class="fixed inset-0 bg-[var(--color-bg-overlay)] flex items-center justify-center z-[1000] backdrop-blur-sm p-4"
-      onClick={onClose}
-    >
-      <div 
-        class={`bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-xl w-full shadow-2xl ${getSizeClasses()}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Modal Header */}
-        <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border-default)]">
-          <h3 class="m-0 text-lg font-semibold text-[var(--color-text-primary)]">{title}</h3>
-          {showCloseButton && (
-            <button
-              onClick={onClose}
-              class="p-1 rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-              aria-label="Close"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          )}
-        </div>
-
-        {/* Modal Content */}
-        <div class="px-6 py-5">
-          {children}
-        </div>
-      </div>
-    </div>
+    <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
+      <Dialog.Content size={getRadixSize()}>
+        <Dialog.Title>{title}</Dialog.Title>
+        {description && <Dialog.Description>{description}</Dialog.Description>}
+        
+        {children}
+        
+        {footer && (
+          <Flex gap="3" mt="4" justify="end">
+            {footer}
+          </Flex>
+        )}
+        
+        {!showCloseButton && <Dialog.Close />}
+      </Dialog.Content>
+    </Dialog.Root>
   );
 }
 
 /**
- * ConfirmModal - Specialized modal for confirmation dialogs (like disposal)
+ * ConfirmModal - Specialized modal for confirmation dialogs
  */
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -94,50 +82,28 @@ export function ConfirmModal({
   confirmVariant = 'danger',
   children
 }: ConfirmModalProps) {
-  if (!isOpen) return null;
-
+  const color = confirmVariant === 'danger' ? 'red' : 'blue';
+  
   return (
-    <div 
-      class="fixed inset-0 bg-[var(--color-bg-overlay)] flex items-center justify-center z-[1000] backdrop-blur-sm p-4"
-      onClick={onClose}
-    >
-      <div 
-        class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-xl max-w-[480px] w-full shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div class="px-6 py-4 border-b border-[var(--color-border-default)]">
-          <h3 class="m-0 text-lg font-semibold text-[var(--color-text-primary)]">{title}</h3>
-        </div>
-
-        {/* Content */}
-        <div class="px-6 py-5">
-          {description && (
-            <p class="text-sm text-[var(--color-text-secondary)] m-0 mb-4">{description}</p>
-          )}
-          {children}
-        </div>
-
-        {/* Actions */}
-        <div class="px-6 py-4 border-t border-[var(--color-border-default)] flex gap-3">
-          <button
-            onClick={onClose}
-            class="flex-1 px-4 py-2 text-sm font-medium text-[var(--color-text-primary)] bg-[var(--color-bg-elevated)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] rounded-lg transition-colors"
-          >
+    <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
+      <Dialog.Content size="3">
+        <Dialog.Title>{title}</Dialog.Title>
+        {description && <Dialog.Description>{description}</Dialog.Description>}
+        
+        {children}
+        
+        <Flex gap="3" mt="4" justify="end">
+          <Button variant="soft" color="gray" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            class={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              confirmVariant === 'danger'
-                ? 'text-white bg-[var(--color-error)] hover:opacity-90'
-                : 'text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)]'
-            }`}
-          >
+          </Button>
+          <Button variant="solid" color={color} onClick={() => {
+            onConfirm();
+            onClose();
+          }}>
             {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </Flex>
+      </Dialog.Content>
+    </Dialog.Root>
   );
 }
