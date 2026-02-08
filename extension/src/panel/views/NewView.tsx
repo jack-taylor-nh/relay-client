@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
+import { ChevronLeft, ChevronRight, Link2Off, Hash, Mail, User } from 'lucide-react';
 import { showToast, selectedConversationId, conversations, resolveHandle, edges, sendMessage, loadEdges, loadConversations } from '../state';
 import { activeTab } from '../App';
-import { ListItemCard } from '../components/ListItemCard';
-import { Button } from '../components/Button';
-import { getEdgeIcon, getEdgeTypeLabel, EdgeType } from '../utils/edgeHelpers';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { EmptyState } from '@/components/relay/EmptyState';
+import { cn } from '@/lib/utils';
 import type { Conversation } from '../../types';
-import { Box, Flex, Heading, Text, TextField } from '@radix-ui/themes';
-import { ChevronLeftIcon, ChevronRightIcon, LinkBreak2Icon } from '@radix-ui/react-icons';
 
 interface PreviousRecipient {
   identifier: string; // handle or email
@@ -218,185 +219,192 @@ export function NewView() {
   // Step 1: Select Edge
   if (step === 'selectEdge') {
     return (
-      <Box style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <Box px="4" py="4" style={{ borderBottom: '1px solid var(--gray-6)' }}>
-          <Heading as="h2" size="5" weight="medium">Start New Conversation</Heading>
-          <Text size="2" color="gray" style={{ marginTop: '4px' }}>Choose which edge to send from</Text>
-        </Box>
+      <div className="flex flex-col h-full">
+        <div className="px-4 py-4 border-b border-[hsl(var(--border))]">
+          <h2 className="text-lg font-semibold text-[hsl(var(--foreground))]">Start New Conversation</h2>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Choose which edge to send from</p>
+        </div>
 
-        <Box style={{ flex: 1, overflow: 'auto' }} p="4">
-          {(nativeEdges.length > 0 || emailEdges.length > 0) ? (
-            <Flex direction="column" gap="4">
-              {/* Native Handles */}
-              {nativeEdges.length > 0 && (
-                <Box>
-                  <Heading as="h3" size="1" weight="medium" color="gray" style={{ textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', paddingLeft: '4px' }}>Your Handles</Heading>
-                  <Box style={{ backgroundColor: 'var(--gray-2)', borderRadius: 'var(--radius-3)', border: '1px solid var(--gray-6)' }}>
-                    {nativeEdges.map((edge) => {
-                      const displayAddress = edge.address.startsWith('&') ? edge.address : `&${edge.address}`;
-                      return (
-                        <ListItemCard
+        <ScrollArea className="flex-1">
+          <div className="p-4">
+            {(nativeEdges.length > 0 || emailEdges.length > 0) ? (
+              <div className="flex flex-col gap-4">
+                {/* Native Handles */}
+                {nativeEdges.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-2 pl-1">Your Handles</h3>
+                    <div className="bg-[hsl(var(--card))] rounded-lg border border-[hsl(var(--border))] divide-y divide-[hsl(var(--border))]">
+                      {nativeEdges.map((edge) => {
+                        const displayAddress = edge.address.startsWith('&') ? edge.address : `&${edge.address}`;
+                        return (
+                          <button
+                            key={edge.id}
+                            onClick={() => handleEdgeSelect(edge.id, 'native', displayAddress)}
+                            className="w-full flex items-center gap-3 p-3 hover:bg-[hsl(var(--accent))] transition-colors text-left"
+                          >
+                            <div className="w-9 h-9 rounded-lg bg-[hsl(var(--primary)/0.1)] flex items-center justify-center">
+                              <Hash className="h-4 w-4 text-[hsl(var(--primary))]" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <span className="text-sm font-medium text-[hsl(var(--foreground))] block truncate">{displayAddress}</span>
+                              {edge.metadata?.displayName && (
+                                <span className="text-xs text-[hsl(var(--muted-foreground))]">{edge.metadata.displayName}</span>
+                              )}
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Email Aliases */}
+                {emailEdges.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-2 pl-1">Email Aliases</h3>
+                    <div className="bg-[hsl(var(--card))] rounded-lg border border-[hsl(var(--border))] divide-y divide-[hsl(var(--border))]">
+                      {emailEdges.map((edge) => (
+                        <button
                           key={edge.id}
-                          icon={getEdgeIcon('native')}
-                          title={displayAddress}
-                          tags={edge.metadata?.displayName ? [edge.metadata.displayName] : []}
-                          action={{
-                            label: 'Select',
-                            onClick: () => handleEdgeSelect(edge.id, 'native', displayAddress),
-                            variant: 'secondary'
-                          }}
-                        />
-                      );
-                    })}
-                  </Box>
-                </Box>
-              )}
-
-              {/* Email Aliases */}
-              {emailEdges.length > 0 && (
-                <Box>
-                  <Heading as="h3" size="1" weight="medium" color="gray" style={{ textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', paddingLeft: '4px' }}>Email Aliases</Heading>
-                  <Box style={{ backgroundColor: 'var(--gray-2)', borderRadius: 'var(--radius-3)', border: '1px solid var(--gray-6)' }}>
-                    {emailEdges.map((edge) => (
-                      <ListItemCard
-                        key={edge.id}
-                        icon={getEdgeIcon('email')}
-                        title={edge.address}
-                        tags={edge.label ? [edge.label] : []}
-                        action={{
-                          label: 'Select',
-                          onClick: () => handleEdgeSelect(edge.id, 'email', edge.address),
-                          variant: 'secondary'
-                        }}
-                      />
-                    ))}
-                  </Box>
-                </Box>
-              )}
-            </Flex>
-          ) : (
-            <Flex direction="column" align="center" justify="center" style={{ padding: '64px 0', textAlign: 'center' }}>
-              <LinkBreak2Icon width="48" height="48" color="gray" style={{ opacity: 0.4, marginBottom: '16px' }} />
-              <Heading as="h3" size="4" mb="2">No edges yet</Heading>
-              <Text size="2" color="gray" mb="5">Create a handle or email alias to start conversations</Text>
-              <Button
-                variant="primary"
-                onClick={() => { activeTab.value = 'edges'; }}
-              >
-                Go to Edges
-              </Button>
-            </Flex>
-          )}
-        </Box>
-      </Box>
+                          onClick={() => handleEdgeSelect(edge.id, 'email', edge.address)}
+                          className="w-full flex items-center gap-3 p-3 hover:bg-[hsl(var(--accent))] transition-colors text-left"
+                        >
+                          <div className="w-9 h-9 rounded-lg bg-[hsl(var(--secondary)/0.2)] flex items-center justify-center">
+                            <Mail className="h-4 w-4 text-[hsl(var(--secondary-foreground))]" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium text-[hsl(var(--foreground))] block truncate">{edge.address}</span>
+                            {edge.label && (
+                              <span className="text-xs text-[hsl(var(--muted-foreground))]">{edge.label}</span>
+                            )}
+                          </div>
+                          <ChevronRight className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <EmptyState
+                icon={<Link2Off className="w-12 h-12" strokeWidth={1.5} />}
+                title="No edges yet"
+                description="Create a handle or email alias to start conversations"
+                action={{
+                  label: "Go to Edges",
+                  onClick: () => { activeTab.value = 'edges'; },
+                  variant: "accent"
+                }}
+                className="py-16"
+              />
+            )}
+          </div>
+        </ScrollArea>
+      </div>
     );
   }
 
   // Step 2: Select/Enter Recipient
   if (step === 'selectRecipient') {
     return (
-      <Box style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <Box px="4" py="3" style={{ borderBottom: '1px solid var(--gray-6)' }}>
+      <div className="flex flex-col h-full">
+        <div className="px-4 py-3 border-b border-[hsl(var(--border))]">
           <button
-            class="flex items-center gap-2 text-sm transition-colors mb-2"
-            style={{ color: 'var(--gray-11)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
             onClick={resetFlow}
+            className="flex items-center gap-1 text-sm text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors mb-2 bg-transparent border-none p-0 cursor-pointer"
           >
-            <ChevronLeftIcon width="16" height="16" />
+            <ChevronLeft className="h-4 w-4" />
             Back
           </button>
-          <Heading as="h2" size="5" weight="medium">Select Recipient</Heading>
-          <Text size="2" color="gray" style={{ marginTop: '4px' }}>
-            Sending from: <Text weight="medium" style={{ color: 'var(--gray-12)' }}>{selectedEdge?.address}</Text>
-          </Text>
-        </Box>
+          <h2 className="text-lg font-semibold text-[hsl(var(--foreground))]">Select Recipient</h2>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
+            Sending from: <span className="font-medium text-[hsl(var(--foreground))]">{selectedEdge?.address}</span>
+          </p>
+        </div>
 
-        <Box style={{ flex: 1, overflow: 'auto' }} p="4">
-          <Box mb="4">
-            <div class="relative">
-              {selectedEdge?.type === 'native' && (
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 font-semibold text-sm" style={{ color: 'var(--gray-10)' }}>&</span>
+        <ScrollArea className="flex-1">
+          <div className="p-4">
+            {/* Input */}
+            <div className="mb-4">
+              <div className="relative">
+                {selectedEdge?.type === 'native' && (
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 font-semibold text-sm text-[hsl(var(--muted-foreground))]">&</span>
+                )}
+                <input
+                  ref={inputRef}
+                  type="text"
+                  className={cn(
+                    "w-full pr-3 py-3 text-sm rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]",
+                    selectedEdge?.type === 'native' ? 'pl-7' : 'pl-3'
+                  )}
+                  placeholder={selectedEdge?.type === 'native' ? 'Enter handle (e.g., username)' : 'Enter email address'}
+                  value={recipientInput}
+                  onInput={(e) => {
+                    setRecipientInput((e.target as HTMLInputElement).value);
+                    setError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && recipientInput.trim()) {
+                      e.preventDefault();
+                      handleRecipientSubmit();
+                    }
+                  }}
+                />
+              </div>
+              {error && (
+                <p className="text-xs text-[hsl(var(--destructive))] mt-2">{error}</p>
               )}
-              <input
-                ref={inputRef}
-                type="text"
-                class={`w-full ${selectedEdge?.type === 'native' ? 'pl-7' : 'pl-3'} pr-3 py-3 text-sm rounded-lg`}
-                style={{ 
-                  border: '1px solid var(--gray-7)', 
-                  backgroundColor: 'var(--gray-2)', 
-                  color: 'var(--gray-12)'
-                }}
-                placeholder={selectedEdge?.type === 'native' ? 'Enter handle (e.g., username)' : 'Enter email address'}
-                value={recipientInput}
-                onInput={(e) => {
-                  setRecipientInput((e.target as HTMLInputElement).value);
-                  setError(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && recipientInput.trim()) {
-                    e.preventDefault();
-                    handleRecipientSubmit();
-                  }
-                }}
-              />
             </div>
-            {error && (
-              <Text size="1" style={{ color: 'var(--red-11)', marginTop: '8px' }}>{error}</Text>
+
+            {/* Previous Recipients */}
+            {filteredRecipients.length > 0 && (
+              <div>
+                <h3 className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide mb-2 pl-1">Recent Conversations</h3>
+                <div className="bg-[hsl(var(--card))] rounded-lg border border-[hsl(var(--border))] divide-y divide-[hsl(var(--border))]">
+                  {filteredRecipients.map((recipient) => (
+                    <button
+                      key={recipient.identifier}
+                      onClick={() => {
+                        setRecipientInput(recipient.identifier);
+                        handleRecipientSubmit(recipient.identifier);
+                      }}
+                      className="w-full flex items-center gap-3 p-3 hover:bg-[hsl(var(--accent))] transition-colors text-left bg-transparent border-none cursor-pointer"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-[hsl(var(--muted))] flex items-center justify-center">
+                        <User className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-medium text-[hsl(var(--foreground))] block truncate">
+                          {recipient.displayName}
+                        </span>
+                        <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                          {recipient.type === 'native' ? 'Native handle' : 'Email'}
+                        </span>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-[hsl(var(--muted-foreground))] flex-shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
-          </Box>
 
-          {/* Previous Recipients */}
-          {filteredRecipients.length > 0 && (
-            <Box>
-              <Heading as="h3" size="1" weight="medium" color="gray" style={{ textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', paddingLeft: '4px' }}>Recent Conversations</Heading>
-              <Box style={{ backgroundColor: 'var(--gray-2)', borderRadius: 'var(--radius-3)', border: '1px solid var(--gray-6)' }}>
-                {filteredRecipients.map((recipient) => (
-                  <button
-                    key={recipient.identifier}
-                    onClick={() => {
-                      setRecipientInput(recipient.identifier);
-                      handleRecipientSubmit(recipient.identifier);
-                    }}
-                    class="w-full flex items-center gap-3 p-3 transition-colors text-left"
-                    style={{ 
-                      backgroundColor: 'transparent',
-                      borderBottom: '1px solid var(--gray-6)',
-                      border: 'none',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <span class="text-xl">{recipient.type === 'native' ? '👤' : '✉️'}</span>
-                    <Box style={{ flex: 1, minWidth: 0 }}>
-                      <Text size="2" weight="medium" style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {recipient.displayName}
-                      </Text>
-                      <Text size="1" color="gray">
-                        {recipient.type === 'native' ? 'Native handle' : 'Email'}
-                      </Text>
-                    </Box>
-                    <ChevronRightIcon width="16" height="16" color="gray" style={{ flexShrink: 0 }} />
-                  </button>
-                ))}
-              </Box>
-            </Box>
-          )}
-
-          {/* Action button for manual entry */}
-          {recipientInput.trim() && (
-            <Box mt="6">
-              <Button
-                variant="primary"
-                fullWidth
-                onClick={() => handleRecipientSubmit()}
-                disabled={isResolving}
-                loading={isResolving}
-              >
-                {isResolving ? 'Resolving...' : `Continue with ${selectedEdge?.type === 'native' ? `&${recipientInput.replace(/^&/, '')}` : recipientInput}`}
-              </Button>
-            </Box>
-          )}
-        </Box>
-      </Box>
+            {/* Action button for manual entry */}
+            {recipientInput.trim() && (
+              <div className="mt-6">
+                <Button
+                  variant="accent"
+                  className="w-full"
+                  onClick={() => handleRecipientSubmit()}
+                  disabled={isResolving}
+                >
+                  {isResolving ? 'Resolving...' : `Continue with ${selectedEdge?.type === 'native' ? `&${recipientInput.replace(/^&/, '')}` : recipientInput}`}
+                </Button>
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+      </div>
     );
   }
 

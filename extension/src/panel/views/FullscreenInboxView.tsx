@@ -4,6 +4,9 @@ import { conversations, selectedConversationId, loadConversations, isRefreshing,
 import { ConversationItem } from '../components/ConversationItem';
 import { ConversationDetailView } from './ConversationDetailView';
 import { activeTab } from '../App';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Inbox, RefreshCw, MessageSquare, X } from 'lucide-react';
 
 // Track if we're showing the detail panel in fullscreen
 const showDetailPanel = signal(false);
@@ -40,56 +43,44 @@ export function FullscreenInboxView() {
 
   if (isEmpty) {
     return (
-      <div class="flex h-full">
+      <div className="flex h-full">
         {/* Empty state - full width */}
-        <div class="flex-1 flex flex-col items-center justify-center text-center px-5 py-10 bg-[var(--color-bg-sunken)]">
-          <svg class="w-16 h-16 text-[var(--color-text-tertiary)] mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M22 12h-6l-2 3H10l-2-3H2" />
-            <path d="M5.45 5.11L2 12v6a2 2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" />
-          </svg>
-          <h3 class="text-xl font-semibold text-[var(--color-text-primary)] mb-2">No conversations yet</h3>
-          <p class="text-base text-[var(--color-text-secondary)] mb-6 max-w-md">
+        <div className="flex-1 flex flex-col items-center justify-center text-center px-5 py-10 bg-[hsl(var(--background))]">
+          <Inbox className="w-16 h-16 text-[hsl(var(--muted-foreground))] mb-4" strokeWidth={1.5} />
+          <h3 className="text-xl font-semibold text-[hsl(var(--foreground))] mb-2">No conversations yet</h3>
+          <p className="text-base text-[hsl(var(--muted-foreground))] mb-6 max-w-md">
             Start a chat with another handle or create an edge to receive messages from email, Discord, and more.
           </p>
-          <button 
-            class="px-6 py-3 text-base font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] rounded-lg transition-colors duration-150"
+          <Button 
+            variant="accent"
             onClick={() => { activeTab.value = 'new'; }}
           >
             Start a conversation
-          </button>
+          </Button>
         </div>
       </div>
     );
   }
 
   return (
-    <div class="flex h-full">
+    <div className="flex h-full">
       {/* Conversation List - Left Panel */}
-      <div class="w-80 flex-shrink-0 flex flex-col border-r border-[var(--color-border-default)] bg-[var(--color-bg-elevated)]">
+      <div className="w-80 flex-shrink-0 flex flex-col border-r border-[hsl(var(--border))] bg-[hsl(var(--card))]">
         {/* Header with refresh button */}
-        <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border-default)]">
-          <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Inbox</h2>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[hsl(var(--border))]">
+          <h2 className="text-lg font-semibold text-[hsl(var(--foreground))]">Inbox</h2>
           <button
-            class={`p-2 rounded-md transition-all duration-150 ${refreshing ? 'text-sky-600' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'}`}
+            className={`p-2 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer ${refreshing ? 'text-[hsl(var(--primary))]' : 'text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--accent))]'}`}
             onClick={() => loadConversations()}
             disabled={refreshing}
             title="Refresh conversations"
           >
-            <svg 
-              class={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} 
-              viewBox="0 0 24 24" 
-              fill="none" 
-              stroke="currentColor" 
-              stroke-width="2"
-            >
-              <path d="M21 12a9 9 0 11-2.52-6.25" />
-              <path d="M21 3v6h-6" />
-            </svg>
+            <RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
 
         {/* Conversation list */}
-        <div class="flex-1 overflow-y-auto">
+        <ScrollArea className="flex-1">
           {convos.map((convo) => (
             <ConversationItem
               key={convo.id}
@@ -98,19 +89,17 @@ export function FullscreenInboxView() {
               onClick={() => handleSelectConversation(convo.id)}
             />
           ))}
-        </div>
+        </ScrollArea>
       </div>
 
       {/* Message Detail - Right Panel */}
-      <div class="flex-1 flex flex-col bg-[var(--color-bg-sunken)]">
+      <div className="flex-1 flex flex-col bg-[hsl(var(--background))]">
         {showDetailPanel.value && selectedId ? (
           <FullscreenConversationDetail onClose={handleCloseDetail} />
         ) : (
-          <div class="flex-1 flex flex-col items-center justify-center text-center px-5">
-            <svg class="w-12 h-12 text-[var(--color-text-tertiary)] mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-            </svg>
-            <p class="text-[var(--color-text-tertiary)]">Select a conversation to view messages</p>
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-5">
+            <MessageSquare className="w-12 h-12 text-[hsl(var(--muted-foreground))] mb-4" strokeWidth={1.5} />
+            <p className="text-[hsl(var(--muted-foreground))]">Select a conversation to view messages</p>
           </div>
         )}
       </div>
@@ -121,21 +110,18 @@ export function FullscreenInboxView() {
 // Wrapper for ConversationDetailView with close button for fullscreen
 function FullscreenConversationDetail({ onClose }: { onClose: () => void }) {
   return (
-    <div class="flex-1 flex flex-col h-full">
+    <div className="flex-1 flex flex-col h-full">
       {/* Close button bar at top */}
-      <div class="flex items-center justify-end px-4 py-2 bg-[var(--color-bg-elevated)] border-b border-[var(--color-border-default)]">
+      <div className="flex items-center justify-end px-4 py-2 bg-[hsl(var(--card))] border-b border-[hsl(var(--border))]">
         <button
-          class="p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] rounded-md transition-all"
+          className="p-1.5 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--accent))] rounded-md transition-all bg-transparent border-none cursor-pointer"
           onClick={onClose}
           title="Close conversation"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
+          <X className="w-[18px] h-[18px]" />
         </button>
       </div>
-      <div class="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden">
         <ConversationDetailView />
       </div>
     </div>

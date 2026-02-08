@@ -1,24 +1,8 @@
 import { useState } from 'preact/hooks';
 import { unlockIdentity, logoutIdentity, isLoading, currentIdentity } from '../state';
-import { Button } from '../components/Button';
-
-function EyeIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-function EyeOffIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
-      <line x1="1" y1="1" x2="23" y2="23" />
-    </svg>
-  );
-}
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Lock, Eye, EyeOff } from 'lucide-react';
 
 export function LockScreen() {
   const [passphrase, setPassphrase] = useState('');
@@ -49,32 +33,23 @@ export function LockScreen() {
   }
 
   return (
-    <div class="flex items-center justify-center min-h-screen bg-[var(--color-bg-sunken)] px-4">
-      <div class="w-full max-w-sm flex flex-col items-center">
-        <div class="mb-6 text-[var(--color-text-tertiary)]">
-          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-            <rect x="8" y="20" width="32" height="24" rx="4" stroke="currentColor" stroke-width="2" />
-            <path
-              d="M16 20V14C16 9.58172 19.5817 6 24 6C28.4183 6 32 9.58172 32 14V20"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-            <circle cx="24" cy="32" r="3" fill="currentColor" />
-          </svg>
+    <div className="flex items-center justify-center min-h-screen bg-[hsl(var(--background))] px-4">
+      <div className="w-full max-w-sm flex flex-col items-center">
+        <div className="mb-6 text-[hsl(var(--muted-foreground))]">
+          <Lock className="h-12 w-12" strokeWidth={1.5} />
         </div>
 
-        <h1 class="text-2xl font-semibold text-[var(--color-text-primary)] mb-2">Relay is Locked</h1>
+        <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))] mb-2">Relay is Locked</h1>
         
         {currentIdentity.value?.handle && (
-          <p class="text-sm text-[var(--color-accent)] font-medium mb-6">&{currentIdentity.value.handle}</p>
+          <p className="text-sm text-[hsl(var(--primary))] font-medium mb-6">&{currentIdentity.value.handle}</p>
         )}
 
-        <div class="w-full mb-4">
-          <div class="relative">
+        <div className="w-full mb-4">
+          <div className="relative">
             <input
               type={showPassphrase ? 'text' : 'password'}
-              class="w-full px-4 py-3 pr-12 border border-[var(--color-border-default)] rounded-lg text-sm bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:border-transparent"
+              className="w-full px-4 py-3 pr-12 border border-[hsl(var(--border))] rounded-lg text-sm bg-[hsl(var(--card))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))] focus:border-transparent"
               placeholder="Enter passphrase"
               value={passphrase}
               onInput={(e) => {
@@ -86,57 +61,58 @@ export function LockScreen() {
             />
             <button
               type="button"
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"
               onClick={() => setShowPassphrase(!showPassphrase)}
             >
-              {showPassphrase ? <EyeOffIcon /> : <EyeIcon />}
+              {showPassphrase ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
           </div>
         </div>
 
-        {error && <div class="w-full px-4 py-3 mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg">{error}</div>}
+        {error && (
+          <div className="w-full mb-4">
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          </div>
+        )}
 
         <Button
-          variant="primary"
-          size="lg"
-          fullWidth
+          variant="accent"
+          className="w-full"
           onClick={handleUnlock}
           disabled={!passphrase || isLoading.value}
-          loading={isLoading.value}
         >
-          Unlock
+          {isLoading.value ? 'Unlocking...' : 'Unlock'}
         </Button>
 
         {/* Logout / Switch Identity */}
-        <div class="mt-8 pt-6 border-t border-[var(--color-border-default)] w-full">
+        <div className="mt-8 pt-6 border-t border-[hsl(var(--border))] w-full">
           {!showLogoutConfirm ? (
             <Button
               variant="ghost"
-              size="md"
-              fullWidth
+              className="w-full"
               onClick={() => setShowLogoutConfirm(true)}
             >
               Login to a different identity
             </Button>
           ) : (
-            <div class="space-y-2">
-              <p class="text-xs text-[var(--color-text-secondary)] text-center mb-3">
+            <div className="space-y-2">
+              <p className="text-xs text-[hsl(var(--muted-foreground))] text-center mb-3">
                 This will clear your current identity from this browser. Make sure you have your backup passphrase.
               </p>
-              <div class="flex gap-2">
+              <div className="flex gap-2">
                 <Button
-                  variant="secondary"
-                  size="md"
-                  onClick={() => setShowLogoutConfirm(false)}
+                  variant="outline"
                   className="flex-1"
+                  onClick={() => setShowLogoutConfirm(false)}
                 >
                   Cancel
                 </Button>
                 <Button
-                  variant="danger"
-                  size="md"
-                  onClick={handleLogout}
+                  variant="destructive"
                   className="flex-1"
+                  onClick={handleLogout}
                 >
                   Logout
                 </Button>
