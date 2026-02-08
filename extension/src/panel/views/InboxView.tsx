@@ -1,9 +1,13 @@
 import { useEffect } from 'preact/hooks';
+import { Inbox, RefreshCw } from 'lucide-react';
 import { conversations, selectedConversationId, loadConversations, isRefreshing } from '../state';
 import { ConversationItem } from '../components/ConversationItem';
 import { ConversationDetailView } from './ConversationDetailView';
-import { Button } from '../components/Button';
 import { activeTab } from '../App';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { EmptyState } from '@/components/relay/EmptyState';
+import { cn } from '@/lib/utils';
 
 export function InboxView() {
   const convos = conversations.value;
@@ -23,60 +27,51 @@ export function InboxView() {
 
   if (isEmpty) {
     return (
-      <div class="flex flex-col items-center justify-center h-full text-center px-5 py-10 bg-[var(--color-bg-sunken)]">
-        <svg class="w-12 h-12 text-[var(--color-text-tertiary)] mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M22 12h-6l-2 3H10l-2-3H2" />
-          <path d="M5.45 5.11L2 12v6a2 2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" />
-        </svg>
-        <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-2">No conversations yet</h3>
-        <p class="text-sm text-[var(--color-text-secondary)] mb-4">Start a chat with another handle or create an email alias to receive messages.</p>
-        <Button 
-          variant="primary"
-          onClick={() => { activeTab.value = 'new'; }}
-        >
-          Start a chat
-        </Button>
-      </div>
+      <EmptyState
+        icon={<Inbox className="w-12 h-12" strokeWidth={1.5} />}
+        title="No conversations yet"
+        description="Start a chat with another handle or create an email alias to receive messages."
+        action={{
+          label: "Start a chat",
+          onClick: () => { activeTab.value = 'new'; },
+          variant: "accent"
+        }}
+        className="h-full bg-[hsl(var(--muted))]"
+      />
     );
   }
 
   return (
-    <div class="flex-1 overflow-y-auto flex flex-col">
+    <div className="flex-1 overflow-hidden flex flex-col">
       {/* Header with refresh button */}
-      <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border-default)] bg-[var(--color-bg-elevated)]">
-        <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Inbox</h2>
-        <button
-          class={`p-2 rounded-md transition-all duration-150 ${refreshing ? 'text-sky-600' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'}`}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+        <h2 className="text-lg font-semibold text-[hsl(var(--foreground))]">Inbox</h2>
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => loadConversations()}
           disabled={refreshing}
-          title="Refresh conversations"
+          aria-label="Refresh conversations"
         >
-          <svg 
-            class={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            stroke="currentColor" 
-            stroke-width="2"
-          >
-            <path d="M21 12a9 9 0 11-2.52-6.25" />
-            <path d="M21 3v6h-6" />
-          </svg>
-        </button>
+          <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+        </Button>
       </div>
 
       {/* Conversation list */}
-      <div class="flex-1 overflow-y-auto">
-        {convos.map((convo) => (
-          <ConversationItem
-            key={convo.id}
-            conversation={convo}
-            isSelected={selectedConversationId.value === convo.id}
-            onClick={() => {
-              selectedConversationId.value = convo.id;
-            }}
-          />
-        ))}
-      </div>
+      <ScrollArea className="flex-1">
+        <div className="divide-y divide-[hsl(var(--border))]">
+          {convos.map((convo) => (
+            <ConversationItem
+              key={convo.id}
+              conversation={convo}
+              isSelected={selectedConversationId.value === convo.id}
+              onClick={() => {
+                selectedConversationId.value = convo.id;
+              }}
+            />
+          ))}
+        </div>
+      </ScrollArea>
     </div>
   );
 }

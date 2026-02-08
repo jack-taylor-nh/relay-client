@@ -6,7 +6,7 @@
 
 import { type ComponentChildren } from "preact";
 import { 
-  Hash, 
+  AtSign, 
   Mail, 
   MessageSquare, 
   Webhook, 
@@ -47,14 +47,14 @@ export interface EdgeCardProps {
 const edgeConfig: Record<
   EdgeType,
   {
-    icon: typeof Hash;
+    icon: typeof AtSign;
     label: string;
     badgeVariant: "native" | "email" | "discord" | "webhook" | "contact-link";
     colorClass: string;
   }
 > = {
   native: {
-    icon: Hash,
+    icon: AtSign,
     label: "Native Handle",
     badgeVariant: "native",
     colorClass: "text-[var(--color-edge-native)]",

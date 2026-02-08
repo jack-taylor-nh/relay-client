@@ -2,8 +2,11 @@ import { useState, useEffect } from 'preact/hooks';
 import { signal } from '@preact/signals';
 import { showToast, selectedConversationId, conversations, resolveHandle, edges, sendMessage, loadEdges } from '../state';
 import { activeTab } from '../App';
-import { EdgeCard } from '../components/EdgeCard';
-import { FullscreenInboxView } from './FullscreenInboxView';
+import { EdgeCard } from '@/components/relay/EdgeCard';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Link, User, Users, MessageSquare, ChevronRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 // Track state for fullscreen new view
 const selectedEdge = signal<string | null>(null);
@@ -209,137 +212,120 @@ export function FullscreenNewView() {
   }
 
   return (
-    <div class="flex h-full">
+    <div className="flex h-full">
       {/* Left Panel - Edge Selection */}
-      <div class="w-80 flex-shrink-0 flex flex-col border-r border-[var(--color-border-default)] bg-[var(--color-bg-elevated)]">
-        <div class="px-4 py-4 border-b border-[var(--color-border-default)]">
-          <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Start new conversation</h2>
-          <p class="text-sm text-[var(--color-text-secondary)] mt-1">Choose which edge to use</p>
+      <div className="w-80 flex-shrink-0 flex flex-col border-r border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+        <div className="px-4 py-4 border-b border-[hsl(var(--border))]">
+          <h2 className="text-lg font-semibold text-[hsl(var(--foreground))]">Start new conversation</h2>
+          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Choose which edge to use</p>
         </div>
 
-        <div class="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Native Handles */}
-          {nativeEdges.length > 0 && (
-            <div>
-              <h3 class="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">Your Handles</h3>
-              <div class="space-y-2">
-                {nativeEdges.map((edge) => (
-                  <div 
-                    key={edge.id} 
-                    onClick={() => { selectedEdge.value = `edge:${edge.id}`; }}
-                    class={`cursor-pointer rounded-lg transition-all duration-150 ${
-                      selectedEdge.value === `edge:${edge.id}` 
-                        ? 'ring-2 ring-sky-500 ring-offset-2' 
-                        : ''
-                    }`}
-                  >
-                    <EdgeCard
-                      id={edge.id}
-                      type="native"
-                      address={edge.address.startsWith('&') ? edge.address : `&${edge.address}`}
-                      subtitle={edge.metadata?.displayName || null}
-                      status="active"
-                      createdAt={edge.createdAt}
-                      onCopy={() => {}}
-                      onDispose={() => {}}
-                      expandable={false}
-                    />
-                  </div>
-                ))}
+        <ScrollArea className="flex-1 p-4">
+          <div className="space-y-4">
+            {/* Native Handles */}
+            {nativeEdges.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-2">Your Handles</h3>
+                <div className="space-y-2">
+                  {nativeEdges.map((edge) => (
+                    <div 
+                      key={edge.id} 
+                      onClick={() => { selectedEdge.value = `edge:${edge.id}`; }}
+                      className={cn(
+                        "cursor-pointer rounded-lg transition-all duration-150",
+                        selectedEdge.value === `edge:${edge.id}` && "ring-2 ring-[hsl(var(--ring))] ring-offset-2"
+                      )}
+                    >
+                      <EdgeCard
+                        id={edge.id}
+                        type="native"
+                        address={edge.address.startsWith('&') ? edge.address : `&${edge.address}`}
+                        label={edge.metadata?.displayName || undefined}
+                        onCopy={() => {}}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Email Aliases */}
-          {emailEdges.length > 0 && (
-            <div>
-              <h3 class="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">Email Aliases</h3>
-              <div class="space-y-2">
-                {emailEdges.map((edge) => (
-                  <div 
-                    key={edge.id} 
-                    onClick={() => { selectedEdge.value = `edge:${edge.id}`; }}
-                    class={`cursor-pointer rounded-lg transition-all duration-150 ${
-                      selectedEdge.value === `edge:${edge.id}` 
-                        ? 'ring-2 ring-sky-500 ring-offset-2' 
-                        : ''
-                    }`}
-                  >
-                    <EdgeCard
-                      id={edge.id}
-                      type="email"
-                      address={edge.address}
-                      subtitle={edge.label}
-                      status={edge.status}
-                      messageCount={edge.messageCount}
-                      createdAt={edge.createdAt}
-                      onCopy={() => {}}
-                      onDispose={() => {}}
-                      expandable={false}
-                    />
-                  </div>
-                ))}
+            {/* Email Aliases */}
+            {emailEdges.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-2">Email Aliases</h3>
+                <div className="space-y-2">
+                  {emailEdges.map((edge) => (
+                    <div 
+                      key={edge.id} 
+                      onClick={() => { selectedEdge.value = `edge:${edge.id}`; }}
+                      className={cn(
+                        "cursor-pointer rounded-lg transition-all duration-150",
+                        selectedEdge.value === `edge:${edge.id}` && "ring-2 ring-[hsl(var(--ring))] ring-offset-2"
+                      )}
+                    >
+                      <EdgeCard
+                        id={edge.id}
+                        type="email"
+                        address={edge.address}
+                        label={edge.label || undefined}
+                        onCopy={() => {}}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Empty state */}
-          {allEdges.length === 0 && (
-            <div class="flex flex-col items-center justify-center py-12 text-center">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="text-[var(--color-text-tertiary)] mb-3">
-                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-              <h3 class="text-base font-semibold text-[var(--color-text-primary)] mb-1">No identities yet</h3>
-              <p class="text-sm text-[var(--color-text-secondary)] mb-4">Claim a handle or create an alias in the Edges tab</p>
-              <button
-                class="px-4 py-2 text-sm font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] rounded-md transition-colors"
-                onClick={() => { activeTab.value = 'edges'; }}
-              >
-                Go to Edges
-              </button>
-            </div>
-          )}
-        </div>
+            {/* Empty state */}
+            {allEdges.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Users className="w-12 h-12 text-[hsl(var(--muted-foreground))] mb-3" strokeWidth={1.5} />
+                <h3 className="text-base font-semibold text-[hsl(var(--foreground))] mb-1">No identities yet</h3>
+                <p className="text-sm text-[hsl(var(--muted-foreground))] mb-4">Claim a handle or create an alias in the Edges tab</p>
+                <Button
+                  variant="accent"
+                  onClick={() => { activeTab.value = 'edges'; }}
+                >
+                  Go to Edges
+                </Button>
+              </div>
+            )}
+          </div>
+        </ScrollArea>
       </div>
 
       {/* Right Panel - Compose Area */}
-      <div class="flex-1 flex flex-col bg-[var(--color-bg-sunken)]">
+      <div className="flex-1 flex flex-col bg-[hsl(var(--background))]">
         {!selectedEdge.value ? (
           // No edge selected - prompt
-          <div class="flex-1 flex flex-col items-center justify-center text-center px-5">
-            <svg class="w-12 h-12 text-[var(--color-text-tertiary)] mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-            </svg>
-            <p class="text-[var(--color-text-tertiary)]">Select an edge to send from</p>
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-5">
+            <Link className="w-12 h-12 text-[hsl(var(--muted-foreground))] mb-4" strokeWidth={1.5} />
+            <p className="text-[hsl(var(--muted-foreground))]">Select an edge to send from</p>
           </div>
         ) : (
           // Edge selected - show recipient lookup
-          <div class="flex-1 flex flex-col max-w-2xl mx-auto w-full p-6">
-            <div class="flex items-center gap-3 mb-6 pb-4 border-b border-[var(--color-border-default)]">
-              <div class="w-10 h-10 rounded-full bg-sky-100 flex items-center justify-center">
-                <svg class="w-5 h-5 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-                </svg>
+          <div className="flex-1 flex flex-col max-w-2xl mx-auto w-full p-6">
+            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-[hsl(var(--border))]">
+              <div className="w-10 h-10 rounded-full bg-[hsl(var(--primary))]/10 flex items-center justify-center">
+                <MessageSquare className="w-5 h-5 text-[hsl(var(--primary))]" />
               </div>
               <div>
-                <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">New Conversation</h3>
-                <p class="text-sm text-[var(--color-text-tertiary)]">
+                <h3 className="text-lg font-semibold text-[hsl(var(--foreground))]">New Conversation</h3>
+                <p className="text-sm text-[hsl(var(--muted-foreground))]">
                   Sending from: {allEdges.find(e => `edge:${e.id}` === selectedEdge.value)?.address}
                 </p>
               </div>
             </div>
 
             {/* Recipient lookup */}
-            <div class="flex-1">
-              <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">Find recipient</label>
-              <div class="flex gap-2 mb-4">
-                <div class="relative flex-1">
-                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)] font-medium">&</span>
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-[hsl(var(--foreground))] mb-2">Find recipient</label>
+              <div className="flex gap-2 mb-4">
+                <div className="relative flex-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[hsl(var(--muted-foreground))] font-medium">&</span>
                   <input
                     type="text"
-                    class="w-full pl-7 pr-3 py-3 text-base border border-[var(--color-border-strong)] rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)]"
+                    className="w-full pl-7 pr-3 py-3 text-base border border-[hsl(var(--border))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))] focus:border-transparent bg-[hsl(var(--card))] text-[hsl(var(--foreground))]"
                     placeholder="username"
                     value={recipientHandle}
                     onInput={(e) => {
@@ -355,51 +341,46 @@ export function FullscreenNewView() {
                     disabled={isResolving || isCreatingConversation}
                   />
                 </div>
-                <button
-                  class="px-6 py-3 text-base font-semibold text-[var(--color-text-inverse)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] disabled:bg-[var(--color-text-tertiary)] rounded-lg transition-colors"
+                <Button
+                  variant="accent"
                   onClick={() => handleResolve()}
                   disabled={isResolving || isCreatingConversation || cleanHandle.length < 3}
                 >
                   {isResolving || isCreatingConversation ? 'Finding...' : 'Find'}
-                </button>
+                </Button>
               </div>
               
               {error && (
-                <div class="mb-4 p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded-lg dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
+                <div className="mb-4 p-3 bg-[hsl(var(--destructive))]/10 border border-[hsl(var(--destructive))]/30 text-sm text-[hsl(var(--destructive))] rounded-lg">
                   {error}
                 </div>
               )}
 
               {/* Recents list */}
               {filteredRecents.length > 0 && !isResolving && !isCreatingConversation && (
-                <div class="mt-4">
-                  <h4 class="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider mb-2">
+                <div className="mt-4">
+                  <h4 className="text-xs font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-2">
                     {cleanHandle ? 'Matching contacts' : 'Recent contacts'}
                   </h4>
-                  <div class="space-y-1">
+                  <div className="space-y-1">
                     {filteredRecents.map((recent) => (
                       <button
                         key={recent.handle}
-                        class="w-full flex items-center justify-between px-4 py-3 text-left rounded-lg bg-[var(--color-bg-elevated)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border-default)] transition-colors"
+                        className="w-full flex items-center justify-between px-4 py-3 text-left rounded-lg bg-[hsl(var(--card))] hover:bg-[hsl(var(--muted))] border border-[hsl(var(--border))] transition-colors cursor-pointer"
                         onClick={() => selectRecent(recent.handle)}
                       >
-                        <div class="flex items-center gap-3">
-                          <div class="w-8 h-8 rounded-full bg-sky-100 dark:bg-sky-900 flex items-center justify-center">
-                            <svg class="w-4 h-4 text-sky-600 dark:text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                              <circle cx="12" cy="7" r="4" />
-                            </svg>
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-[hsl(var(--primary))]/10 flex items-center justify-center">
+                            <User className="w-4 h-4 text-[hsl(var(--primary))]" />
                           </div>
                           <div>
-                            <div class="text-sm font-medium text-[var(--color-text-primary)]">{recent.counterpartyName}</div>
-                            <div class="text-xs text-[var(--color-text-tertiary)]">
+                            <div className="text-sm font-medium text-[hsl(var(--foreground))]">{recent.counterpartyName}</div>
+                            <div className="text-xs text-[hsl(var(--muted-foreground))]">
                               Last active {formatRelativeTime(recent.lastActivityAt)}
                             </div>
                           </div>
                         </div>
-                        <svg class="w-5 h-5 text-[var(--color-text-tertiary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <polyline points="9 18 15 12 9 6" />
-                        </svg>
+                        <ChevronRight className="w-5 h-5 text-[hsl(var(--muted-foreground))]" />
                       </button>
                     ))}
                   </div>
@@ -407,16 +388,16 @@ export function FullscreenNewView() {
               )}
 
               {filteredRecents.length === 0 && cleanHandle && !isResolving && !isCreatingConversation && (
-                <div class="mt-4 text-center py-8 text-[var(--color-text-tertiary)]">
-                  <p class="text-sm">No matching recent contacts</p>
-                  <p class="text-xs mt-1">Press Enter or click Find to search</p>
+                <div className="mt-4 text-center py-8 text-[hsl(var(--muted-foreground))]">
+                  <p className="text-sm">No matching recent contacts</p>
+                  <p className="text-xs mt-1">Press Enter or click Find to search</p>
                 </div>
               )}
 
               {recents.length === 0 && !cleanHandle && !isResolving && !isCreatingConversation && (
-                <div class="mt-4 text-center py-8 text-[var(--color-text-tertiary)]">
-                  <p class="text-sm">No recent contacts yet</p>
-                  <p class="text-xs mt-1">Enter a handle to start a new conversation</p>
+                <div className="mt-4 text-center py-8 text-[hsl(var(--muted-foreground))]">
+                  <p className="text-sm">No recent contacts yet</p>
+                  <p className="text-xs mt-1">Enter a handle to start a new conversation</p>
                 </div>
               )}
             </div>
