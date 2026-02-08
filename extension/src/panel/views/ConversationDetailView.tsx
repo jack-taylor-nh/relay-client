@@ -1,42 +1,15 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { signal } from '@preact/signals';
+import { Lock, Mail, FileText, ChevronLeft, Send, Link as LinkIcon } from 'lucide-react';
 import { selectedConversationId, currentIdentity, showToast, sendMessage, conversations } from '../state';
 import type { ConversationType } from '../../types';
 import { CodeBlock } from '../components/CodeBlock';
-
-// ============================================
-// Icons
-// ============================================
-
-function LockIcon({ size = 12 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-      <path d="M7 11V7a5 5 0 0110 0v4" />
-    </svg>
-  );
-}
-
-function MailIcon({ size = 12 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-      <polyline points="22,6 12,13 2,6" />
-    </svg>
-  );
-}
-
-function FileTextIcon({ size = 12 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="16" y1="13" x2="8" y2="13" />
-      <line x1="16" y1="17" x2="8" y2="17" />
-      <polyline points="10 9 9 9 8 9" />
-    </svg>
-  );
-}
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { SecurityBadge } from '@/components/relay/SecurityBadge';
+import { ViaBadge } from '@/components/relay/ViaBadge';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 // ============================================
 // Types
@@ -469,6 +442,35 @@ function MessageBubble({ message }: { message: Message }) {
   
   const webhookPayload = tryParseWebhookPayload(message.content);
   
+  // Liquid glass effect styles for message bubbles
+  // Inspired by liquid-glass-react but kept subtle and lowkey
+  const glassStyles = {
+    // Sent message: accent with liquid glass effect
+    sent: [
+      // Base gradient with slight transparency for glass depth
+      "bg-gradient-to-br from-[hsl(var(--accent))] via-[hsl(var(--accent)/0.92)] to-[hsl(var(--accent)/0.85)]",
+      "text-white",
+      // Multi-layer shadow: inner highlight (top), inner shadow (bottom), outer glow
+      "shadow-[inset_0_1px_0_0_rgba(255,255,255,0.25),inset_0_-1px_2px_0_rgba(0,0,0,0.15),0_4px_12px_-4px_rgba(0,0,0,0.2),0_0_0_0.5px_rgba(255,255,255,0.1)]",
+      // Blur and saturation for true glass feel
+      "backdrop-blur-md backdrop-saturate-150",
+      // Subtle border for edge definition
+      "border border-white/10",
+    ].join(" "),
+    // Received message: frosted glass effect
+    received: [
+      // Subtle gradient with transparency
+      "bg-gradient-to-br from-[hsl(var(--muted)/0.9)] via-[hsl(var(--muted)/0.85)] to-[hsl(var(--muted)/0.8)]",
+      "text-[hsl(var(--foreground))]",
+      // Inner highlight and subtle depth shadow
+      "shadow-[inset_0_1px_0_0_rgba(255,255,255,0.5),inset_0_-1px_2px_0_rgba(0,0,0,0.05),0_4px_12px_-4px_rgba(0,0,0,0.08),0_0_0_0.5px_rgba(255,255,255,0.15)]",
+      // Glass blur effect
+      "backdrop-blur-md backdrop-saturate-125",
+      // Defined edge
+      "border border-[hsl(var(--border)/0.3)]",
+    ].join(" "),
+  };
+  
   // Render webhook message with structured layout
   if (webhookPayload.isWebhook) {
     // Determine what data to show
@@ -476,20 +478,36 @@ function MessageBubble({ message }: { message: Message }) {
     const hasRawData = webhookPayload.raw && Object.keys(webhookPayload.raw).length > 0;
     
     return (
-      <div class={`message-bubble webhook-message ${message.isMine ? 'mine' : 'theirs'}`}>
+      <div className={cn(
+        "message-bubble webhook-message max-w-[85%] p-0 overflow-hidden rounded-2xl",
+        message.isMine 
+          ? cn("self-end rounded-br-md ml-[20%]", glassStyles.sent)
+          : cn("self-start rounded-bl-md mr-[20%]", glassStyles.received)
+      )}>
         {webhookPayload.sender && (
-          <div class="webhook-sender">
+          <div className={cn(
+            "px-3.5 pt-2.5 pb-1.5 text-xs font-semibold uppercase tracking-wide",
+            message.isMine ? "text-white/70" : "text-[hsl(var(--muted-foreground))]"
+          )}>
             {webhookPayload.detectedService && (
-              <span class="webhook-service-badge">{webhookPayload.detectedService}</span>
+              <Badge variant="accent" className="text-[10px] mr-2">
+                {webhookPayload.detectedService}
+              </Badge>
             )}
             {webhookPayload.sender}
           </div>
         )}
         {webhookPayload.title && (
-          <div class="webhook-title">{renderMarkdown(webhookPayload.title)}</div>
+          <div className={cn(
+            "px-3.5 pb-2 text-[15px] font-semibold leading-tight",
+            message.isMine ? "text-white" : "text-[hsl(var(--foreground))]"
+          )}>{renderMarkdown(webhookPayload.title)}</div>
         )}
         {webhookPayload.body && (
-          <div class="webhook-body">{renderMarkdown(webhookPayload.body)}</div>
+          <div className={cn(
+            "px-3.5 pb-3 text-sm leading-relaxed whitespace-pre-wrap break-words",
+            message.isMine ? "text-white/95" : "text-[hsl(var(--foreground))]"
+          )}>{renderMarkdown(webhookPayload.body)}</div>
         )}
         {hasStructuredData && !webhookPayload.raw && (
           <WebhookDataDisplay data={webhookPayload.data!} />
@@ -497,16 +515,29 @@ function MessageBubble({ message }: { message: Message }) {
         {hasRawData && (
           <WebhookDataDisplay data={webhookPayload.raw!} isRaw={true} />
         )}
-        <div class="message-time">{time}</div>
+        <div className={cn(
+          "px-3.5 py-1.5 text-[11px] text-right border-t",
+          message.isMine 
+            ? "text-white/60 border-white/10 bg-black/10" 
+            : "text-[hsl(var(--muted-foreground))] border-[hsl(var(--border))] bg-[hsl(var(--muted))]"
+        )}>{time}</div>
       </div>
     );
   }
   
-  // Regular message
+  // Regular message with glass effect
   return (
-    <div class={`message-bubble ${message.isMine ? 'mine' : 'theirs'}`}>
-      <div class="message-content">{message.content}</div>
-      <div class="message-time">{time}</div>
+    <div className={cn(
+      "max-w-[75%] px-4 py-3 rounded-2xl",
+      message.isMine 
+        ? cn("self-end rounded-br-md ml-[20%]", glassStyles.sent)
+        : cn("self-start rounded-bl-md mr-[20%]", glassStyles.received)
+    )}>
+      <div className="text-[15px] leading-snug whitespace-pre-wrap break-words">{message.content}</div>
+      <div className={cn(
+        "text-[11px] mt-1 text-right font-medium",
+        message.isMine ? "text-white/60" : "text-[hsl(var(--muted-foreground))]"
+      )}>{time}</div>
     </div>
   );
 }
@@ -532,26 +563,25 @@ function MessageInput({ onSend }: { onSend: (content: string) => void }) {
   }
   
   return (
-    <div class="message-input-container">
+    <div className="flex items-center gap-3 p-4 bg-[hsl(var(--card))] border-t border-[hsl(var(--border))]">
       <textarea
         ref={inputRef}
-        class="message-input"
+        className="flex-1 px-4 py-2.5 text-sm bg-[hsl(var(--background))] border-2 border-[hsl(var(--border))] rounded-full resize-none max-h-32 min-h-10 leading-normal text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:border-[hsl(var(--primary))] transition-colors"
         placeholder="Type a message..."
         value={text}
         onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
         onKeyDown={handleKeyDown}
         rows={1}
       />
-      <button
-        class="send-button"
+      <Button
+        variant="accent"
+        size="icon"
         onClick={handleSubmit}
         disabled={!text.trim()}
+        aria-label="Send message"
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="22" y1="2" x2="11" y2="13" />
-          <polygon points="22 2 15 22 11 13 2 9 22 2" />
-        </svg>
-      </button>
+        <Send className="h-4 w-4" />
+      </Button>
     </div>
   );
 }
@@ -776,77 +806,59 @@ export function ConversationDetailView() {
   const isNativeChat = details?.type === 'native';
   
   return (
-    <div class="conversation-detail">
+    <div className="flex flex-col h-full bg-[hsl(var(--background))]">
       {/* Header */}
-      <div class="conversation-detail-header">
-        <button class="back-button" onClick={handleBack}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-        </button>
+      <div className="flex items-center gap-3 px-4 py-3 bg-[hsl(var(--card))] border-b border-[hsl(var(--border))] min-h-[56px]">
+        <Button variant="ghost" size="icon" onClick={handleBack} aria-label="Back to inbox">
+          <ChevronLeft className="h-5 w-5" />
+        </Button>
         
-        <div class="conversation-detail-info">
-          <div class="conversation-detail-name">
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-[hsl(var(--foreground))] truncate">
             {details?.counterpartyName}
           </div>
           {details?.counterpartyFingerprint && (
-            <div class="conversation-detail-fingerprint">
+            <div className="text-[10px] font-mono text-[hsl(var(--muted-foreground))]">
               {details.counterpartyFingerprint.slice(0, 12)}...
             </div>
           )}
         </div>
         
-        <div class="conversation-detail-badges">
+        <div className="flex items-center gap-2">
           {/* Edge badge - show which edge received this conversation */}
-          {conv?.edgeAddress && conv?.type !== 'native' && (
-            <span 
-              class="badge badge-edge" 
-              title={`Received via ${conv.edgeAddress}`}
-            >
-              via {conv.edgeAddress.includes('@') ? conv.edgeAddress.split('@')[0] : conv.edgeAddress}
-            </span>
+          {conv?.edgeAddress && (
+            <ViaBadge 
+              address={conv.edgeAddress}
+              type={conv.type}
+              maxLength={12}
+            />
           )}
           
-          {/* Security level badge with descriptive tooltip */}
-          {conv?.securityLevel === 'e2ee' && (
-            <span 
-              class="badge badge-encrypted" 
-              title="End-to-End Encrypted: Messages are encrypted on your device and can only be decrypted by the recipient. No server, including Relay, can read your messages."
-            >
-              <LockIcon /> E2EE
-            </span>
-          )}
-          {conv?.securityLevel === 'gateway_secured' && (
-            <span 
-              class="badge badge-relayed" 
-              title="Relayed: Messages are encrypted in transit (TLS) and at rest, but pass through a bridge gateway. The bridge can process message content to enable cross-platform messaging (e.g., Discord, Email)."
-            >
-              Relayed
-            </span>
+          {/* Security level badge */}
+          {conv?.securityLevel && (
+            <SecurityBadge level={conv.securityLevel} size="sm" />
           )}
         </div>
       </div>
       
-      {/* Messages */}
-      <div class="messages-container">
+      {/* Messages - subtle gradient background for glass effect depth */}
+      <ScrollArea className="flex-1 messages-glass-bg">
+        <div className="p-4 flex flex-col gap-2">
         {isLoadingMessages.value ? (
-          <div class="messages-loading">
-            <div class="loading-spinner"></div>
+          <div className="flex items-center justify-center h-full">
+            <div className="animate-spin rounded-full h-6 w-6 border-2 border-[hsl(var(--primary))] border-t-transparent" />
           </div>
         ) : messages.value.length === 0 ? (
-          <div class="messages-empty">
+          <div className="flex flex-col items-center justify-center h-full text-center">
             {conv?.type === 'contact_endpoint' ? (
-              <>
-                <div class="contact-link-notice">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="contact-link-icon">
-                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                  </svg>
-                  <div class="contact-link-text">Someone started a conversation via your contact link, but hasn't sent a message yet.</div>
-                </div>
-              </>
+              <div className="flex flex-col items-center gap-3 p-6 max-w-[280px]">
+                <LinkIcon className="h-6 w-6 text-[hsl(var(--primary))] opacity-70" />
+                <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                  Someone started a conversation via your contact link, but hasn't sent a message yet.
+                </p>
+              </div>
             ) : (
-              <div class="text-secondary">No messages yet</div>
+              <div className="text-[hsl(var(--muted-foreground))]">No messages yet</div>
             )}
           </div>
         ) : (
@@ -857,12 +869,21 @@ export function ConversationDetailView() {
             <div ref={messagesEndRef} />
           </>
         )}
-      </div>
+        </div>
+      </ScrollArea>
       
       {/* Input - for all conversations */}
       <MessageInput onSend={handleSendMessage} />
       
       <style>{`
+        /* Subtle gradient background for glass effect depth */
+        .messages-glass-bg {
+          background: 
+            radial-gradient(ellipse at 20% 0%, hsl(var(--primary) / 0.03) 0%, transparent 50%),
+            radial-gradient(ellipse at 80% 100%, hsl(var(--accent) / 0.04) 0%, transparent 50%),
+            linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--muted) / 0.3) 100%);
+        }
+        
         .conversation-detail {
           display: flex;
           flex-direction: column;

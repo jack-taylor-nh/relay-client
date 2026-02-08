@@ -1,15 +1,18 @@
 @import "tailwindcss";
 
 /**
- * Relay Panel - Design System v3
+ * Relay Panel - Design System v4 (shadcn/ui Migration)
  * 
  * Powered by Tailwind CSS v4 (CSS-first configuration)
  * With Dark/Light mode support via CSS custom properties
  * 
+ * Using shadcn/ui token conventions for component compatibility
+ * https://ui.shadcn.com/docs/theming
+ * 
  * DESIGN PHILOSOPHY:
  * - Neutral system UI (slate/stone) - trust, security, infrastructure
  * - Brand gradient used sparingly as accent only
- * - NOT startup-y purple - clean like Stripe/Linear
+ * - Sky/Blue accent (aligned with Relay icon)
  * 
  * BRAND GRADIENT (from glyph SVG):
  * Sky #38BDF8 → Blue #60A5FA → Indigo #A5B4FC
@@ -17,6 +20,7 @@
 
 /* ============================================
  * CSS CUSTOM PROPERTIES (LIGHT MODE DEFAULT)
+ * shadcn/ui compatible naming convention
  * ============================================ */
 :root {
   /* Brand Colors (constant across themes) */
@@ -24,6 +28,54 @@
   --relay-gradient-mid: #60A5FA;
   --relay-gradient-end: #A5B4FC;
   --relay-navy: #0F172A;
+  
+  /* ==========================================
+   * shadcn/ui Token System (HSL values)
+   * ========================================== */
+  
+  /* Base backgrounds */
+  --background: 60 9% 98%;           /* stone-50: #fafaf9 */
+  --foreground: 24 10% 10%;          /* stone-900: #1c1917 */
+  
+  /* Card surfaces */
+  --card: 0 0% 100%;                 /* white */
+  --card-foreground: 24 10% 10%;     /* stone-900 */
+  
+  /* Popover surfaces */
+  --popover: 0 0% 100%;              /* white */
+  --popover-foreground: 24 10% 10%;  /* stone-900 */
+  
+  /* Muted elements */
+  --muted: 60 5% 96%;                /* stone-100: #f5f5f4 */
+  --muted-foreground: 25 6% 45%;     /* stone-500: #78716c */
+  
+  /* Accent (sky/blue brand) */
+  --accent: 199 89% 48%;             /* sky-500: #0ea5e9 */
+  --accent-foreground: 0 0% 100%;    /* white */
+  
+  /* Primary action (slate for trust) */
+  --primary: 215 16% 47%;            /* slate-500: #64748b */
+  --primary-foreground: 0 0% 100%;   /* white */
+  
+  /* Secondary action */
+  --secondary: 60 5% 96%;            /* stone-100 */
+  --secondary-foreground: 24 10% 10%; /* stone-900 */
+  
+  /* Destructive action */
+  --destructive: 0 72% 51%;          /* red-600: #dc2626 */
+  --destructive-foreground: 0 0% 100%; /* white */
+  
+  /* Input/Border/Ring */
+  --border: 24 6% 83%;               /* stone-300: #d6d3d1 */
+  --input: 24 6% 83%;                /* stone-300 */
+  --ring: 199 89% 48%;               /* sky-500: #0ea5e9 */
+  
+  /* Radius */
+  --radius: 0.5rem;
+  
+  /* ==========================================
+   * Legacy Token System (for gradual migration)
+   * ========================================== */
   
   /* Background Colors */
   --color-bg-base: #fafaf9;
@@ -98,7 +150,53 @@
  * DARK MODE
  * ============================================ */
 :root.dark,
+.dark,
 [data-theme="dark"] {
+  /* ==========================================
+   * shadcn/ui Token System (HSL values) - DARK
+   * ========================================== */
+  
+  /* Base backgrounds */
+  --background: 0 0% 5%;             /* #0c0c0c */
+  --foreground: 60 9% 98%;           /* stone-50 */
+  
+  /* Card surfaces */
+  --card: 0 0% 9%;                   /* #171717 */
+  --card-foreground: 60 9% 98%;      /* stone-50 */
+  
+  /* Popover surfaces */
+  --popover: 0 0% 9%;                /* #171717 */
+  --popover-foreground: 60 9% 98%;   /* stone-50 */
+  
+  /* Muted elements */
+  --muted: 0 0% 15%;                 /* #262626 */
+  --muted-foreground: 24 6% 45%;     /* stone-500 */
+  
+  /* Accent (sky/blue brand) */
+  --accent: 198 93% 60%;             /* sky-400: #38bdf8 */
+  --accent-foreground: 222 47% 11%;  /* slate-900 */
+  
+  /* Primary action (slate for trust - inverted for dark) */
+  --primary: 215 20% 65%;            /* slate-400 */
+  --primary-foreground: 222 47% 11%; /* slate-900 */
+  
+  /* Secondary action */
+  --secondary: 0 0% 15%;             /* neutral-800 */
+  --secondary-foreground: 60 9% 98%; /* stone-50 */
+  
+  /* Destructive action */
+  --destructive: 0 72% 51%;          /* red-600 */
+  --destructive-foreground: 0 0% 100%; /* white */
+  
+  /* Input/Border/Ring */
+  --border: 0 0% 20%;                /* #333333 */
+  --input: 0 0% 20%;                 /* #333333 */
+  --ring: 198 93% 60%;               /* sky-400 */
+  
+  /* ==========================================
+   * Legacy Token System - DARK MODE
+   * ========================================== */
+  
   --color-bg-base: #0c0c0c;
   --color-bg-elevated: #171717;
   --color-bg-sunken: #0a0a0a;
