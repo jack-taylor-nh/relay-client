@@ -86,7 +86,7 @@ export function App() {
   }, [linkId]);
   
   return (
-    <div class="min-h-screen bg-gradient-to-br from-stone-100 to-sky-50 flex flex-col">
+    <div class="min-h-screen bg-gradient-to-br from-background to-muted flex flex-col">
       <Header />
       <main class="flex-1 flex items-center justify-center p-4">
         {currentView.value === 'loading' && <LoadingView />}
@@ -104,7 +104,7 @@ export function App() {
 
 function Header() {
   return (
-    <header class="px-4 py-3 bg-white/80 backdrop-blur border-b border-stone-200">
+    <header class="px-4 py-3 bg-card/80 backdrop-blur border-b border-border">
       <div class="max-w-2xl mx-auto flex items-center gap-2">
         <svg width="28" height="28" viewBox="20 20 216 216" fill="none" xmlns="http://www.w3.org/2000/svg">
           <defs>
@@ -123,8 +123,8 @@ function Header() {
             <circle cx="188" cy="176" r="10" fill="url(#relay-gradient)"/>
           </g>
         </svg>
-        <span class="text-lg font-semibold text-stone-800">Relay</span>
-        <span class="text-sm text-stone-500 ml-1">Contact Link</span>
+        <span class="text-lg font-semibold text-foreground">Relay</span>
+        <span class="text-sm text-muted-foreground ml-1">Contact Link</span>
       </div>
     </header>
   );
@@ -132,10 +132,10 @@ function Header() {
 
 function Footer() {
   return (
-    <footer class="px-4 py-4 text-center text-xs text-stone-500">
+    <footer class="px-4 py-4 text-center text-xs text-muted-foreground">
       <p>
         Secured with end-to-end encryption.{' '}
-        <a href="https://userelay.org" class="text-sky-600 hover:underline" target="_blank" rel="noopener">
+        <a href="https://userelay.org" class="text-accent hover:underline" target="_blank" rel="noopener">
           Learn more about Relay
         </a>
       </p>
@@ -146,8 +146,8 @@ function Footer() {
 function LoadingView() {
   return (
     <div class="text-center">
-      <div class="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-      <p class="text-stone-600">Loading...</p>
+      <div class="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+      <p class="text-muted-foreground">Loading...</p>
     </div>
   );
 }
@@ -155,14 +155,14 @@ function LoadingView() {
 function NotFoundView() {
   return (
     <div class="text-center max-w-md">
-      <div class="w-16 h-16 bg-stone-200 rounded-full flex items-center justify-center mx-auto mb-4">
-        <svg class="w-8 h-8 text-stone-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <div class="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+        <svg class="w-8 h-8 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10" />
           <path d="M12 8v4M12 16h.01" />
         </svg>
       </div>
-      <h2 class="text-xl font-semibold text-stone-800 mb-2">Link Not Found</h2>
-      <p class="text-stone-600">
+      <h2 class="text-xl font-semibold text-foreground mb-2">Link Not Found</h2>
+      <p class="text-muted-foreground">
         This contact link doesn't exist or has been disabled.
       </p>
     </div>
@@ -172,16 +172,16 @@ function NotFoundView() {
 function ErrorView() {
   return (
     <div class="text-center max-w-md">
-      <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-        <svg class="w-8 h-8 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <div class="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mx-auto mb-4">
+        <svg class="w-8 h-8 text-destructive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10" />
           <path d="M15 9l-6 6M9 9l6 6" />
         </svg>
       </div>
-      <h2 class="text-xl font-semibold text-stone-800 mb-2">Something went wrong</h2>
-      <p class="text-stone-600">{errorMessage.value || 'An unexpected error occurred.'}</p>
+      <h2 class="text-xl font-semibold text-foreground mb-2">Something went wrong</h2>
+      <p class="text-muted-foreground">{errorMessage.value || 'An unexpected error occurred.'}</p>
       <button 
-        class="mt-4 px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800"
+        class="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
         onClick={() => window.location.reload()}
       >
         Try Again
@@ -331,22 +331,22 @@ function SeedEntryView({ linkId }: { linkId: string }) {
 
   return (
     <div class="w-full max-w-md">
-      <div class="bg-white rounded-2xl shadow-lg p-6 border border-stone-200">
+      <div class="bg-card rounded-2xl shadow-lg p-6 border border-border">
         <div class="text-center mb-6">
-          <div class="w-14 h-14 bg-sky-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <svg class="w-7 h-7 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <div class="w-14 h-14 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-3">
+            <svg class="w-7 h-7 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M6 10V7a6 6 0 0112 0v3" />
               <rect x="4" y="10" width="16" height="10" rx="2" />
             </svg>
           </div>
-          <h2 class="text-xl font-semibold text-stone-800">Secure Your Conversation</h2>
-          <p class="text-sm text-stone-600 mt-1 leading-relaxed">
+          <h2 class="text-xl font-semibold text-foreground">Secure Your Conversation</h2>
+          <p class="text-sm text-muted-foreground mt-1 leading-relaxed">
             Pick three words to create your private seed. You&apos;ll need this seed to return to the conversation.
           </p>
         </div>
 
         <form onSubmit={handleSubmit} class="space-y-4">
-          <div class="flex items-stretch rounded-xl border border-stone-300 bg-white px-3 shadow-sm focus-within:border-transparent focus-within:ring-2 focus-within:ring-sky-500">
+          <div class="flex items-stretch rounded-xl border border-border bg-card px-3 shadow-sm focus-within:border-transparent focus-within:ring-2 focus-within:ring-accent">
             {words.map((word, idx) => (
               <Fragment key={idx}>
                 <input
@@ -357,7 +357,7 @@ function SeedEntryView({ linkId }: { linkId: string }) {
                   inputMode="text"
                   value={word}
                   onInput={(e) => updateWord(idx, (e.target as HTMLInputElement).value)}
-                  class="flex-1 min-w-0 bg-transparent py-3 text-center text-lg font-mono uppercase tracking-[0.3em] placeholder:text-stone-300 focus:outline-none"
+                  class="flex-1 min-w-0 bg-transparent py-3 text-center text-lg font-mono uppercase tracking-[0.3em] placeholder:text-muted-foreground/50 focus:outline-none"
                   placeholder={`Word ${idx + 1}`}
                   autoCapitalize="off"
                   autoComplete="off"
@@ -367,7 +367,7 @@ function SeedEntryView({ linkId }: { linkId: string }) {
                 {idx < words.length - 1 && (
                   <span
                     aria-hidden="true"
-                    class="px-3 text-xl font-semibold text-stone-300 select-none self-center"
+                    class="px-3 text-xl font-semibold text-border select-none self-center"
                   >
                     -
                   </span>
@@ -376,20 +376,20 @@ function SeedEntryView({ linkId }: { linkId: string }) {
             ))}
           </div>
 
-          {error && <p class="text-sm text-red-600 text-center">{error}</p>}
+          {error && <p class="text-sm text-destructive text-center">{error}</p>}
 
           <div class="flex flex-col sm:flex-row gap-3">
             <button
               type="button"
               onClick={handleGenerateSeed}
-              class="flex-1 py-3 border border-slate-300 rounded-lg text-slate-700 font-semibold hover:border-slate-400 disabled:opacity-60"
+              class="flex-1 py-3 border border-border rounded-lg text-foreground font-semibold hover:bg-muted transition-colors disabled:opacity-60"
               disabled={isLoading}
             >
               Generate Seed
             </button>
             <button
               type="submit"
-              class="flex-1 py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800 disabled:bg-stone-300 disabled:cursor-not-allowed"
+              class="flex-1 py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors"
               disabled={isLoading || words.some((w) => !w.trim())}
             >
               {isLoading ? 'Checking…' : 'Continue'}
@@ -397,19 +397,19 @@ function SeedEntryView({ linkId }: { linkId: string }) {
           </div>
         </form>
 
-        <p class="text-xs text-stone-500 text-center mt-4 leading-relaxed">
+        <p class="text-xs text-muted-foreground text-center mt-4 leading-relaxed">
           Keep your seed phrase private—anyone with these words can read this conversation.
         </p>
       </div>
 
-      <div class="mt-4 p-4 bg-sky-50 rounded-xl border border-sky-200">
+      <div class="mt-4 p-4 bg-accent/5 rounded-xl border border-accent/20">
         <div class="flex items-start gap-3">
-          <svg class="w-5 h-5 text-sky-600 mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
           </svg>
           <div>
-            <p class="text-sm font-medium text-sky-900">End-to-End Encryption</p>
-            <p class="text-xs text-sky-700 mt-0.5">
+            <p class="text-sm font-medium text-foreground">End-to-End Encryption</p>
+            <p class="text-xs text-muted-foreground mt-0.5">
               Your messages are encrypted with keys derived from this seed. Remember it to resume securely.
             </p>
           </div>
@@ -463,33 +463,33 @@ function SeedSaveView({ linkId }: { linkId: string }) {
 
   return (
     <div class="w-full max-w-md">
-      <div class="bg-white rounded-2xl shadow-lg p-6 border border-stone-200">
+      <div class="bg-card rounded-2xl shadow-lg p-6 border border-border">
         <div class="text-center mb-6">
-          <div class="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <svg class="w-7 h-7 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <div class="w-14 h-14 bg-success/10 rounded-full flex items-center justify-center mx-auto mb-3">
+            <svg class="w-7 h-7 text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12 3l7 4v6c0 4.97-3.58 9.74-7 11-3.42-1.26-7-6.03-7-11V7l7-4z" />
               <path d="M9 12l2 2 4-4" />
             </svg>
           </div>
-          <h2 class="text-xl font-semibold text-stone-800">Save Your Seed</h2>
-          <p class="text-sm text-stone-600 mt-1 leading-relaxed">
+          <h2 class="text-xl font-semibold text-foreground">Save Your Seed</h2>
+          <p class="text-sm text-muted-foreground mt-1 leading-relaxed">
             Download or copy these words. You&apos;ll need them to reopen this conversation in the future.
           </p>
         </div>
 
-        <div class="flex items-stretch rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm">
+        <div class="flex items-stretch rounded-xl border border-border bg-muted px-3 py-2 shadow-sm">
           {words.map((word, idx) => (
             <Fragment key={idx}>
               <div class="flex-1 min-w-0 px-1 text-center">
-                <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                <p class="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                   Word {idx + 1}
                 </p>
-                <p class="font-mono text-base uppercase tracking-[0.18em] text-slate-900">{word}</p>
+                <p class="font-mono text-base uppercase tracking-[0.18em] text-foreground">{word}</p>
               </div>
               {idx < words.length - 1 && (
                 <span
                   aria-hidden="true"
-                  class="px-3 text-xl font-semibold text-slate-300 select-none self-center"
+                  class="px-3 text-xl font-semibold text-border select-none self-center"
                 >
                   -
                 </span>
@@ -502,27 +502,27 @@ function SeedSaveView({ linkId }: { linkId: string }) {
           <button
             type="button"
             onClick={handleDownload}
-            class="py-3 border border-slate-300 rounded-lg text-slate-700 font-semibold hover:border-slate-400"
+            class="py-3 border border-border rounded-lg text-foreground font-semibold hover:bg-muted transition-colors"
           >
             Download Backup
           </button>
           <button
             type="button"
             onClick={handleCopy}
-            class="py-3 border border-slate-300 rounded-lg text-slate-700 font-semibold hover:border-slate-400"
+            class="py-3 border border-border rounded-lg text-foreground font-semibold hover:bg-muted transition-colors"
           >
             {copied ? 'Copied!' : 'Copy to Clipboard'}
           </button>
           <button
             type="button"
             onClick={handleContinue}
-            class="py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800"
+            class="py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 transition-colors"
           >
             I saved my seed
           </button>
         </div>
 
-        <p class="text-xs text-stone-500 text-center mt-4 leading-relaxed">
+        <p class="text-xs text-muted-foreground text-center mt-4 leading-relaxed">
           Keep your seed private. Anyone with these words can impersonate you in this conversation.
         </p>
       </div>
@@ -582,16 +582,16 @@ function NameEntryView({ linkId }: { linkId: string }) {
   
   return (
     <div class="w-full max-w-sm">
-      <div class="bg-white rounded-2xl shadow-lg p-6 border border-stone-200">
+      <div class="bg-card rounded-2xl shadow-lg p-6 border border-border">
         <div class="text-center mb-6">
-          <div class="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <svg class="w-7 h-7 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <div class="w-14 h-14 bg-success/10 rounded-full flex items-center justify-center mx-auto mb-3">
+            <svg class="w-7 h-7 text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
               <circle cx="12" cy="7" r="4" />
             </svg>
           </div>
-          <h2 class="text-xl font-semibold text-stone-800">What's your name?</h2>
-          <p class="text-sm text-stone-600 mt-1">
+          <h2 class="text-xl font-semibold text-foreground">What's your name?</h2>
+          <p class="text-sm text-muted-foreground mt-1">
             This will be shown to the person you're contacting
           </p>
         </div>
@@ -602,20 +602,20 @@ function NameEntryView({ linkId }: { linkId: string }) {
             type="text"
             value={name}
             onInput={(e) => setName((e.target as HTMLInputElement).value)}
-            class="w-full px-4 py-3 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+            class="w-full px-4 py-3 border border-border rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
             placeholder="Your name (optional)"
             disabled={isLoading}
             maxLength={50}
           />
           
           {error && (
-            <p class="text-sm text-red-600 text-center mt-2">{error}</p>
+            <p class="text-sm text-destructive text-center mt-2">{error}</p>
           )}
           
           <button
             type="submit"
             disabled={isLoading}
-            class="w-full mt-4 py-3 bg-slate-700 text-white font-semibold rounded-lg hover:bg-slate-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors"
+            class="w-full mt-4 py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors"
           >
             {isLoading ? 'Starting...' : 'Start Conversation'}
           </button>
@@ -624,7 +624,7 @@ function NameEntryView({ linkId }: { linkId: string }) {
             type="button"
             onClick={handleSkip}
             disabled={isLoading}
-            class="w-full mt-2 py-2 text-sm text-stone-600 hover:text-stone-800"
+            class="w-full mt-2 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             Skip, stay anonymous
           </button>
@@ -931,39 +931,39 @@ function ChatView({ linkId }: { linkId: string }) {
   }
   
   return (
-    <div class="w-full max-w-2xl h-[600px] flex flex-col bg-white rounded-2xl shadow-lg border border-stone-200 overflow-hidden">
+    <div class="w-full max-w-2xl h-[600px] flex flex-col bg-card rounded-2xl shadow-lg border border-border overflow-hidden">
       <audio ref={audioRef} src="/sounds/notification.mp3" preload="auto" />
       {/* Chat header */}
-      <div class="px-4 py-3 bg-stone-50 border-b border-stone-200 flex items-center gap-3">
-        <div class="w-10 h-10 bg-sky-100 rounded-full flex items-center justify-center">
-          <svg class="w-5 h-5 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <div class="px-4 py-3 bg-muted border-b border-border flex items-center gap-3">
+        <div class="w-10 h-10 bg-accent/10 rounded-full flex items-center justify-center">
+          <svg class="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
           </svg>
         </div>
         <div>
-          <h3 class="font-semibold text-stone-800">Secure Conversation</h3>
-          <p class="text-xs text-stone-500 flex items-center gap-1">
-            <svg class="w-3 h-3 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+          <h3 class="font-semibold text-foreground">Secure Conversation</h3>
+          <p class="text-xs text-muted-foreground flex items-center gap-1">
+            <svg class="w-3 h-3 text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
               <polyline points="20 6 9 17 4 12" />
             </svg>
             E2EE (Seed-protected)
           </p>
         </div>
         {visitorName.value && (
-          <span class="ml-auto text-sm text-stone-500">
-            Chatting as <span class="font-medium text-stone-700">{visitorName.value}</span>
+          <span class="ml-auto text-sm text-muted-foreground">
+            Chatting as <span class="font-medium text-foreground">{visitorName.value}</span>
           </span>
         )}
       </div>
       
       {/* Messages area */}
-      <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-stone-50">
+      <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/50">
         {messages.value.length === 0 ? (
           <div class="text-center py-12">
-            <svg class="w-12 h-12 text-stone-300 mx-auto mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <svg class="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
             </svg>
-            <p class="text-stone-500">Send a message to start the conversation</p>
+            <p class="text-muted-foreground">Send a message to start the conversation</p>
           </div>
         ) : (
           messages.value.map(msg => (
@@ -974,12 +974,12 @@ function ChatView({ linkId }: { linkId: string }) {
               <div
                 class={`max-w-[75%] px-4 py-2 rounded-2xl ${
                   msg.fromVisitor
-                    ? 'bg-sky-500 text-white rounded-br-sm'
-                    : 'bg-white border border-stone-200 text-stone-800 rounded-bl-sm'
+                    ? 'bg-accent text-accent-foreground rounded-br-sm'
+                    : 'bg-card border border-border text-foreground rounded-bl-sm'
                 }`}
               >
                 <p class="text-sm whitespace-pre-wrap">{msg.content}</p>
-                <p class={`text-xs mt-1 ${msg.fromVisitor ? 'text-sky-100' : 'text-stone-400'}`}>
+                <p class={`text-xs mt-1 ${msg.fromVisitor ? 'text-accent-foreground/70' : 'text-muted-foreground'}`}>
                   {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </p>
               </div>
@@ -990,7 +990,7 @@ function ChatView({ linkId }: { linkId: string }) {
       </div>
       
       {/* Input area */}
-      <form onSubmit={handleSend} class="p-3 bg-white border-t border-stone-200">
+      <form onSubmit={handleSend} class="p-3 bg-card border-t border-border">
         <div class="flex gap-2">
           <textarea
             ref={inputRef}
@@ -999,16 +999,16 @@ function ChatView({ linkId }: { linkId: string }) {
             onKeyDown={handleKeyDown}
             placeholder="Type a message..."
             rows={1}
-            class="flex-1 px-4 py-2.5 border border-stone-300 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+            class="flex-1 px-4 py-2.5 border border-border rounded-xl resize-none bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
             disabled={isSending}
           />
           <button
             type="submit"
             disabled={!message.trim() || isSending}
-            class="px-4 py-2.5 bg-slate-700 text-white rounded-xl hover:bg-slate-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors"
+            class="px-4 py-2.5 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors"
           >
             {isSending ? (
-              <div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              <div class="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
             ) : (
               <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
