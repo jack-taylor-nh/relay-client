@@ -442,22 +442,32 @@ function MessageBubble({ message }: { message: Message }) {
   
   const webhookPayload = tryParseWebhookPayload(message.content);
   
-  // Glass effect styles for message bubbles
+  // Liquid glass effect styles for message bubbles
+  // Inspired by liquid-glass-react but kept subtle and lowkey
   const glassStyles = {
-    // Sent message: accent blue with glass effect
+    // Sent message: accent with liquid glass effect
     sent: [
-      "bg-gradient-to-br from-[hsl(var(--accent))] to-[hsl(var(--accent)/0.85)]",
+      // Base gradient with slight transparency for glass depth
+      "bg-gradient-to-br from-[hsl(var(--accent))] via-[hsl(var(--accent)/0.92)] to-[hsl(var(--accent)/0.85)]",
       "text-white",
-      "shadow-[inset_0_1px_1px_0_rgba(255,255,255,0.2),inset_0_-1px_2px_0_rgba(0,0,0,0.15),0_2px_8px_-2px_rgba(0,0,0,0.15)]",
-      "backdrop-blur-sm",
+      // Multi-layer shadow: inner highlight (top), inner shadow (bottom), outer glow
+      "shadow-[inset_0_1px_0_0_rgba(255,255,255,0.25),inset_0_-1px_2px_0_rgba(0,0,0,0.15),0_4px_12px_-4px_rgba(0,0,0,0.2),0_0_0_0.5px_rgba(255,255,255,0.1)]",
+      // Blur and saturation for true glass feel
+      "backdrop-blur-md backdrop-saturate-150",
+      // Subtle border for edge definition
+      "border border-white/10",
     ].join(" "),
-    // Received message: subtle glass effect
+    // Received message: frosted glass effect
     received: [
-      "bg-gradient-to-br from-[hsl(var(--muted))] to-[hsl(var(--muted)/0.85)]",
+      // Subtle gradient with transparency
+      "bg-gradient-to-br from-[hsl(var(--muted)/0.9)] via-[hsl(var(--muted)/0.85)] to-[hsl(var(--muted)/0.8)]",
       "text-[hsl(var(--foreground))]",
-      "shadow-[inset_0_1px_1px_0_rgba(255,255,255,0.4),inset_0_-1px_2px_0_rgba(0,0,0,0.05),0_2px_8px_-2px_rgba(0,0,0,0.08)]",
-      "backdrop-blur-sm",
-      "border border-[hsl(var(--border)/0.5)]",
+      // Inner highlight and subtle depth shadow
+      "shadow-[inset_0_1px_0_0_rgba(255,255,255,0.5),inset_0_-1px_2px_0_rgba(0,0,0,0.05),0_4px_12px_-4px_rgba(0,0,0,0.08),0_0_0_0.5px_rgba(255,255,255,0.15)]",
+      // Glass blur effect
+      "backdrop-blur-md backdrop-saturate-125",
+      // Defined edge
+      "border border-[hsl(var(--border)/0.3)]",
     ].join(" "),
   };
   
@@ -831,8 +841,8 @@ export function ConversationDetailView() {
         </div>
       </div>
       
-      {/* Messages */}
-      <ScrollArea className="flex-1">
+      {/* Messages - subtle gradient background for glass effect depth */}
+      <ScrollArea className="flex-1 messages-glass-bg">
         <div className="p-4 flex flex-col gap-2">
         {isLoadingMessages.value ? (
           <div className="flex items-center justify-center h-full">
@@ -866,6 +876,14 @@ export function ConversationDetailView() {
       <MessageInput onSend={handleSendMessage} />
       
       <style>{`
+        /* Subtle gradient background for glass effect depth */
+        .messages-glass-bg {
+          background: 
+            radial-gradient(ellipse at 20% 0%, hsl(var(--primary) / 0.03) 0%, transparent 50%),
+            radial-gradient(ellipse at 80% 100%, hsl(var(--accent) / 0.04) 0%, transparent 50%),
+            linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--muted) / 0.3) 100%);
+        }
+        
         .conversation-detail {
           display: flex;
           flex-direction: column;
