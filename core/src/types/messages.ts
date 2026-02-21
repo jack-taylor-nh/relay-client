@@ -62,6 +62,7 @@ export type EdgeType =
   | 'sms' 
   | 'telegram' 
   | 'slack' 
+  | 'local-llm'
   | 'other';
 
 export type SecurityLevel = 'e2ee' | 'gateway_secured';

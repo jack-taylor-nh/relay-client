@@ -72,6 +72,7 @@ export interface EdgeTypeDefinition {
 export const edgeTypes = signal<EdgeTypeDefinition[]>([]);
 
 export const conversations = signal<Conversation[]>([]);
+export const tempConversations = signal<Conversation[]>([]); // Local-only temp conversations
 export const selectedConversationId = signal<string | null>(null);
 
 // Computed: Check if any conversation has unread messages
@@ -348,10 +349,12 @@ export async function loadData() {
     if (convResult.success && convResult.conversations) {
       conversations.value = convResult.conversations.map(conv => {
         // Determine conversation type from origin
-        let type: 'native' | 'email' | 'contact_endpoint' | 'discord' = 'native';
+        let type: 'native' | 'email' | 'contact_endpoint' | 'discord' | 'webhook' | 'local-llm' = 'native';
         if (conv.origin === 'email_inbound' || conv.origin === 'email') type = 'email';
         else if (conv.origin === 'contact_link_inbound' || conv.origin === 'contact_link') type = 'contact_endpoint';
         else if (conv.origin === 'discord') type = 'discord';
+        else if (conv.origin === 'webhook') type = 'webhook';
+        else if (conv.origin === 'local-llm') type = 'local-llm';
 
         // Build counterparty name - prioritize decrypted metadata from bridge conversations
         let counterpartyName = 'Unknown';
@@ -359,6 +362,9 @@ export async function loadData() {
         // Check for decrypted counterparty name from encryptedMetadata (bridge conversations)
         if ((conv as any).decryptedCounterpartyName) {
           counterpartyName = (conv as any).decryptedCounterpartyName;
+        } else if (conv.origin === 'local-llm' && (conv.counterparty as any)?.label) {
+          // For local-llm, use the bridge edge's label (e.g., "Claude Sonnet 4")
+          counterpartyName = (conv.counterparty as any).label;
         } else if (conv.counterparty?.handle) {
           // For native conversations, show handle with & prefix
           counterpartyName = conv.counterparty.handle.startsWith('&') 
@@ -521,7 +527,7 @@ export function loadMockData() {
 // ============================================
 
 export async function createEdge(
-  type: 'native' | 'email' | 'contact_link' | 'discord', 
+  type: 'native' | 'email' | 'contact_link' | 'discord' | 'webhook' | 'local-llm', 
   label?: string,
   customAddress?: string,
   displayName?: string
@@ -643,10 +649,16 @@ chrome.runtime.onMessage.addListener((message) => {
     showToast('Session locked due to inactivity');
   }
   
-  // Handle background polling updates - directly update conversations signal
+  // Handle background polling updates - merge with temp conversations
   if (message.type === 'CONVERSATIONS_UPDATED' && message.conversations) {
     console.log('[Panel] Received CONVERSATIONS_UPDATED with', message.conversations.length, 'conversations');
-    conversations.value = message.conversations;
+    console.log('[Panel] tempConversations.value.length:', tempConversations.value.length);
+    console.log('[Panel] tempConversations IDs:', tempConversations.value.map(c => c.id));
+    
+    // Always merge: server conversations + temp conversations (stored separately)
+    conversations.value = [...message.conversations, ...tempConversations.value];
+    
+    console.log('[Panel] Merged conversations:', message.conversations.length, 'from server +', tempConversations.value.length, 'temp =', conversations.value.length, 'total');
   }
   
   // Legacy handler for backwards compatibility

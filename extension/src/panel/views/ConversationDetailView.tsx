@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { signal } from '@preact/signals';
 import { Lock, Mail, FileText, ChevronLeft, Send, Link as LinkIcon } from 'lucide-react';
-import { selectedConversationId, currentIdentity, showToast, sendMessage, conversations } from '../state';
+import { selectedConversationId, currentIdentity, showToast, sendMessage, conversations, tempConversations } from '../state';
 import type { ConversationType } from '../../types';
 import { CodeBlock } from '../components/CodeBlock';
 import { Button } from '@/components/ui/button';
@@ -58,6 +58,16 @@ async function loadMessages(conversationId: string, isPolling = false) {
         counterpartyName: conv.counterpartyName || 'Unknown Contact',
         counterpartyFingerprint: conv.participants[0] !== 'unknown' ? conv.participants[0] : undefined,
       };
+    }
+    
+    // Skip loading messages for temp conversations (not yet created on server)
+    if (conversationId.startsWith('temp-')) {
+      if (!isPolling) {
+        console.log('Skipping message load for temp conversation:', conversationId);
+      }
+      messages.value = [];
+      isLoadingMessages.value = false;
+      return;
     }
     
     if (!isPolling) {
@@ -640,10 +650,31 @@ export function ConversationDetailView() {
   }
   
   async function handleSendMessage(content: string) {
-    if (!conversationId) return;
+    console.log('[ConversationDetailView] handleSendMessage called with content:', content.substring(0, 50));
+    console.log('[ConversationDetailView] conversationId:', conversationId);
+    console.log('[ConversationDetailView] conversations.value.length:', conversations.value.length);
+    console.log('[ConversationDetailView] conversations IDs:', conversations.value.map(c => c.id));
+    
+    if (!conversationId) {
+      console.error('[ConversationDetailView] No conversationId!');
+      return;
+    }
     
     const conv = conversations.value.find(c => c.id === conversationId);
-    if (!conv) return;
+    if (!conv) {
+      console.error('[ConversationDetailView] Conversation not found in list! conversationId:', conversationId);
+      return;
+    }
+    
+    console.log('[ConversationDetailView] handleSendMessage - conversation:', {
+      id: conv.id,
+      type: conv.type,
+      securityLevel: conv.securityLevel,
+      myEdgeId: conv.myEdgeId,
+      counterpartyEdgeId: conv.counterpartyEdgeId,
+      hasX25519Key: !!conv.counterpartyX25519PublicKey,
+      x25519KeyPreview: conv.counterpartyX25519PublicKey?.substring(0, 20),
+    });
     
     // Add optimistic message
     const newMessage: Message = {
@@ -677,8 +708,9 @@ export function ConversationDetailView() {
             recipientEdgeId: conv.counterpartyEdgeId,
             recipientX25519PublicKey: conv.counterpartyX25519PublicKey,
             content,
-            conversationId,
-            origin: conv.type === 'native' ? 'native' : conv.type === 'email' ? 'email' : 'contact_link',
+            // For temp conversations, don't pass the ID - let it be treated as new
+            conversationId: conversationId.startsWith('temp-') ? undefined : conversationId,
+            origin: conv.type === 'native' ? 'native' : conv.type === 'email' ? 'email' : conv.type === 'local-llm' ? 'local-llm' : conv.type === 'webhook' ? 'other' : 'contact_link',
           }
         });
         
@@ -692,6 +724,24 @@ export function ConversationDetailView() {
               m.id === newMessage.id ? { ...m, id: result.messageId! } : m
             );
           }
+          
+          // If this was a temp conversation, replace it with the real one
+          if (result.conversationId && conversationId.startsWith('temp-')) {
+            console.log('[ConversationDetailView] Replacing temp conversation ID:', {
+              tempId: conversationId,
+              realId: result.conversationId,
+            });
+            
+            // Update selectedConversationId to the real ID
+            selectedConversationId.value = result.conversationId;
+            
+            // Remove temp conversation from tempConversations
+            tempConversations.value = tempConversations.value.filter(c => c.id !== conversationId);
+            
+            // Trigger a poll to fetch the full conversation from the server
+            chrome.runtime.sendMessage({ type: 'POLL_CONVERSATIONS' });
+          }
+          
           // Don't reload - the optimistic message is already correct
           // Polling will pick up any new messages from the counterparty
         }
@@ -787,6 +837,13 @@ export function ConversationDetailView() {
           await loadMessages(conversationId, false);
         }
       } else {
+        console.error('[ConversationDetailView] No send path matched:', {
+          type: conv.type,
+          securityLevel: conv.securityLevel,
+          myEdgeId: conv.myEdgeId,
+          counterpartyEdgeId: conv.counterpartyEdgeId,
+          hasX25519Key: !!conv.counterpartyX25519PublicKey,
+        });
         showToast('Unsupported conversation type');
         messages.value = messages.value.filter(m => m.id !== newMessage.id);
       }

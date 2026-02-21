@@ -1,5 +1,5 @@
 import type { Conversation, ConversationType, SecurityLevel } from '../../types';
-import { MessageSquare, Mail, Webhook, Link, AtSign } from 'lucide-react';
+import { MessageSquare, Mail, Webhook, Link, AtSign, Bot } from 'lucide-react';
 import { SecurityBadge } from '@/components/relay/SecurityBadge';
 import { ViaBadge } from '@/components/relay/ViaBadge';
 import { cn } from '@/lib/utils';
@@ -30,6 +30,8 @@ function OriginIcon({ type }: { type: ConversationType }) {
       return <Webhook className={iconClass} />;
     case 'contact_endpoint':
       return <Link className={iconClass} />;
+    case 'local-llm':
+      return <Bot className={iconClass} />;
   }
 }
 
@@ -53,6 +55,11 @@ export function ConversationItem({ conversation, isSelected, onClick }: Props) {
   const securityLevel = conversation.securityLevel || 'e2ee';
   const hasPreview = conversation.lastMessagePreview && conversation.lastMessagePreview.trim().length > 0;
   
+  // Detect local-llm conversations: webhook type where myEdgeId === counterpartyEdgeId (self-conversation)
+  const isLocalLlm = conversation.type === 'webhook' && 
+                     conversation.myEdgeId && 
+                     conversation.myEdgeId === conversation.counterpartyEdgeId;
+  
   // Show edge badge for all conversation types that have an edge address
   const edgeAddress = conversation.edgeAddress;
   const showEdgeBadge = !!edgeAddress || conversation.type === 'webhook';
@@ -71,12 +78,21 @@ export function ConversationItem({ conversation, isSelected, onClick }: Props) {
     >
       <div className={cn(
         "flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full",
-        isUnread 
-          ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" 
-          : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
+        isLocalLlm
+          ? "bg-gradient-to-br from-purple-500/20 to-pink-500/20"
+          : isUnread 
+            ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]" 
+            : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
       )}>
         <div className="w-4 h-4">
-          <OriginIcon type={conversation.type} />
+          {isLocalLlm ? (
+            <Bot className={cn(
+              "w-full h-full",
+              isUnread ? "text-purple-600 dark:text-purple-400" : "text-purple-500/70 dark:text-purple-500/70"
+            )} />
+          ) : (
+            <OriginIcon type={conversation.type} />
+          )}
         </div>
       </div>
       <div className="flex-1 min-w-0">

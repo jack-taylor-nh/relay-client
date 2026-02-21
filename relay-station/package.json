@@ -1,0 +1,131 @@
+{
+  "name": "relay-llm-bridge",
+  "version": "1.0.0",
+  "description": "Desktop app for connecting local AI models to Relay messaging",
+  "author": "Relay Foundation",
+  "license": "MIT",
+  "main": "electron.dev.js",
+  "homepage": "https://userelay.org",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/relay/llm-bridge"
+  },
+  "keywords": [
+    "relay",
+    "llm",
+    "ollama",
+    "lm-studio",
+    "privacy",
+    "e2e-encryption",
+    "local-ai"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "dev:renderer": "vite",
+    "dev:electron": "wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .",
+    "build": "npm run build:main && npm run build:renderer && electron-builder",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "build:win": "npm run build:main && npm run build:renderer && electron-builder --win",
+    "build:mac": "npm run build:main && npm run build:renderer && electron-builder --mac",
+    "build:linux": "npm run build:main && npm run build:renderer && electron-builder --linux",
+    "pack": "npm run build:main && npm run build:renderer && electron-builder --dir",
+    "download-ollama": "tsx scripts/download-ollama.ts",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,md}\""
+  },
+  "dependencies": {
+    "@relay/core": "file:../core",
+    "electron-auto-launch": "^5.0.5",
+    "electron-store": "^8.2.0",
+    "eventsource": "^2.0.2",
+    "node-fetch": "^3.3.2",
+    "systeminformation": "^5.31.1",
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1",
+    "ulid": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/eventsource": "^1.1.15",
+    "@types/node": "^20.11.19",
+    "@types/react": "^18.2.55",
+    "@types/react-dom": "^18.2.19",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.17",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^28.2.3",
+    "electron-builder": "^24.9.1",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "postcss": "^8.4.35",
+    "prettier": "^3.2.5",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwindcss": "^3.4.1",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.1",
+    "vite-plugin-electron": "^0.28.4",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.relay.station",
+    "productName": "Relay Station",
+    "copyright": "Copyright © 2026 Relay Foundation",
+    "directories": {
+      "output": "dist/release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "icons/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "category": "Network"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

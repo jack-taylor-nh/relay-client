@@ -1,0 +1,135 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Relay Station - Design System
+ * 
+ * Unified design tokens shared with Relay Extension
+ * Based on shadcn/ui theming conventions
+ * 
+ * DESIGN PHILOSOPHY:
+ * - Neutral system UI (slate/stone) - trust, security, infrastructure
+ * - Brand gradient used sparingly as accent
+ * - Sky/Blue accent aligned with Relay icon
+ * 
+ * BRAND GRADIENT:
+ * Sky #38BDF8 → Blue #60A5FA → Indigo #A5B4FC
+ */
+
+@layer base {
+  :root {
+    /* Brand Colors (constant across themes) */
+    --relay-gradient-start: #38BDF8;
+    --relay-gradient-mid: #60A5FA;
+    --relay-gradient-end: #A5B4FC;
+    --relay-navy: #0F172A;
+    
+    /* shadcn/ui Token System (HSL values) - LIGHT MODE */
+    --background: 60 9% 98%;           /* stone-50 */
+    --foreground: 24 10% 10%;          /* stone-900 */
+    
+    --card: 0 0% 100%;                 /* white */
+    --card-foreground: 24 10% 10%;     /* stone-900 */
+    
+    --popover: 0 0% 100%;              /* white */
+    --popover-foreground: 24 10% 10%;  /* stone-900 */
+    
+    --muted: 60 5% 96%;                /* stone-100 */
+    --muted-foreground: 25 6% 45%;     /* stone-500 */
+    
+    --accent: 199 89% 48%;             /* sky-500 */
+    --accent-foreground: 0 0% 100%;    /* white */
+    
+    --primary: 215 16% 47%;            /* slate-500 */
+    --primary-foreground: 0 0% 100%;   /* white */
+    
+    --secondary: 60 5% 96%;            /* stone-100 */
+    --secondary-foreground: 24 10% 10%; /* stone-900 */
+    
+    --destructive: 0 72% 51%;          /* red-600 */
+    --destructive-foreground: 0 0% 100%; /* white */
+    
+    --border: 24 6% 83%;               /* stone-300 */
+    --input: 24 6% 83%;                /* stone-300 */
+    --ring: 199 89% 48%;               /* sky-500 */
+    
+    --radius: 0.5rem;
+  }
+  
+  .dark {
+    /* shadcn/ui Token System (HSL values) - DARK MODE */
+    --background: 222 47% 11%;         /* slate-900 */
+    --foreground: 210 40% 98%;         /* slate-50 */
+    
+    --card: 217 33% 17%;               /* slate-800 */
+    --card-foreground: 210 40% 98%;    /* slate-50 */
+    
+    --popover: 217 33% 17%;            /* slate-800 */
+    --popover-foreground: 210 40% 98%; /* slate-50 */
+    
+    --muted: 215 28% 17%;              /* slate-700 */
+    --muted-foreground: 215 16% 65%;   /* slate-400 */
+    
+    --accent: 199 89% 48%;             /* sky-500 */
+    --accent-foreground: 0 0% 100%;    /* white */
+    
+    --primary: 215 20% 65%;            /* slate-400 */
+    --primary-foreground: 222 47% 11%; /* slate-900 */
+    
+    --secondary: 215 28% 17%;          /* slate-700 */
+    --secondary-foreground: 210 40% 98%; /* slate-50 */
+    
+    --destructive: 0 63% 31%;          /* red-800 */
+    --destructive-foreground: 0 0% 100%; /* white */
+    
+    --border: 215 28% 17%;             /* slate-700 */
+    --input: 215 28% 17%;              /* slate-700 */
+    --ring: 199 89% 48%;               /* sky-500 */
+  }
+  
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  /* Selection colors */
+  ::selection {
+    @apply bg-accent/20;
+  }
+}
+
+@layer components {
+  /* Brand gradient utility */
+  .relay-gradient {
+    background: linear-gradient(
+      135deg,
+      var(--relay-gradient-start) 0%,
+      var(--relay-gradient-mid) 50%,
+      var(--relay-gradient-end) 100%
+    );
+  }
+  
+  /* Text gradient utility */
+  .relay-gradient-text {
+    background: linear-gradient(
+      135deg,
+      var(--relay-gradient-start) 0%,
+      var(--relay-gradient-mid) 50%,
+      var(--relay-gradient-end) 100%
+    );
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
+

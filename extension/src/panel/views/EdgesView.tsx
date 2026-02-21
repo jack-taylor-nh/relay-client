@@ -112,13 +112,14 @@ export function EdgesView() {
     }
   }
 
-  // All edges (native handles + email aliases + discord + contact links + webhooks) come from the edges list
+  // All edges (native handles + email aliases + discord + contact links + webhooks + local-llm) come from the edges list
   const allEdges = edgeList.map(e => {
-    let mappedType: 'native' | 'email' | 'discord' | 'contact_link' | 'webhook' = 'email';
+    let mappedType: 'native' | 'email' | 'discord' | 'contact_link' | 'webhook' | 'local-llm' = 'email';
     if (e.type === 'native') mappedType = 'native';
     else if (e.type === 'discord') mappedType = 'discord';
     else if (e.type === 'contact_link') mappedType = 'contact_link';
     else if (e.type === 'webhook') mappedType = 'webhook';
+    else if (e.type === 'local-llm') mappedType = 'local-llm';
     
     // For contact links, construct the shareable URL
     let displayAddress = e.address;
@@ -129,6 +130,9 @@ export function EdgesView() {
     } else if (e.type === 'webhook') {
       // For webhooks, display just the edge ID (first 8 chars)
       displayAddress = `Webhook ${e.id.slice(0, 8)}`;
+    } else if (e.type === 'local-llm') {
+      // For local LLM edges, display edge ID (first 8 chars)
+      displayAddress = `LLM ${e.id.slice(0, 8)}`;
     }
     
     return {
@@ -388,6 +392,27 @@ export function EdgesView() {
                     <div className="flex-1">
                       <div className="text-sm font-medium text-[hsl(var(--foreground))]">View Documentation</div>
                       <div className="text-xs text-[hsl(var(--muted-foreground))]">API docs and integration guide</div>
+                    </div>
+                  </button>
+                )}
+
+                {/* View Local LLM Setup Guide */}
+                {manageModal.edgeType === 'local-llm' && (
+                  <button
+                    onClick={() => {
+                      const params = new URLSearchParams({
+                        myEdgeId: manageModal.edgeId,
+                        myAuthToken: 'from-extension-settings',
+                      });
+                      chrome.tabs.create({ url: `localllm-docs/index.html?${params.toString()}` });
+                      setManageModal(null);
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950/30 dark:to-pink-950/30 hover:from-purple-100 hover:to-pink-100 dark:hover:from-purple-950/50 dark:hover:to-pink-950/50 border border-purple-200 dark:border-purple-900 transition-all text-left"
+                  >
+                    <FileText className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-[hsl(var(--foreground))]">View Setup Guide</div>
+                      <div className="text-xs text-[hsl(var(--muted-foreground))]">Complete bridge configuration instructions</div>
                     </div>
                   </button>
                 )}

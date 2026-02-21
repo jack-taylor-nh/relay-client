@@ -27,7 +27,9 @@ import {
   decryptFromStorage,
   type EncryptedBundle,
 } from '../lib/crypto';
-import { sendMessage as sendUnifiedMessage, receiveMessage as receiveUnifiedMessage, type Conversation as RatchetConversation, type SecurityLevel, type EdgeType } from '@relay/core';
+import { sendMessage as sendUnifiedMessage } from '@relay/core/messaging';
+import { RatchetState, RatchetDecrypt, RatchetInitAlice, RatchetInitBob, serializeRatchetState, deserializeRatchetState } from '@relay/core';
+import type { Conversation as RatchetConversation, SecurityLevel, EdgeType } from '@relay/core';
 import { ratchetStorage } from '../lib/storage';
 
 // ============================================
@@ -447,14 +449,15 @@ type MessageType =
   | { type: 'GET_PUBLIC_KEY' }
   | { type: 'GET_AUTH_TOKEN' }
   | { type: 'RESOLVE_HANDLE'; payload: { handle: string } }
+  | { type: 'RESOLVE_EDGE'; payload: { edgeId: string } }
   | { type: 'GET_CONVERSATIONS' }
   | { type: 'GET_MESSAGES'; payload: { conversationId: string; cursor?: string } }
   | { type: 'SEND_MESSAGE'; payload: { recipientIdentityId: string; recipientPublicKey: string; content: string; conversationId?: string } }
   | { type: 'SEND_NATIVE_MESSAGE'; payload: { recipientHandle: string; senderHandle: string; content: string } }
   | { type: 'SEND_EMAIL'; payload: { conversationId: string; content: string } }
   | { type: 'SEND_DISCORD'; payload: { conversationId: string; content: string } }
-  | { type: 'SEND_TO_EDGE'; payload: { myEdgeId: string; recipientEdgeId: string; recipientX25519PublicKey: string; content: string; conversationId?: string; origin?: 'native' | 'email' | 'contact_link' | 'discord' | 'bridge' } }
-  | { type: 'CREATE_EDGE'; payload: { type: 'native' | 'email' | 'contact_link' | 'discord' | 'webhook'; label?: string; customAddress?: string; displayName?: string } }
+  | { type: 'SEND_TO_EDGE'; payload: { myEdgeId: string; recipientEdgeId: string; recipientX25519PublicKey: string; content: string; conversationId?: string; origin?: 'native' | 'email' | 'contact_link' | 'discord' | 'other' } }
+  | { type: 'CREATE_EDGE'; payload: { type: 'native' | 'email' | 'contact_link' | 'discord' | 'webhook' | 'local-llm'; label?: string; customAddress?: string; displayName?: string } }
   | { type: 'GET_EDGE_TYPES' }
   | { type: 'GET_EDGES' }
   | { type: 'BURN_EDGE'; payload: { edgeId: string } }
@@ -517,6 +520,9 @@ async function handleMessage(message: MessageType): Promise<unknown> {
 
     case 'RESOLVE_HANDLE':
       return resolveHandle(message.payload.handle);
+
+    case 'RESOLVE_EDGE':
+      return resolveEdgeById(message.payload.edgeId);
 
     case 'GET_CONVERSATIONS':
       return getConversations();
@@ -1254,6 +1260,49 @@ async function resolveEdge(
   }
 }
 
+/**
+ * Resolve an edge by its ID to get its details (including X25519 public key)
+ * Used when we already have an edge ID (e.g., from a local-llm bridge's address field)
+ */
+async function resolveEdgeById(edgeId: string): Promise<{ success: boolean; edge?: any; error?: string }> {
+  try {
+    const apiUrl = await getApiUrl();
+    
+    const res = await fetch(`${apiUrl}/v1/edge/${edgeId}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    
+    if (!res.ok) {
+      if (res.status === 404) {
+        return { success: false, error: `Edge not found: ${edgeId}` };
+      }
+      if (res.status === 410) {
+        return { success: false, error: 'Edge is no longer active' };
+      }
+      const err = await res.json();
+      return { success: false, error: err.message || 'Failed to resolve edge by ID' };
+    }
+    
+    const data = await res.json();
+    
+    return {
+      success: true,
+      edge: {
+        edgeId: data.edgeId,
+        type: data.type,
+        status: data.status,
+        securityLevel: data.securityLevel,
+        x25519PublicKey: data.x25519PublicKey,
+        displayName: data.displayName,
+      },
+    };
+  } catch (error) {
+    console.error('Resolve edge by ID error:', error);
+    return { success: false, error: 'Network error' };
+  }
+}
+
 // ============================================
 // Handle Resolution (Legacy wrapper)
 // ============================================
@@ -1314,6 +1363,8 @@ async function getConversations(): Promise<{
       handle?: string;          // Phase 4: Counterparty handle
       edgeId?: string;          // Phase 4: Counterparty edge ID
       x25519PublicKey?: string; // Phase 4: Counterparty encryption key
+      label?: string;           // Phase 4: Counterparty edge label (for local-llm)
+      type?: string;            // Phase 4: Counterparty edge type
     };
     lastMessageId?: string;  // For message preview lookup
     lastMessageWasMine?: boolean;  // For filtering sent vs received notifications
@@ -1656,16 +1707,35 @@ async function getMessages(
                   created_at: msg.createdAt,
                 };
                 
-                // Decrypt using unified messaging
-                const result = await receiveUnifiedMessage(
-                  envelope,
-                  conversation,
-                  myEdgeSecretKey,
-                  counterpartyEdgePublicKey,
-                  ratchetStorage
-                );
+                // Decrypt using Double Ratchet (inline to avoid module resolution issues)
+                // 1. Get or initialize ratchet state
+                const existingState = await ratchetStorage.load(conversation.id);
+                let ratchetState;
+                if (existingState) {
+                  ratchetState = deserializeRatchetState(existingState);
+                } else {
+                  // Initialize new ratchet - use edge-to-edge DH as shared secret
+                  const sharedSecret = nacl.box.before(counterpartyEdgePublicKey, myEdgeSecretKey);
+                  const weAreAlice = conversation.is_initiator !== undefined 
+                    ? conversation.is_initiator 
+                    : conversation.my_edge_id > (conversation.counterparty_edge_id || '');
+                  
+                  if (weAreAlice) {
+                    ratchetState = RatchetInitAlice(sharedSecret, counterpartyEdgePublicKey);
+                  } else {
+                    const myEdgeKeypair = nacl.box.keyPair.fromSecretKey(myEdgeSecretKey);
+                    ratchetState = RatchetInitBob(sharedSecret, myEdgeKeypair);
+                  }
+                }
+                
+                // 2. Decrypt with Double Ratchet
+                const result = RatchetDecrypt(ratchetState, envelope.payload.ratchet);
                 
                 if (result) {
+                  // 3. Save updated ratchet state
+                  const serialized = serializeRatchetState(result.newState);
+                  await ratchetStorage.save(conversation.id, serialized);
+                  
                   content = result.plaintext;
                   // Save to encrypted persistent storage - Double Ratchet can only decrypt once!
                   await saveMessageToCache(msg.id, content);
@@ -2461,7 +2531,7 @@ async function sendToEdge(
   recipientX25519PublicKey: string,
   content: string,
   conversationId?: string,
-  origin: 'native' | 'email' | 'contact_link' | 'discord' | 'bridge' = 'native'
+  origin: 'native' | 'email' | 'contact_link' | 'discord' | 'other' = 'native'
 ): Promise<{
   success: boolean;
   conversationId?: string;
@@ -2509,6 +2579,13 @@ async function sendToEdge(
     const myEdgeSecretKey = fromBase64(myEdgeData.secretKey);
     const recipientPubKey = fromBase64(recipientX25519PublicKey);
 
+    console.log('[sendToEdge] Keys loaded:', {
+      myEdgeSecretKeyLength: myEdgeSecretKey?.length,
+      recipientPubKeyLength: recipientPubKey?.length,
+      contentLength: content?.length,
+      conversationId,
+    });
+
     // 2. Build conversation object for ratchet
     const isNewConversation = !conversationId;
     const conversation: RatchetConversation = {
@@ -2521,21 +2598,50 @@ async function sendToEdge(
       ratchet_state: null,
     };
 
+    console.log('[sendToEdge] About to call sendUnifiedMessage with conversation:', {
+      id: conversation.id,
+      origin: conversation.origin,
+      my_edge_id: conversation.my_edge_id,
+      counterparty_edge_id: conversation.counterparty_edge_id,
+      is_initiator: conversation.is_initiator,
+    });
+
     // 3. Encrypt with Double Ratchet
-    const { envelope } = await sendUnifiedMessage(
-      conversation,
-      content,
-      'text/plain',
-      myEdgeSecretKey,
-      recipientPubKey,
-      ratchetStorage
-    );
+    let envelope;
+    try {
+      const result = await sendUnifiedMessage(
+        conversation,
+        content,
+        'text/plain',
+        myEdgeSecretKey,
+        recipientPubKey,
+        ratchetStorage
+      );
+      envelope = result.envelope;
+      console.log('[sendToEdge] sendUnifiedMessage succeeded, envelope:', {
+        message_id: envelope.message_id,
+        conversation_id: envelope.conversation_id,
+        hasPayload: !!envelope.payload,
+        hasRatchet: !!envelope.payload?.ratchet,
+      });
+    } catch (encryptError) {
+      pendingNativeSends.delete(sendKey);
+      console.error('[sendToEdge] sendUnifiedMessage failed:', encryptError);
+      console.error('[sendToEdge] Error details:', {
+        message: encryptError instanceof Error ? encryptError.message : String(encryptError),
+        stack: encryptError instanceof Error ? encryptError.stack : undefined,
+        myEdgeSecretKeyLength: myEdgeSecretKey?.length,
+        recipientPubKeyLength: recipientPubKey?.length,
+        contentLength: content?.length,
+      });
+      return { success: false, error: `Encryption failed: ${encryptError instanceof Error ? encryptError.message : String(encryptError)}` };
+    }
 
     // 4. Build server payload
     const ratchetMsg = envelope.payload.ratchet;
     const serverPayload = {
       conversation_id: conversationId || undefined,
-      recipient_edge_id: recipientEdgeId,
+      recipient_edge_id: isNewConversation ? recipientEdgeId : undefined,
       edge_id: myEdgeId,
       origin,
       security_level: 'e2ee',
@@ -2611,7 +2717,7 @@ async function sendToEdge(
 // ============================================
 
 async function createEdge(
-  type: 'native' | 'email' | 'contact_link' | 'discord' | 'webhook',
+  type: 'native' | 'email' | 'contact_link' | 'discord' | 'webhook' | 'local-llm',
   label?: string,
   customAddress?: string,
   displayName?: string
@@ -2658,25 +2764,45 @@ async function createEdge(
       encryptionKeys.secretKey
     );
 
+    console.log('[createEdge] Creating edge with:', {
+      type,
+      hasCustomAddress: !!customAddress,
+      customAddress: customAddress ? `${customAddress.substring(0, 8)}...` : 'none',
+      label,
+      displayName,
+    });
+
+    const requestBody = {
+      type,
+      publicKey: toBase64(unlockedIdentity.publicKey),
+      x25519PublicKey: toBase64(encryptionKeys.publicKey),
+      nonce,
+      signature,
+      // Send encrypted label/metadata instead of plaintext
+      encryptedLabel: encrypted.encryptedLabel,
+      encryptedMetadata: encrypted.encryptedMetadata,
+      customAddress,
+      authToken, // For webhook edges only
+    };
+
+    console.log('[createEdge] Request body:', {
+      ...requestBody,
+      publicKey: requestBody.publicKey.substring(0, 20) + '...',
+      x25519PublicKey: requestBody.x25519PublicKey.substring(0, 20) + '...',
+      customAddress: customAddress ? `${customAddress.substring(0, 8)}...` : undefined,
+    });
+
     const res = await fetch(`${apiUrl}/v1/edge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type,
-        publicKey: toBase64(unlockedIdentity.publicKey),
-        x25519PublicKey: toBase64(encryptionKeys.publicKey),
-        nonce,
-        signature,
-        // Send encrypted label/metadata instead of plaintext
-        encryptedLabel: encrypted.encryptedLabel,
-        encryptedMetadata: encrypted.encryptedMetadata,
-        customAddress,
-        authToken, // For webhook edges only
-      }),
+      body: JSON.stringify(requestBody),
     });
+
+    console.log('[createEdge] Response status:', res.status, res.statusText);
 
     if (!res.ok) {
       const err = await res.json();
+      console.error('[createEdge] Error response:', err);
       return { success: false, error: err.message || 'Failed to create edge' };
     }
 
@@ -2694,6 +2820,8 @@ async function createEdge(
           label: label,
           displayName: displayName,
           authToken: authToken, // For webhook edges
+          // For local-llm edges, store the bridge edge ID separately
+          bridgeEdgeId: type === 'local-llm' ? customAddress : undefined,
           createdAt: new Date().toISOString(),
         },
       };
@@ -2705,6 +2833,9 @@ async function createEdge(
       });
       
       console.log('Stored edge keypair for edge:', edge.id, 'address:', edge.address);
+      if (type === 'local-llm') {
+        console.log('Stored bridge edge ID:', customAddress);
+      }
     }
     
     // For webhook edges, construct webhook URL and store metadata locally
@@ -3124,7 +3255,7 @@ const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
 // Processed conversation for storage (matches what panel expects)
 interface ProcessedConversation {
   id: string;
-  type: 'native' | 'email' | 'contact_endpoint' | 'discord' | 'webhook';
+  type: 'native' | 'email' | 'contact_endpoint' | 'discord' | 'webhook' | 'local-llm';
   securityLevel: 'e2ee' | 'gateway_secured';
   participants: string[];
   counterpartyName: string;
@@ -3283,17 +3414,21 @@ async function pollForNewMessages(sseTriggered: boolean = false): Promise<void> 
     // Process conversations with same logic as panel's loadConversations
     const processedConversations: ProcessedConversation[] = rawConversations.map(conv => {
       // Determine conversation type
-      let type: 'native' | 'email' | 'contact_endpoint' | 'discord' | 'webhook' = 'native';
+      let type: 'native' | 'email' | 'contact_endpoint' | 'discord' | 'webhook' | 'local-llm' = 'native';
       if (conv.origin === 'email_inbound' || conv.origin === 'email') type = 'email';
       else if (conv.origin === 'contact_link_inbound' || conv.origin === 'contact_link') type = 'contact_endpoint';
       else if (conv.origin === 'discord') type = 'discord';
       else if (conv.origin === 'webhook') type = 'webhook';
+      else if (conv.origin === 'local-llm') type = 'local-llm';
 
       // Build counterparty name - prioritize decrypted metadata from bridge conversations
       let counterpartyName = 'Unknown';
       
       if (conv.decryptedCounterpartyName) {
         counterpartyName = conv.decryptedCounterpartyName;
+      } else if (conv.origin === 'local-llm' && conv.counterparty?.label) {
+        // For local-llm, use the bridge edge's label (e.g., "Claude Sonnet 4")
+        counterpartyName = conv.counterparty.label;
       } else if (conv.counterparty?.handle) {
         counterpartyName = conv.counterparty.handle.startsWith('&') 
           ? conv.counterparty.handle 

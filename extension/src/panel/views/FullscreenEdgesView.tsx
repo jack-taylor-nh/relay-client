@@ -415,6 +415,27 @@ export function FullscreenEdgesView() {
                   </button>
                 )}
 
+                {/* View Local LLM Setup Guide */}
+                {manageModal.edgeType === 'local-llm' && (
+                  <button
+                    onClick={() => {
+                      const params = new URLSearchParams({
+                        myEdgeId: manageModal.edgeId,
+                        myAuthToken: 'from-extension-settings',
+                      });
+                      chrome.tabs.create({ url: `localllm-docs/index.html?${params.toString()}` });
+                      setManageModal(null);
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950/30 dark:to-pink-950/30 hover:from-purple-100 hover:to-pink-100 dark:hover:from-purple-950/50 dark:hover:to-pink-950/50 border border-purple-200 dark:border-purple-900 transition-all text-left cursor-pointer"
+                  >
+                    <FileText className="h-[18px] w-[18px] text-purple-600 dark:text-purple-400" />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-[hsl(var(--foreground))]">View Setup Guide</div>
+                      <div className="text-xs text-[hsl(var(--muted-foreground))]">Complete bridge configuration instructions</div>
+                    </div>
+                  </button>
+                )}
+
                 {/* Dispose Edge */}
                 <button
                   onClick={() => {

@@ -103,6 +103,24 @@ function extensionBuild() {
       
       mkdirSync(resolve(distDir, 'docs'), { recursive: true });
       writeFileSync(resolve(distDir, 'docs', 'index.html'), docsHtml);
+      
+      // Create localllm-docs/index.html (fullscreen local LLM setup documentation)
+      const localllmDocsHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relay Local LLM Setup Guide</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="./index.js"></script>
+</body>
+</html>`;
+      
+      mkdirSync(resolve(distDir, 'localllm-docs'), { recursive: true });
+      writeFileSync(resolve(distDir, 'localllm-docs', 'index.html'), localllmDocsHtml);
     },
   };
 }
@@ -120,6 +138,7 @@ export default defineConfig({
         background: resolve(__dirname, 'src/background/index.ts'),
         popup: resolve(__dirname, 'src/popup/main.ts'),
         docs: resolve(__dirname, 'src/docs/index.tsx'),
+        'localllm-docs': resolve(__dirname, 'src/localllm-docs/index.tsx'),
       },
       output: {
         entryFileNames: (chunkInfo) => `${chunkInfo.name}/index.js`,

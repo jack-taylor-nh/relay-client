@@ -1,0 +1,9 @@
+# Ignore bundled Ollama binaries (too large for git)
+# Download them via npm run download-ollama or manually
+
+win/ollama.exe
+mac/ollama
+linux/ollama
+
+# But keep the directory structure
+!.gitkeep

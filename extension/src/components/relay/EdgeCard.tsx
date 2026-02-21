@@ -15,7 +15,8 @@ import {
   MoreVertical,
   Copy,
   Trash2,
-  Settings
+  Settings,
+  Bot
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export type EdgeType = "native" | "email" | "discord" | "webhook" | "contact_link";
+export type EdgeType = "native" | "email" | "discord" | "webhook" | "contact_link" | "local-llm";
 
 export interface EdgeCardProps {
   id: string;
@@ -83,6 +84,12 @@ const edgeConfig: Record<
     badgeVariant: "contact-link",
     colorClass: "text-[var(--color-edge-contact-link)]",
   },
+  "local-llm": {
+    icon: Bot,
+    label: "Local LLM",
+    badgeVariant: "webhook",
+    colorClass: "text-purple-600 dark:text-purple-400",
+  },
 };
 
 export function EdgeCard({
@@ -113,7 +120,9 @@ export function EdgeCard({
       <div
         className={cn(
           "flex items-center justify-center w-10 h-10 rounded-lg flex-shrink-0",
-          `bg-[var(--color-edge-${type === "contact_link" ? "contact-link" : type}-subtle)]`
+          type === "local-llm" 
+            ? "bg-gradient-to-br from-purple-500/10 to-pink-500/10" 
+            : `bg-[var(--color-edge-${type === "contact_link" ? "contact-link" : type}-subtle)]`
         )}
       >
         <Icon className={cn("h-5 w-5", config.colorClass)} />
