@@ -3119,6 +3119,12 @@ let sseRetryCount = 0;
 const SSE_MAX_RETRY = 5;
 const SSE_RETRY_DELAYS = [1000, 2000, 5000, 10000, 30000]; // Exponential backoff
 
+// Health monitoring
+let sseLastEventTimestamp = 0;
+let sseHealthCheckInterval: number | null = null;
+const SSE_HEALTH_CHECK_INTERVAL = 15000; // Check every 15 seconds
+const SSE_MAX_SILENCE_MS = 60000; // 60 seconds without event = dead connection
+
 /**
  * Connect to SSE stream for real-time updates
  * Falls back to polling if connection fails
@@ -3157,6 +3163,9 @@ async function connectSSE(): Promise<void> {
     sseRetryCount = 0;
     console.log('[SSE] Connected successfully');
 
+    // Start health monitoring
+    startSSEHealthCheck();
+
     // Read SSE stream
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -3194,6 +3203,7 @@ async function connectSSE(): Promise<void> {
     console.error('[SSE] Connection error:', error);
   } finally {
     sseConnected = false;
+    stopSSEHealthCheck();
     
     // Retry with exponential backoff
     if (sseRetryCount < SSE_MAX_RETRY && unlockedIdentity) {
@@ -3216,8 +3226,18 @@ async function connectSSE(): Promise<void> {
  * Handle SSE events from server
  */
 async function handleSSEEvent(type: string, dataStr: string): Promise<void> {
+  // Update last event timestamp for health monitoring
+  sseLastEventTimestamp = Date.now();
+  
   try {
+    console.log(`[SSE] Event received: ${type}`);
+    
     if (type === 'connected') {
+      return;
+    }
+
+    if (type === 'ping') {
+      console.log('[SSE] Heartbeat ping received');
       return;
     }
 
@@ -3236,7 +3256,60 @@ async function handleSSEEvent(type: string, dataStr: string): Promise<void> {
 function disconnectSSE(): void {
   sseConnected = false;
   sseRetryCount = 0;
+  stopSSEHealthCheck();
   console.log('[SSE] Disconnected');
+}
+
+/**
+ * Start SSE health check monitoring
+ * Detects silent connection failures by checking for events
+ */
+function startSSEHealthCheck(): void {
+  // Record connection time
+  sseLastEventTimestamp = Date.now();
+  
+  // Stop any existing health check
+  stopSSEHealthCheck();
+  
+  console.log('[SSE] Starting health check monitoring', {
+    checkInterval: SSE_HEALTH_CHECK_INTERVAL,
+    maxSilence: SSE_MAX_SILENCE_MS,
+  });
+  
+  // Check health every 15 seconds
+  sseHealthCheckInterval = setInterval(() => {
+    const now = Date.now();
+    const timeSinceLastEvent = now - sseLastEventTimestamp;
+    
+    if (timeSinceLastEvent > SSE_MAX_SILENCE_MS) {
+      console.warn('[SSE] Connection appears dead - no events received', {
+        timeSinceLastEvent,
+        maxSilence: SSE_MAX_SILENCE_MS,
+      });
+      
+      // Force disconnect and reconnect
+      disconnectSSE();
+      if (unlockedIdentity) {
+        connectSSE();
+      }
+    } else {
+      console.log('[SSE] Connection health check passed', {
+        timeSinceLastEvent,
+        status: 'healthy',
+      });
+    }
+  }, SSE_HEALTH_CHECK_INTERVAL);
+}
+
+/**
+ * Stop SSE health check monitoring
+ */
+function stopSSEHealthCheck(): void {
+  if (sseHealthCheckInterval) {
+    clearInterval(sseHealthCheckInterval);
+    sseHealthCheckInterval = null;
+    console.log('[SSE] Stopped health check monitoring');
+  }
 }
 
 // Notification preferences (stored in chrome.storage.local)

@@ -31,6 +31,12 @@ export class BridgeConnection {
   private baseReconnectDelay = 1000; // 1 second
   private onStatusChange?: (status: BridgeStatus) => void;
   private onLog?: (level: 'info' | 'warn' | 'error', message: string, details?: any) => void;
+  
+  // Health monitoring
+  private lastEventTimestamp = 0;
+  private healthCheckInterval: NodeJS.Timeout | null = null;
+  private readonly HEALTH_CHECK_INTERVAL = 15000; // Check every 15 seconds
+  private readonly MAX_SILENCE_MS = 60000; // 60 seconds without event = dead connection
 
   constructor(onStatusChange?: (status: BridgeStatus) => void, onLog?: (level: 'info' | 'warn' | 'error', message: string, details?: any) => void) {
     this.onStatusChange = onStatusChange;
@@ -84,6 +90,9 @@ export class BridgeConnection {
         this.reconnectAttempts = 0;
         this.updateStatus('connected');
         this.log('info', 'Connected successfully to SSE stream');
+        
+        // Start health monitoring
+        this.startHealthCheck();
       };
 
       this.eventSource.onerror = (error: any) => {
@@ -114,6 +123,7 @@ export class BridgeConnection {
    * Handle initial connection confirmation from server
    */
   private handleConnected(event: MessageEvent): void {
+    this.lastEventTimestamp = Date.now();
     const data = JSON.parse(event.data);
     this.log('info', 'Server confirmed connection', data);
   }
@@ -121,14 +131,18 @@ export class BridgeConnection {
   /**
    * Handle ping to keep connection alive
    */
-  private handlePing(_event: MessageEvent): void {
-    this.log('info', 'Ping received');
+  private handlePing(event: MessageEvent): void {
+    this.lastEventTimestamp = Date.now();
+    const data = JSON.parse(event.data);
+    this.log('info', 'Heartbeat ping received', { serverTimestamp: data.timestamp });
   }
 
   /**
    * Handle incoming edge message
    */
   private async handleEdgeMessage(event: MessageEvent): Promise<void> {
+    this.lastEventTimestamp = Date.now();
+    
     try {
       const data = JSON.parse(event.data);
       this.log('info', 'Edge message received', { messageId: data.messageId });
@@ -554,6 +568,8 @@ export class BridgeConnection {
    * Handle disconnection and schedule reconnect
    */
   private handleDisconnect(): void {
+    this.stopHealthCheck();
+    
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
@@ -587,6 +603,56 @@ export class BridgeConnection {
   }
 
   /**
+   * Start health check monitoring
+   * Detects silent connection failures by checking for events
+   */
+  private startHealthCheck(): void {
+    // Record connection time
+    this.lastEventTimestamp = Date.now();
+    
+    // Stop any existing health check
+    this.stopHealthCheck();
+    
+    this.log('info', 'Starting health check monitoring', {
+      checkInterval: this.HEALTH_CHECK_INTERVAL,
+      maxSilence: this.MAX_SILENCE_MS,
+    });
+    
+    // Check health every 15 seconds
+    this.healthCheckInterval = setInterval(() => {
+      const now = Date.now();
+      const timeSinceLastEvent = now - this.lastEventTimestamp;
+      
+      if (timeSinceLastEvent > this.MAX_SILENCE_MS) {
+        this.log('warn', 'Connection appears dead - no events received', {
+          timeSinceLastEvent,
+          maxSilence: this.MAX_SILENCE_MS,
+        });
+        
+        // Force disconnect and reconnect
+        this.handleDisconnect();
+      } else {
+        // Log health status
+        this.log('info', 'Connection health check passed', {
+          timeSinceLastEvent,
+          status: 'healthy',
+        });
+      }
+    }, this.HEALTH_CHECK_INTERVAL);
+  }
+
+  /**
+   * Stop health check monitoring
+   */
+  private stopHealthCheck(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+      this.log('info', 'Stopped health check monitoring');
+    }
+  }
+
+  /**
    * Update status and notify listeners
    */
   private updateStatus(status: BridgeStatus): void {
@@ -609,6 +675,8 @@ export class BridgeConnection {
    */
   disconnect(): void {
     console.log('[Bridge] Disconnecting');
+
+    this.stopHealthCheck();
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
