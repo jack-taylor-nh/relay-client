@@ -2012,6 +2012,20 @@ async function getMessages(
                 isComplete: result.isComplete,
               });
               
+              // 🚀 REAL-TIME PUSH: Notify all UI panels of the chunk update
+              chrome.runtime.sendMessage({
+                type: 'STREAMING_CHUNK_UPDATE',
+                payload: {
+                  conversationId,
+                  messageId: msg.id,
+                  content: finalContent,
+                  isComplete: result.isComplete,
+                  chunkSeq: metadata.seq,
+                }
+              }).catch(() => {
+                // Ignore errors if no panels are open
+              });
+              
               // Update polling frequency when stream starts/completes
               if (metadata.seq === 0) {
                 // First chunk - switch to fast polling

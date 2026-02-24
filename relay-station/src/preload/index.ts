@@ -96,6 +96,36 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getStats: (): Promise<any> => 
     ipcRenderer.invoke('get-stats'),
 
+  // Operator Service - Background AI request handling
+  operatorStart: (config: {
+    edge_id: string;
+    name: string;
+    region: string;
+    models: Array<{ model_id: string; provider: string; payout_rate_per_token: string }>;
+    x25519_public_key: string;
+    x25519_private_key: string;
+  }): Promise<void> =>
+    ipcRenderer.invoke('operator-start', config),
+  operatorStop: (): Promise<void> =>
+    ipcRenderer.invoke('operator-stop'),
+  operatorGetStats: (): Promise<{
+    isRunning: boolean;
+    isConnected: boolean;
+    connectionStatus: string;
+    totalRequests: number;
+    successfulRequests: number;
+    failedRequests: number;
+    totalTokens: number;
+    averageLatency: number;
+    uptime: number;
+    lastActivity: number | null;
+    errorMessage?: string;
+  }> =>
+    ipcRenderer.invoke('operator-get-stats'),
+  onOperatorStatusChange: (callback: (stats: any) => void) => {
+    ipcRenderer.on('operator-status-changed', (_event, stats) => callback(stats));
+  },
+
   // Ollama management
   ollamaStatus: (): Promise<any> =>
     ipcRenderer.invoke('ollama-status'),
@@ -105,7 +135,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('ollama-models-list'),
   ollamaRunningModels: (): Promise<any[]> =>
     ipcRenderer.invoke('ollama-running-models'),
-  testModel: (modelName: string): Promise<{ success: boolean; response?: string; error?: string }> =>
+  testModel: (modelName: string): Promise<{ success: boolean; response?: string; error?: string; gpuPercent?: number; placement?: 'gpu' | 'partial' | 'cpu' }> =>
     ipcRenderer.invoke('test-model', modelName),
   ollamaPullModel: (modelName: string): Promise<boolean> =>
     ipcRenderer.invoke('ollama-model-pull', modelName),
@@ -209,7 +239,7 @@ declare global {
       ollamaRestart: () => Promise<boolean>;
       ollamaListModels: () => Promise<any[]>;
       ollamaRunningModels?: () => Promise<any[]>;
-      testModel?: (modelName: string) => Promise<{ success: boolean; response?: string; error?: string }>;
+      testModel?: (modelName: string) => Promise<{ success: boolean; response?: string; error?: string; gpuPercent?: number; placement?: 'gpu' | 'partial' | 'cpu' }>;
       ollamaPullModel: (modelName: string) => Promise<boolean>;
       ollamaCancelPull?: (modelName: string) => Promise<boolean>;
       ollamaDeleteModel: (modelName: string) => Promise<boolean>;

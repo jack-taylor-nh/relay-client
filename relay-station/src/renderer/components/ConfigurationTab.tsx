@@ -149,9 +149,17 @@ export default function ConfigurationTab() {
       const result = await window.electronAPI.testModel?.(modelToTest);
       
       if (result?.success) {
+        const placementLabel = result.placement === 'gpu' ? '100% GPU ✓' :
+          result.placement === 'partial' ? `${result.gpuPercent}% GPU ⚠ partial CPU offload` :
+          '0% GPU ✗ running on CPU';
+        const placementSuffix = result.placement === 'cpu'
+          ? ' — WARNING: model is on CPU. Free VRAM before going online as an operator.'
+          : result.placement === 'partial'
+          ? ' — Partial GPU offload. Consider freeing VRAM for full performance.'
+          : '';
         setTestResult({ 
-          success: true, 
-          message: `✓ Model "${modelToTest}" is working! Response: "${result.response}"` 
+          success: result.placement !== 'cpu',
+          message: `${result.placement !== 'cpu' ? '✓' : '✗'} Model "${modelToTest}" is working. Placement: ${placementLabel}.${placementSuffix}` 
         });
       } else {
         setTestResult({ 

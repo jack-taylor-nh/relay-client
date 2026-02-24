@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
+import * as preact from 'preact';
+import { memo } from 'preact/compat';
 import { signal, computed, effect } from '@preact/signals';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { EmptyState } from '@/components/relay/EmptyState';
 import { SecurityBadge } from '@/components/relay/SecurityBadge';
-import { Bot, Send, Loader2, ChevronLeft, Info } from 'lucide-react';
-import { showToast, edges, sendMessage, conversations } from '../state';
+import { Bot, Send, Loader2, ChevronLeft, Info, Globe, FileText, BookOpen, CheckCircle2 } from 'lucide-react';
+import { showToast, edges, sendMessage, conversations, saveLocalAIConversation } from '../state';
 import { getOrCreateRelayAIEdge } from '../state';
 import {
   DropdownMenu,
@@ -78,6 +80,70 @@ export const aiConversationId = signal<string | null>(null);
 // Messages for current conversation
 export const aiMessages = signal<Message[]>([]);
 
+// ── Tool status during inference ──────────────────────────────────────────
+interface ToolStatus {
+  tool: string;   // 'web_search' | 'fetch_content' | 'deep_search'
+  detail: string; // query / URL / etc.
+  phase: 'running' | 'complete';
+}
+export const aiToolStatus = signal<ToolStatus | null>(null);
+
+// Map tool names to human-readable labels and icons
+const TOOL_UI: Record<string, { label: string; icon: preact.JSX.Element; color: string }> = {
+  web_search:    { label: 'Searching',        icon: <Globe className="w-3.5 h-3.5" />,    color: 'text-blue-400' },
+  fetch_content: { label: 'Reading page',     icon: <FileText className="w-3.5 h-3.5" />, color: 'text-purple-400' },
+  deep_search:   { label: 'Researching',      icon: <BookOpen className="w-3.5 h-3.5" />, color: 'text-emerald-400' },
+};
+
+// Wrap in memo so parent re-renders from token streaming never touch this component.
+// It re-renders only when aiToolStatus signal changes (2× per tool call).
+const ToolStatusIndicator = memo(function ToolStatusIndicator() {
+  // Read signal directly — this component only re-renders when aiToolStatus changes,
+  // NOT on every streaming token from the parent. This keeps the spinner animation smooth.
+  const status = aiToolStatus.value;
+  const ui = status ? TOOL_UI[status.tool] : null;
+
+  if (!status || !ui) {
+    // Default: generic thinking spinner
+    return (
+      <div class="flex items-center gap-2 text-[hsl(var(--muted-foreground))]">
+        <Loader2 class="w-4 h-4 animate-spin" />
+        <span class="text-sm">Thinking…</span>
+      </div>
+    );
+  }
+
+  if (status.phase === 'complete') {
+    return (
+      <div class="flex items-start gap-2">
+        <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[hsl(var(--muted))/30] border border-[hsl(var(--border))] text-xs text-emerald-400">
+          <CheckCircle2 class="w-3.5 h-3.5 flex-shrink-0" />
+          <span>Got results — generating response…</span>
+          <Loader2 class="w-3 h-3 animate-spin opacity-60" />
+        </div>
+      </div>
+    );
+  }
+
+  // phase === 'running'
+  const truncated = status.detail.length > 48
+    ? status.detail.slice(0, 48) + '…'
+    : status.detail;
+
+  return (
+    <div class="flex items-start gap-2">
+      <div class={`flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[hsl(var(--muted))/30] border border-[hsl(var(--border))] text-xs ${ui.color}`}>
+        <span class="flex-shrink-0 animate-pulse">{ui.icon}</span>
+        <span class="font-medium">{ui.label}</span>
+        {truncated && (
+          <span class="text-[hsl(var(--muted-foreground))] truncate max-w-[180px]">“{truncated}”</span>
+        )}
+        <Loader2 class="w-3 h-3 animate-spin flex-shrink-0 opacity-60" />
+      </div>
+    </div>
+  );
+});
+
 // Token tracking for context management
 export const totalContextTokens = signal<number>(0);
 
@@ -139,12 +205,12 @@ const squishContext = (msgs: Message[], contextLimit: number): Message[] => {
   return squished;
 };
 
-// Persist conversation to chrome.storage
+// Persist conversation to chrome.storage.sync (cross-device persistence)
 const saveConversation = async (conversationId: string, msgs: Message[]) => {
   if (!conversationId) return;
   
   try {
-    await chrome.storage.local.set({
+    await chrome.storage.sync.set({
       [`ai_conversation_${conversationId}`]: {
         id: conversationId,
         messages: msgs.map(m => ({
@@ -155,21 +221,21 @@ const saveConversation = async (conversationId: string, msgs: Message[]) => {
         updatedAt: new Date().toISOString(),
       },
     });
-    console.log(`[AI Chat] Saved conversation ${conversationId} with ${msgs.length} messages`);
+    console.log(`[AI Chat] Saved conversation ${conversationId} with ${msgs.length} messages to sync storage`);
   } catch (err) {
     console.warn('[AI Chat] Failed to persist conversation:', err);
   }
 };
 
-// Load conversation from chrome.storage
-const loadConversation = async (conversationId: string): Promise<Message[]> => {
+// Load conversation from chrome.storage.sync (exported for ConversationDetailView)
+export const loadConversation = async (conversationId: string): Promise<Message[]> => {
   if (!conversationId) return [];
   
   try {
-    const result = await chrome.storage.local.get(`ai_conversation_${conversationId}`);
+    const result = await chrome.storage.sync.get(`ai_conversation_${conversationId}`);
     const data = result[`ai_conversation_${conversationId}`];
     if (data?.messages) {
-      console.log(`[AI Chat] Loaded conversation ${conversationId} with ${data.messages.length} messages`);
+      console.log(`[AI Chat] Loaded conversation ${conversationId} with ${data.messages.length} messages from sync storage`);
       return data.messages.map((m: any) => ({
         ...m,
         timestamp: new Date(m.timestamp),
@@ -189,11 +255,137 @@ effect(() => {
     loadConversation(convId).then(msgs => {
       if (msgs.length > 0) {
         aiMessages.value = msgs;
-        console.log(`[AI Chat] Restored ${msgs.length} messages from storage`);
+        console.log(`[AI Chat] Restored ${msgs.length} messages from sync storage`);
       }
     });
   }
 });
+
+// ============================================
+// Markdown Rendering (real-time, works during streaming)
+// ============================================
+
+function renderMarkdown(text: string): preact.JSX.Element {
+  if (!text) return <></>;
+
+  // Split by fenced code blocks first
+  const parts: Array<{ type: 'text' | 'codeblock'; content: string; language?: string }> = [];
+  const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
+    }
+    parts.push({ type: 'codeblock', content: match[2].trimEnd(), language: match[1] || undefined });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push({ type: 'text', content: text.slice(lastIndex) });
+  }
+
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.type === 'codeblock') {
+          return (
+            <pre key={i} className="my-2 rounded-lg bg-black/40 border border-white/10 overflow-x-auto">
+              {part.language && (
+                <div className="px-3 py-1 text-[11px] font-mono text-white/40 border-b border-white/10">{part.language}</div>
+              )}
+              <code className="block p-3 text-[13px] font-mono leading-relaxed text-white/90 whitespace-pre">{part.content}</code>
+            </pre>
+          );
+        }
+        return <span key={i}>{renderInlineMarkdown(part.content)}</span>;
+      })}
+    </>
+  );
+}
+
+function renderInlineMarkdown(text: string): preact.JSX.Element {
+  const lines = text.split('\n');
+  return (
+    <>
+      {lines.map((line, lineIndex) => {
+        // Numbered list
+        const numberedMatch = line.match(/^(\s*)(\d+)\.\s+(.*)$/);
+        if (numberedMatch) {
+          return (
+            <div key={lineIndex} className="flex gap-2 my-0.5" style={{ paddingLeft: `${numberedMatch[1].length * 8}px` }}>
+              <span className="text-[hsl(var(--muted-foreground))] min-w-[1.2em] text-right">{numberedMatch[2]}.</span>
+              <span>{processInlineFormatting(numberedMatch[3])}</span>
+            </div>
+          );
+        }
+
+        // Bullet list
+        const bulletMatch = line.match(/^(\s*)[•\-\*]\s+(.*)$/);
+        if (bulletMatch) {
+          return (
+            <div key={lineIndex} className="flex gap-2 my-0.5" style={{ paddingLeft: `${bulletMatch[1].length * 8}px` }}>
+              <span className="text-[hsl(var(--muted-foreground))] mt-0.5">•</span>
+              <span>{processInlineFormatting(bulletMatch[2])}</span>
+            </div>
+          );
+        }
+
+        // Heading (### ## #)
+        const headingMatch = line.match(/^(#{1,3})\s+(.*)$/);
+        if (headingMatch) {
+          const level = headingMatch[1].length;
+          const cls = level === 1
+            ? 'text-base font-bold mt-2 mb-1'
+            : level === 2
+            ? 'text-sm font-semibold mt-1.5 mb-0.5'
+            : 'text-sm font-medium mt-1 mb-0.5';
+          return <div key={lineIndex} className={cls}>{processInlineFormatting(headingMatch[2])}</div>;
+        }
+
+        // Horizontal rule
+        if (/^---+$/.test(line.trim())) {
+          return <hr key={lineIndex} className="my-2 border-white/10" />;
+        }
+
+        // Regular line
+        return (
+          <span key={lineIndex}>
+            {processInlineFormatting(line)}
+            {lineIndex < lines.length - 1 && <br />}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+function processInlineFormatting(text: string): preact.JSX.Element {
+  // Encode inline formatting to tokens
+  let s = text;
+  s = s.replace(/\*\*(.+?)\*\*/g, (_, c) => `\x00B${c}\x00`);
+  s = s.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, (_, c) => `\x00I${c}\x00`);
+  s = s.replace(/`([^`]+)`/g, (_, c) => `\x00C${c}\x00`);
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, u) => `\x00L${t}\x01${u}\x00`);
+
+  // Split using capture group so format tokens retain their \x00 prefix —
+  // plain text segments can never be mistaken for format tokens.
+  const tokens = s.split(/(\x00[BICL][^\x00]*\x00)/);
+  return (
+    <>
+      {tokens.map((token, i) => {
+        if (token.startsWith('\x00B')) return <strong key={i}>{token.slice(2, -1)}</strong>;
+        if (token.startsWith('\x00I')) return <em key={i}>{token.slice(2, -1)}</em>;
+        if (token.startsWith('\x00C')) return <code key={i} className="px-1 py-0.5 rounded bg-black/30 text-[12px] font-mono text-sky-300">{token.slice(2, -1)}</code>;
+        if (token.startsWith('\x00L')) {
+          const [linkText, url] = token.slice(2, -1).split('\x01');
+          return <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="text-sky-400 underline hover:text-sky-300">{linkText}</a>;
+        }
+        return <span key={i}>{token}</span>;
+      })}
+    </>
+  );
+}
 
 // Computed: Available models
 const MODELS = computed(() => availableModels.value);
@@ -291,6 +483,7 @@ export function AIChatView({ onBack }: AIChatViewProps) {
     
     setPrompt('');
     setIsLoading(true);
+    aiToolStatus.value = null; // Clear any previous tool status
 
     try {
       // Don't create assistant message yet - wait for first token
@@ -362,6 +555,7 @@ export function AIChatView({ onBack }: AIChatViewProps) {
       aiMessages.value = aiMessages.value.filter(msg => msg.id !== userMessage.id);
     } finally {
       setIsLoading(false);
+      aiToolStatus.value = null; // Always clear on completion
       inputRef.current?.focus();
     }
   }
@@ -504,10 +698,7 @@ export function AIChatView({ onBack }: AIChatViewProps) {
           ))
         )}
         {isLoading && !aiMessages.value.some(m => m.isStreaming) && (
-          <div className="flex items-center gap-2 text-[hsl(var(--muted-foreground))]">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm">Thinking...</span>
-          </div>
+          <ToolStatusIndicator />
         )}
       </div>
 
@@ -788,8 +979,8 @@ function MessageBubble({ message }: { message: Message }) {
         )}
       >
         <div className="relative">
-          <div className="text-sm whitespace-pre-wrap break-words">
-            {message.content}
+          <div className={cn("text-sm break-words", isUser ? "whitespace-pre-wrap" : "")}>
+            {isUser ? message.content : renderMarkdown(message.content)}
             {/* Blinking cursor while streaming */}
             {!isUser && message.isStreaming && (
               <span className="inline-block w-[2px] h-4 ml-0.5 bg-current animate-pulse" />
@@ -1185,6 +1376,14 @@ async function sendStreamingRequest(request: E2EEAIRequest): Promise<E2EEAIRespo
               }
               // Note: Auto-scroll handled by useEffect watching aiMessages
             }
+          } else if (chunk.type === 'tool_status') {
+            // Live tool call status — update the indicator without touching message content
+            aiToolStatus.value = {
+              tool: chunk.tool || 'unknown',
+              detail: chunk.detail || '',
+              phase: chunk.phase === 'complete' ? 'complete' : 'running',
+            };
+
           } else if (chunk.type === 'done') {
             // Final metadata chunk
             if (chunk.metadata) {
@@ -1438,8 +1637,7 @@ async function createAIConversation(conversationId: string, model: string, opera
     const edgeResult = await getOrCreateRelayAIEdge();
     const clientEdgeId = edgeResult.edge?.id;
     
-    // Check if conversation already exists
-    const existingIndex = conversations.value.findIndex(c => c.id === conversationId);
+    const existingConv = conversations.value.find(c => c.id === conversationId);
     
     const conversationData: Conversation = {
       id: conversationId,
@@ -1449,24 +1647,14 @@ async function createAIConversation(conversationId: string, model: string, opera
       counterpartyName: conversationTitle,
       lastMessagePreview: lastPreview,
       lastActivityAt: new Date().toISOString(),
-      createdAt: existingIndex >= 0 ? conversations.value[existingIndex].createdAt : new Date().toISOString(),
+      createdAt: existingConv?.createdAt ?? new Date().toISOString(),
       unreadCount: 0,
       myEdgeId: clientEdgeId,
       counterpartyEdgeId: operatorEdgeId,
     };
     
-    if (existingIndex >= 0) {
-      // Update existing conversation
-      const updated = [...conversations.value];
-      updated[existingIndex] = conversationData;
-      // Move to top
-      updated.splice(existingIndex, 1);
-      updated.unshift(conversationData);
-      conversations.value = updated;
-    } else {
-      // Add new conversation
-      conversations.value = [conversationData, ...conversations.value];
-    }
+    // Persist to chrome.storage.local index + update conversations signal
+    await saveLocalAIConversation(conversationData);
     
     console.log('[AI Chat] Created/updated conversation:', conversationId);
   } catch (error) {

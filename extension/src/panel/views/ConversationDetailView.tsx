@@ -70,6 +70,29 @@ async function loadMessages(conversationId: string, isPolling = false) {
       return;
     }
     
+    // Load AI conversations from local storage instead of server
+    if (conv?.type === 'local-llm') {
+      if (!isPolling) {
+        console.log('Loading AI conversation from local storage:', conversationId);
+      }
+      
+      // Dynamic import to avoid circular dependency
+      const { loadConversation } = await import('./AIChatView');
+      const aiMessages = await loadConversation(conversationId);
+      
+      // Convert AI message format to regular message format
+      messages.value = aiMessages.map(msg => ({
+        id: msg.id,
+        senderFingerprint: msg.role === 'user' ? (currentIdentity.value?.id || 'user') : 'assistant',
+        content: msg.content,
+        createdAt: msg.timestamp.toISOString(),
+        isMine: msg.role === 'user',
+      }));
+      
+      isLoadingMessages.value = false;
+      return;
+    }
+    
     if (!isPolling) {
       console.log('Loading messages for conversation:', conversationId);
     }
@@ -283,20 +306,21 @@ function processInlineFormatting(text: string): preact.JSX.Element {
   // Process links
   remaining = remaining.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => `\x00L${text}\x01${url}\x00`);
   
-  // Split and render
-  const tokens = remaining.split('\x00');
+  // Split using capture group so format tokens retain their \x00 prefix —
+  // plain text segments can never be mistaken for format tokens.
+  const tokens = remaining.split(/(\x00[BICL][^\x00]*\x00)/);
   
   return (
     <>
       {tokens.map((token, i) => {
-        if (token.startsWith('B')) {
-          return <strong key={i}>{token.slice(1)}</strong>;
-        } else if (token.startsWith('I')) {
-          return <em key={i}>{token.slice(1)}</em>;
-        } else if (token.startsWith('C')) {
-          return <code key={i} class="markdown-inline-code">{token.slice(1)}</code>;
-        } else if (token.startsWith('L')) {
-          const [linkText, url] = token.slice(1).split('\x01');
+        if (token.startsWith('\x00B')) {
+          return <strong key={i}>{token.slice(2, -1)}</strong>;
+        } else if (token.startsWith('\x00I')) {
+          return <em key={i}>{token.slice(2, -1)}</em>;
+        } else if (token.startsWith('\x00C')) {
+          return <code key={i} class="markdown-inline-code">{token.slice(2, -1)}</code>;
+        } else if (token.startsWith('\x00L')) {
+          const [linkText, url] = token.slice(2, -1).split('\x01');
           return <a key={i} href={url} target="_blank" rel="noopener noreferrer" class="markdown-link">{linkText}</a>;
         }
         return <span key={i}>{token}</span>;
@@ -629,15 +653,39 @@ export function ConversationDetailView() {
         })
         .catch(() => {}); // Ignore errors
       
-      // Use faster polling for local-llm conversations (for streaming responses)
-      const details = conversationDetails.value;
-      const pollInterval = details?.type === 'local-llm' 
-        ? MESSAGE_POLL_INTERVAL_STREAMING 
-        : MESSAGE_POLL_INTERVAL;
+      // 🚀 REAL-TIME: Listen for streaming chunk updates from background
+      const chunkListener = (message: any) => {
+        if (message.type === 'STREAMING_CHUNK_UPDATE' && message.payload.conversationId === conversationId) {
+          console.log('[ConversationDetailView] Real-time chunk update:', {
+            messageId: message.payload.messageId,
+            contentLength: message.payload.content.length,
+            isComplete: message.payload.isComplete,
+            chunkSeq: message.payload.chunkSeq,
+          });
+          
+          // Update the message content in real-time
+          messages.value = messages.value.map(msg => 
+            msg.id === message.payload.messageId 
+              ? { ...msg, content: message.payload.content }
+              : msg
+          );
+          
+          // If this is a new message not yet in state, fetch it
+          if (!messages.value.some(m => m.id === message.payload.messageId)) {
+            console.log('[ConversationDetailView] New streaming message, fetching...');
+            loadMessages(conversationId, true);
+          }
+        }
+      };
       
-      console.log(`[ConversationDetailView] Starting polling at ${pollInterval}ms for ${details?.type || 'unknown'} conversation`);
+      chrome.runtime.onMessage.addListener(chunkListener);
       
-      // Set up polling for new messages
+      // Use slower polling now that we have real-time updates (fallback only)
+      const pollInterval = 10000; // 10 seconds (was 1.5s for streaming)
+      
+      console.log(`[ConversationDetailView] Starting fallback polling at ${pollInterval}ms with real-time push enabled`);
+      
+      // Set up polling for new messages (fallback if push fails)
       pollIntervalRef.current = setInterval(() => {
         loadMessages(conversationId, true);
       }, pollInterval);

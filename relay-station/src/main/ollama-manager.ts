@@ -334,6 +334,76 @@ export class OllamaManager {
   }
 
   /**
+   * Kill ALL ollama processes at the OS level and restart fresh.
+   *
+   * The normal eviction path (keep_alive:0 via /api/ps) only reaches runners that
+   * Ollama's scheduler is still tracking. Orphaned runners from prior crashes or
+   * from manually-killed sessions never appear in /api/ps, so they hold VRAM
+   * indefinitely. This method uses taskkill / pkill to nuke everything, then
+   * starts a clean Ollama instance.
+   */
+  async restartClean(): Promise<boolean> {
+    console.log('[OllamaManager] Boot cleanup: killing all Ollama processes for clean VRAM state...');
+
+    // Disable auto-restart so the exit handler doesn't race with us
+    this.autoRestart = false;
+    this.isShuttingDown = true;
+
+    // Stop our managed process first (gracefully)
+    if (this.process) {
+      this.process.kill('SIGTERM');
+      await new Promise<void>(resolve => {
+        this.process?.once('exit', resolve);
+        setTimeout(resolve, 5000);
+      });
+      this.process = null;
+    }
+
+    // Kill any remaining ollama processes at the OS level (orphaned runners, etc.)
+    await new Promise<void>(resolve => {
+      try {
+        const killer = process.platform === 'win32'
+          ? spawn('taskkill', ['/f', '/im', 'ollama.exe'], { shell: false, stdio: 'ignore' })
+          : spawn('pkill', ['-f', 'ollama'], { stdio: 'ignore' });
+        killer.on('exit', () => resolve());
+        killer.on('error', () => resolve()); // command not found etc. — non-fatal
+        setTimeout(resolve, 5000);
+      } catch {
+        resolve();
+      }
+    });
+    console.log('[OllamaManager] Boot cleanup: all Ollama processes terminated');
+
+    // Wait for port 11434 to be released
+    const released = await this.waitForPortFree(5000);
+    if (!released) {
+      console.warn('[OllamaManager] Boot cleanup: port 11434 still busy after kill — proceeding anyway');
+    } else {
+      console.log('[OllamaManager] Boot cleanup: port 11434 free, starting fresh Ollama instance');
+    }
+
+    // Re-enable normal lifecycle and start fresh
+    this.autoRestart = true;
+    this.isShuttingDown = false;
+    this.startTime = null;
+
+    return this.start();
+  }
+
+  /**
+   * Poll until port 11434 is not accepting connections (i.e. Ollama is gone).
+   */
+  private async waitForPortFree(timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 400));
+      const stillUp = await this.isOllamaRunning();
+      if (!stillUp) return true;
+    }
+    return false;
+  }
+
+  /**
    * Set auto-restart behavior
    */
   setAutoRestart(enabled: boolean): void {

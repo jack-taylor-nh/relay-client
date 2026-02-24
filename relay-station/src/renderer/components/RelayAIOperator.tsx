@@ -131,7 +131,19 @@ export function RelayAIOperator() {
   const [requestLogs, setRequestLogs] = useState<RequestLog[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sseConnected, setSseConnected] = useState<boolean>(false);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const [operatorStatus, setOperatorStatus] = useState<{
+    isRunning: boolean;
+    isConnected: boolean;
+    connectionStatus: string;
+    totalRequests: number;
+    successfulRequests: number;
+    failedRequests: number;
+    totalTokens: number;
+    averageLatency: number;
+    uptime: number;
+    lastActivity: number | null;
+    errorMessage?: string;
+  } | null>(null);
   
   // Store keys in ref so event handlers always access latest values
   const keysRef = useRef<{ 
@@ -145,7 +157,7 @@ export function RelayAIOperator() {
     initializeSetup();
     
     // Listen for download progress during wizard
-    const unsubscribe = window.electronAPI.onOllamaPullProgress?.((progress: any) => {
+    const unsubscribePull = window.electronAPI.onOllamaPullProgress?.((progress: any) => {
       if (step === 'wizard' && wizardStep.phase === 'download') {
         if (progress.status === 'success') {
           setWizardStep({ 
@@ -173,13 +185,69 @@ export function RelayAIOperator() {
       }
     });
     
+    // Listen for operator status updates from main process
+    const unsubscribeOperator = window.electronAPI.onOperatorStatusChange?.((stats: any) => {
+      console.log('[Operator UI] Status update:', stats);
+      setOperatorStatus(stats);
+      setSseConnected(stats.isConnected);
+      
+      // Update UI stats
+      setStats(prev => ({
+        totalRequests: stats.totalRequests,
+        successfulRequests: stats.successfulRequests,
+        failedRequests: stats.failedRequests,
+        totalTokens: stats.totalTokens,
+        avgLatencyMs: stats.averageLatency,
+        estimatedEarnings: prev.estimatedEarnings, // Keep earnings calculation
+      }));
+      
+      if (stats.errorMessage) {
+        setError(stats.errorMessage);
+      }
+    });
+    
+    // Poll operator status periodically when connected
+    const statusPollInterval = setInterval(async () => {
+      if (step === 'connected') {
+        const status = await window.electronAPI.operatorGetStats?.();
+        if (status) {
+          setOperatorStatus(status);
+          setSseConnected(status.isConnected);
+        }
+      }
+    }, 5000); // Poll every 5 seconds
+    
     return () => {
-      if (unsubscribe) unsubscribe();
+      if (unsubscribePull) unsubscribePull();
+      if (unsubscribeOperator) unsubscribeOperator();
+      clearInterval(statusPollInterval);
     };
   }, []); // Empty deps - only run once on mount
 
   const initializeSetup = async () => {
     try {
+      // First, check if operator is already running (when returning to tab)
+      const existingStatus = await window.electronAPI.operatorGetStats?.();
+      if (existingStatus?.isRunning) {
+        console.log('[Operator UI] Found running operator, restoring connected state');
+        setOperatorStatus(existingStatus);
+        setSseConnected(existingStatus.isConnected);
+        setStep('connected');
+        
+        // Update stats
+        setStats({
+          totalRequests: existingStatus.totalRequests,
+          successfulRequests: existingStatus.successfulRequests,
+          failedRequests: existingStatus.failedRequests,
+          totalTokens: existingStatus.totalTokens,
+          avgLatencyMs: existingStatus.averageLatency,
+          estimatedEarnings: existingStatus.totalTokens * 0.0001, // $0.0001 per token
+        });
+        
+        return; // Don't run normal setup initialization
+      }
+
+      // Normal setup initialization (only if operator not running)
       // Get hardware specs
       const hardware = await window.electronAPI.hardwareDetect?.() || null;
       setHardwareSpecs(hardware);
@@ -440,8 +508,28 @@ export function RelayAIOperator() {
         if (!testResult || !testResult.success) {
           throw new Error(testResult?.error || 'Model failed validation test');
         }
-        
-        setWizardStep({ phase: 'load', progress: 100, message: 'Model loaded and validated!' });
+
+        // Enforce GPU requirement for operators
+        if (testResult.placement === 'cpu') {
+          throw new Error(
+            `CPU-only inference detected for "${selectedModel.name}" (0% of model layers on GPU).\n\n` +
+            `Relay operators must serve models on GPU. CPU inference is 10–20× slower and creates ` +
+            `an unfair experience for users compared to GPU operators at the same rate.\n\n` +
+            `To fix this:\n` +
+            `• Free VRAM — quit other apps using your GPU (games, other AI tools, browsers)\n` +
+            `• Choose a smaller model that fits in your available VRAM\n` +
+            `• Run nvidia-smi in a terminal to see what is using VRAM\n` +
+            `• Restart Relay Station after freeing VRAM`
+          );
+        }
+
+        if (testResult.placement === 'partial') {
+          console.warn(`[Operator] Model "${selectedModel.name}" only ${testResult.gpuPercent}% on GPU — partial CPU offload. Performance may be reduced.`);
+        }
+
+        const placementLabel = testResult.placement === 'gpu' ? '100% GPU' :
+          testResult.placement === 'partial' ? `${testResult.gpuPercent}% GPU` : 'CPU';
+        setWizardStep({ phase: 'load', progress: 100, message: `Model loaded and validated! (${placementLabel})` });
         await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (loadErr: any) {
         throw new Error(`Failed to load model: ${loadErr.message}`);
@@ -537,12 +625,50 @@ export function RelayAIOperator() {
 
       setWizardStep({ phase: 'connect', progress: 66, message: 'Establishing connection...' });
 
-      // Step 3: Connect SSE listener
-      connectSSE(edgeId, edgeSecretKey);
+      console.log('[Operator Setup] Starting operator service...');
+      // Step 3: Start background operator service (runs in main process)
+      await window.electronAPI.operatorStart?.({
+        edge_id: edgeId,
+        name: config.operatorName,
+        region: config.region,
+        models: [
+          {
+            model_id: selectedModel.name,
+            provider: 'ollama',
+            payout_rate_per_token: (selectedModel.payoutPer1kTokens / 1000).toString(),
+          }
+        ],
+        x25519_public_key: x25519PublicKey,
+        x25519_private_key: edgeSecretKey,
+      });
+      console.log('[Operator Setup] Operator service started, waiting for connection...');
 
+      // Wait for the operator to actually connect (max 10 seconds)
+      const maxWaitTime = 10000;
+      const checkInterval = 500;
+      const startTime = Date.now();
+      
+      while (Date.now() - startTime < maxWaitTime) {
+        const status = await window.electronAPI.operatorGetStats?.();
+        console.log('[Operator Setup] Polling status:', status);
+        if (status?.isConnected) {
+          console.log('[Operator Setup] Connected!');
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, checkInterval));
+      }
+
+      const finalStatus = await window.electronAPI.operatorGetStats?.();
+      console.log('[Operator Setup] Final status check:', finalStatus);
+      if (!finalStatus?.isConnected) {
+        throw new Error('Failed to establish connection within 10 seconds');
+      }
+
+      console.log('[Operator Setup] Connection successful, updating wizard...');
       setWizardStep({ phase: 'connect', progress: 100, message: 'Connected!' });
       await new Promise(resolve => setTimeout(resolve, 500));
 
+      console.log('[Operator Setup] Wizard complete!');
       setStep('connected');
     } catch (err: any) {
       console.error('[RelayAI] Setup error:', err);
@@ -551,79 +677,20 @@ export function RelayAIOperator() {
     }
   };
 
-  // Connect to SSE stream for incoming requests
-  const connectSSE = (edgeId: string, edgeSecretKey: string) => {
-    const url = `${RELAY_AI_URL}/v1/operators/subscribe?edge_id=${encodeURIComponent(edgeId)}&edge_secret=${encodeURIComponent(edgeSecretKey)}`;
-    console.log(`[RelayAI SSE] Connecting to: ${url}`);
-    const eventSource = new EventSource(url);
-
-    eventSource.onopen = () => {
-      console.log('[RelayAI SSE] ✅ Connected successfully!');
-      console.log(`[RelayAI SSE] Operator Edge ID: ${edgeId.slice(0, 16)}...`);
-      setSseConnected(true);
-      setError(null);
-    };
-
-    eventSource.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        console.log('Received message:', message);
-
-        // Handle both E2EE and legacy AI requests
-        if (message.type === 'ai_request') {
-          const payload = message.payload;
-          
-          // Check if E2EE (has encrypted_payload) or legacy (has model/messages)
-          if (payload.encrypted_payload) {
-            handleE2EEAIRequest(payload, edgeId, edgeSecretKey);
-          } else {
-            handleLegacyAIRequest(payload, edgeId, edgeSecretKey);
-          }
-        } else if (message.type === 'ai.completion.request') {
-          // Backward compatibility: legacy format
-          handleLegacyAIRequest(message.payload, edgeId, edgeSecretKey);
-        }
-      } catch (err) {
-        console.error('Failed to parse SSE message:', err);
-      }
-    };
-    
-    // Handle ping events for health monitoring
-    eventSource.addEventListener('ping', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        // console.log('[RelayAI SSE] 💓 Ping received, sending pong...');
-        
-        // Send heartbeat pong response
-        fetch(`${RELAY_AI_URL}/v1/operators/heartbeat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ edge_id: edgeId }),
-        }).catch((err) => {
-          console.error('[RelayAI SSE] Failed to send heartbeat pong:', err);
-        });
-      } catch (err) {
-        console.error('[RelayAI SSE] Failed to handle ping:', err);
-      }
-    });
-
-    eventSource.onerror = (err) => {
-      console.error('[RelayAI SSE] ❌ Error:', err);
-      console.log('[RelayAI SSE] Connection lost, retrying in 5 seconds...');
+  // Stop operator
+  const handleStopOperator = async () => {
+    try {
+      await window.electronAPI.operatorStop?.();
+      setStep('setup');
       setSseConnected(false);
-      setError('Connection lost. Retrying...');
-      eventSource.close();
-      // Retry after 5 seconds
-      setTimeout(() => {
-        console.log('[RelayAI SSE] Attempting reconnection...');
-        connectSSE(edgeId, edgeSecretKey);
-      }, 5000);
-    };
-
-    eventSourceRef.current = eventSource;
+      setOperatorStatus(null);
+    } catch (err: any) {
+      console.error('[Operator] Stop error:', err);
+      setError(err.message);
+    }
   };
+
+  // Note: SSE connection now managed by background OperatorService in main process
 
   // Handle incoming E2EE AI request
   const handleE2EEAIRequest = async (
@@ -749,6 +816,7 @@ export function RelayAIOperator() {
     let completionTokens = 0;
     let streamingFailed = false; // Flag to detect 404 and stop processing
     let chunkSequence = 0; // Track chunk sequence for Redis Streams
+    let firstTokenTime: number | null = null; // Track TTFT (Time To First Token)
 
     try {
       // STEP 2: Call local Ollama with streaming enabled
@@ -798,6 +866,11 @@ export function RelayAIOperator() {
             if (delta?.content) {
               const token = delta.content;
               fullContent += token;
+              
+              // Capture TTFT (Time To First Token) on first token arrival
+              if (!firstTokenTime) {
+                firstTokenTime = Date.now() - startTime;
+              }
               
               // STEP 4: Encrypt token chunk
               const encryptedChunk = await encryptE2EEPayload(
@@ -858,7 +931,7 @@ export function RelayAIOperator() {
         model: decryptedPayload.model,
         finish_reason: 'stop',
         operator_edge_id: operatorEdgeId,
-        processing_time_ms: latency,
+        processing_time_ms: firstTokenTime || latency, // Use TTFT latency for streaming
       };
       
       // Encrypt metadata before sending
@@ -1309,23 +1382,6 @@ export function RelayAIOperator() {
     });
   };
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
-    };
-  }, []);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
-    };
-  }, []);
   return (
     <div className="p-8 max-w-6xl mx-auto">
       {/* Header */}
@@ -1904,8 +1960,7 @@ export function RelayAIOperator() {
               <button
                 onClick={() => {
                   if (confirm('Stop operator and return to setup?')) {
-                    eventSourceRef.current?.close();
-                    setStep('setup');
+                    handleStopOperator();
                     setStats({
                       totalRequests: 0,
                       successfulRequests: 0,

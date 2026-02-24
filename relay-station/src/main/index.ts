@@ -17,6 +17,7 @@ import { hardwareDetector } from './hardware-detector';
 import { modelCatalog } from './model-catalog';
 import { statsDb } from './services/StatsDatabase';
 import { maintenanceJobs } from './services/MaintenanceJobs';
+import { operatorService } from './services/OperatorService';
 import type { AppConfig, EdgeConfig, LLMProvider } from '../shared/types';
 // import { RELAY_API_BASE_URL } from '../shared/constants'; // Deprecated bridge functionality
 
@@ -99,19 +100,26 @@ function updateTrayMenu(): void {
   if (!tray) return;
 
   const activeLLM = llmClient.getActiveProvider();
-  const bridgeEdge = configStore.getBridgeEdge();
-  const isConnected = bridgeManager.getStatus() === 'connected';
+  const operatorStats = operatorService.getStats();
 
   // Status summary
   const llmStatus = activeLLM 
     ? `${activeLLM.name === 'ollama' ? 'Ollama' : 'LM Studio'} • ${activeLLM.models.length} models`
     : 'No LLM';
   
-  const bridgeStatus = bridgeEdge && isConnected
-    ? `Connected • ${bridgeEdge.label}`
-    : bridgeEdge
-    ? `Disconnected • ${bridgeEdge.label}`
-    : 'No Bridge';
+  const operatorStatus = operatorStats.isRunning
+    ? operatorStats.isConnected
+      ? `✅ Online • ${operatorStats.totalRequests} requests`
+      : operatorStats.connectionStatus === 'connecting'
+      ? `🔄 Connecting...`
+      : operatorStats.connectionStatus === 'error'
+      ? `❌ Error: ${operatorStats.errorMessage || 'Connection failed'}`
+      : `⚠️ Disconnected`
+    : '🔴 Offline';
+
+  const operatorUptime = operatorStats.isRunning && operatorStats.uptime > 0
+    ? `⏱️ Uptime: ${Math.floor(operatorStats.uptime / 3600)}h ${Math.floor((operatorStats.uptime % 3600) / 60)}m`
+    : null;
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -124,25 +132,30 @@ function updateTrayMenu(): void {
     },
     { type: 'separator' },
     {
-      label: `AI: ${llmStatus}`,
+      label: `Ollama: ${llmStatus}`,
       type: 'normal',
       enabled: false,
     },
     {
-      label: `Bridge: ${bridgeStatus}`,
+      label: `Operator: ${operatorStatus}`,
       type: 'normal',
       enabled: false,
     },
+    ...(operatorUptime ? [{
+      label: `  ${operatorUptime}`,
+      type: 'normal' as const,
+      enabled: false,
+    }] : []),
+    ...(operatorStats.isConnected && operatorStats.averageLatency > 0 ? [{
+      label: `  💰 Earnings: ${operatorStats.totalTokens} tokens`,
+      type: 'normal' as const,
+      enabled: false,
+    }, {
+      label: `  ⚡ Avg Latency: ${operatorStats.averageLatency}ms`,
+      type: 'normal' as const,
+      enabled: false,
+    }] : []),
     { type: 'separator' },
-    {
-      label: 'Manage Models',
-      type: 'normal',
-      click: () => {
-        mainWindow?.show();
-        mainWindow?.focus();
-        // TODO: Send IPC to switch to Models tab
-      },
-    },
     {
       label: 'Restart Ollama',
       type: 'normal',
@@ -660,6 +673,37 @@ function registerIPCHandlers(): void {
     };
   });
 
+  // Operator Service - Background AI request handling
+  ipcMain.handle('operator-start', async (_event, config: {
+    edge_id: string;
+    name: string;
+    region: string;
+    models: Array<{ model_id: string; provider: string; payout_rate_per_token: string }>;
+    x25519_public_key: string;
+    x25519_private_key: string;
+  }): Promise<void> => {
+    await operatorService.start(config);
+    updateTrayMenu();
+  });
+
+  ipcMain.handle('operator-stop', async (): Promise<void> => {
+    await operatorService.stop();
+    updateTrayMenu();
+  });
+
+  ipcMain.handle('operator-get-stats', (): any => {
+    return operatorService.getStats();
+  });
+
+  // Listen for operator status changes and update tray
+  operatorService.on('status-change', () => {
+    updateTrayMenu();
+    // Send update to renderer if window is open
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('operator-status-changed', operatorService.getStats());
+    }
+  });
+
   // Bridge status
   ipcMain.handle('get-bridge-status', (): string => {
     return 'disconnected'; // Bridges are deprecated
@@ -707,7 +751,7 @@ function registerIPCHandlers(): void {
     }
   });
 
-  ipcMain.handle('test-model', async (_event, modelName: string): Promise<{ success: boolean; response?: string; error?: string }> => {
+  ipcMain.handle('test-model', async (_event, modelName: string): Promise<{ success: boolean; response?: string; error?: string; gpuPercent?: number; placement?: 'gpu' | 'partial' | 'cpu' }> => {
     try {
       console.log('[Bridge] Testing model:', modelName);
       
@@ -718,6 +762,8 @@ function registerIPCHandlers(): void {
           model: modelName,
           messages: [{ role: 'user', content: 'Say "test successful"' }],
           stream: false,
+          keep_alive: -1, // Keep model warm for the first real inference call
+          // No num_ctx/num_gpu — match inference defaults so Ollama reuses the same runner
         }),
       });
 
@@ -727,9 +773,30 @@ function registerIPCHandlers(): void {
 
       const data = await response.json() as { message?: { content: string } };
       const content = data.message?.content || 'No response';
-      
-      console.log('[Bridge] Model test successful:', modelName);
-      return { success: true, response: content };
+
+      // Check GPU placement via /api/ps
+      let gpuPercent = 0;
+      let placement: 'gpu' | 'partial' | 'cpu' = 'cpu';
+      try {
+        const psRes = await fetch('http://localhost:11434/api/ps', {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (psRes.ok) {
+          const psData = await psRes.json() as { models?: Array<{ name: string; size: number; size_vram: number }> };
+          const baseName = modelName.split(':')[0];
+          const loaded = (psData.models ?? []).find(m =>
+            m.name === modelName || m.name.startsWith(baseName)
+          );
+          if (loaded && loaded.size > 0) {
+            gpuPercent = Math.round((loaded.size_vram / loaded.size) * 100);
+          }
+        }
+      } catch {
+        // Non-fatal — placement check failed, assume CPU
+      }
+      placement = gpuPercent >= 90 ? 'gpu' : gpuPercent > 0 ? 'partial' : 'cpu';
+      console.log(`[Bridge] Model test successful: ${modelName} (${gpuPercent}% on GPU → ${placement})`);
+      return { success: true, response: content, gpuPercent, placement };
     } catch (error) {
       console.error('[Bridge] Model test failed:', error);
       return { 
@@ -1081,6 +1148,11 @@ app.whenReady().then(async () => {
       console.error('[App] Ollama startup error:', err);
     }
 
+    // Kill all Ollama processes and restart clean — this is the only reliable way
+    // to free VRAM from orphaned runners (prior crashes, external sessions, etc.).
+    // The /api/ps eviction only works for runners Ollama's scheduler still tracks.
+    await ollamaManager.restartClean();
+
     // Load saved active LLM
     const savedLLM = configStore.getActiveLLM();
     if (savedLLM) {
@@ -1151,6 +1223,9 @@ app.on('before-quit', async () => {
   
   console.log('[App] Shutting down...');
   
+  // Stop operator service first — this unloads the model from VRAM cleanly
+  await operatorService.stop();
+
   // Stop maintenance jobs
   console.log('[App] Stopping maintenance jobs...');
   maintenanceJobs.stop();

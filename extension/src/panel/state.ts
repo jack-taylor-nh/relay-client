@@ -73,7 +73,50 @@ export const edgeTypes = signal<EdgeTypeDefinition[]>([]);
 
 export const conversations = signal<Conversation[]>([]);
 export const tempConversations = signal<Conversation[]>([]); // Local-only temp conversations
+export const localAIConversations = signal<Conversation[]>([]); // Persisted AI chat conversations
 export const selectedConversationId = signal<string | null>(null);
+
+// Merge helper: server convos + temp + AI
+export function mergeAllConversations(serverConvos: Conversation[]): void {
+  const aiIds = new Set(localAIConversations.value.map(c => c.id));
+  const tempIds = new Set(tempConversations.value.map(c => c.id));
+  // Prefer local AI copies (they have up-to-date preview/title)
+  const filtered = serverConvos.filter(c => !aiIds.has(c.id) && !tempIds.has(c.id));
+  conversations.value = [...localAIConversations.value, ...filtered, ...tempConversations.value];
+}
+
+export async function loadLocalAIConversations(): Promise<void> {
+  try {
+    const result = await chrome.storage.local.get('ai_conversations_index');
+    const list: Conversation[] = result['ai_conversations_index'] || [];
+    localAIConversations.value = list;
+  } catch (err) {
+    console.warn('[State] Failed to load AI conversations index:', err);
+  }
+}
+
+export async function saveLocalAIConversation(conv: Conversation): Promise<void> {
+  try {
+    const existing = localAIConversations.value;
+    const idx = existing.findIndex(c => c.id === conv.id);
+    let updated: Conversation[];
+    if (idx >= 0) {
+      updated = [...existing];
+      updated.splice(idx, 1);
+      updated.unshift(conv); // Bubble to top
+    } else {
+      updated = [conv, ...existing];
+    }
+    localAIConversations.value = updated;
+    await chrome.storage.local.set({ ai_conversations_index: updated });
+    // Refresh merged list
+    mergeAllConversations(conversations.value.filter(c =>
+      !updated.some(a => a.id === c.id) && !tempConversations.value.some(t => t.id === c.id)
+    ));
+  } catch (err) {
+    console.warn('[State] Failed to save AI conversation:', err);
+  }
+}
 
 // Computed: Check if any conversation has unread messages
 export const hasUnreadMessages = computed(() => 
@@ -616,7 +659,8 @@ export async function loadConversations(): Promise<void> {
     }>({ type: 'GET_STORED_CONVERSATIONS' });
 
     if (storedResult.success && storedResult.conversations) {
-      conversations.value = storedResult.conversations;
+      await loadLocalAIConversations();
+      mergeAllConversations(storedResult.conversations);
     }
     
     // Then trigger a fresh poll (will update storage and notify us)
@@ -683,8 +727,8 @@ chrome.runtime.onMessage.addListener((message) => {
     console.log('[Panel] tempConversations.value.length:', tempConversations.value.length);
     console.log('[Panel] tempConversations IDs:', tempConversations.value.map(c => c.id));
     
-    // Always merge: server conversations + temp conversations (stored separately)
-    conversations.value = [...message.conversations, ...tempConversations.value];
+    // Always merge: server conversations + AI local + temp conversations
+    mergeAllConversations(message.conversations);
     
     console.log('[Panel] Merged conversations:', message.conversations.length, 'from server +', tempConversations.value.length, 'temp =', conversations.value.length, 'total');
   }
@@ -714,3 +758,5 @@ window.addEventListener('beforeunload', () => {
 
 // Check identity state on load
 checkIdentityState();
+// Load persisted AI conversations index
+loadLocalAIConversations();
