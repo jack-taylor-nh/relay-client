@@ -31,6 +31,7 @@ import { sendMessage as sendUnifiedMessage } from '@relay/core/messaging';
 import { RatchetState, RatchetDecrypt, RatchetInitAlice, RatchetInitBob, serializeRatchetState, deserializeRatchetState } from '@relay/core';
 import type { Conversation as RatchetConversation, SecurityLevel, EdgeType } from '@relay/core';
 import { ratchetStorage } from '../lib/storage';
+import { streamingManager } from './streamingManager';
 
 // ============================================
 // Types
@@ -456,8 +457,8 @@ type MessageType =
   | { type: 'SEND_NATIVE_MESSAGE'; payload: { recipientHandle: string; senderHandle: string; content: string } }
   | { type: 'SEND_EMAIL'; payload: { conversationId: string; content: string } }
   | { type: 'SEND_DISCORD'; payload: { conversationId: string; content: string } }
-  | { type: 'SEND_TO_EDGE'; payload: { myEdgeId: string; recipientEdgeId: string; recipientX25519PublicKey: string; content: string; conversationId?: string; origin?: 'native' | 'email' | 'contact_link' | 'discord' | 'other' } }
-  | { type: 'CREATE_EDGE'; payload: { type: 'native' | 'email' | 'contact_link' | 'discord' | 'webhook' | 'local-llm'; label?: string; customAddress?: string; displayName?: string } }
+  | { type: 'SEND_TO_EDGE'; payload: { myEdgeId: string; recipientEdgeId: string; recipientX25519PublicKey: string; content: string; conversationId?: string; origin?: 'native' | 'email' | 'contact_link' | 'discord' | 'local-llm' | 'other' } }
+  | { type: 'CREATE_EDGE'; payload: { type: 'native' | 'email' | 'contact_link' | 'discord' | 'webhook' | 'local-llm'; label?: string; customAddress?: string; displayName?: string; bridgeApiKey?: string } }
   | { type: 'GET_EDGE_TYPES' }
   | { type: 'GET_EDGES' }
   | { type: 'BURN_EDGE'; payload: { edgeId: string } }
@@ -472,7 +473,10 @@ type MessageType =
   | { type: 'GET_STORED_CONVERSATIONS' }
   | { type: 'PANEL_OPENED' }
   | { type: 'PANEL_CLOSED' }
-  | { type: 'FORCE_POLL' };
+  | { type: 'FORCE_POLL' }
+  // E2EE crypto operations
+  | { type: 'ENCRYPT_E2EE'; payload: { plaintext: string; recipientPublicKey: string } }
+  | { type: 'DECRYPT_E2EE'; payload: { ciphertext: string; ephemeralPublicKey: string; nonce: string; recipientPrivateKey?: string } };
 
 async function handleMessage(message: MessageType): Promise<unknown> {
   // Reset lock timer on activity
@@ -557,7 +561,7 @@ async function handleMessage(message: MessageType): Promise<unknown> {
       );
 
     case 'CREATE_EDGE':
-      return createEdge(message.payload.type, message.payload.label, message.payload.customAddress, message.payload.displayName);
+      return createEdge(message.payload.type, message.payload.label, message.payload.customAddress, message.payload.displayName, message.payload.bridgeApiKey);
 
     case 'GET_EDGE_TYPES':
       return getEdgeTypes();
@@ -575,6 +579,96 @@ async function handleMessage(message: MessageType): Promise<unknown> {
     case 'CREATE_ALIAS':
       // Aliases are now edges - redirect to createEdge with email type
       return createEdge('email', message.payload.label);
+
+    // ============================================
+    // E2EE Crypto Operations (for AI Chat)
+    // ============================================
+    
+    case 'ENCRYPT_E2EE':
+      try {
+        if (!message.payload.plaintext || !message.payload.recipientPublicKey) {
+          return { 
+            success: false, 
+            error: 'Missing plaintext or recipientPublicKey' 
+          };
+        }
+        
+        if (!unlockedIdentity) {
+          return { 
+            success: false, 
+            error: 'Identity not unlocked' 
+          };
+        }
+        
+        const encrypted = encryptMessage(
+          message.payload.plaintext,
+          fromBase64(message.payload.recipientPublicKey),
+          unlockedIdentity.secretKey
+        );
+        
+        return {
+          success: true,
+          ciphertext: encrypted.ciphertext,
+          ephemeralPublicKey: encrypted.ephemeralPubkey,
+          nonce: encrypted.nonce,
+        };
+      } catch (error) {
+        console.error('[Background] E2EE encryption failed:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Encryption failed' 
+        };
+      }
+    
+    case 'DECRYPT_E2EE':
+      try {
+        if (!message.payload.ciphertext || !message.payload.ephemeralPublicKey || !message.payload.nonce) {
+          return { 
+            success: false, 
+            error: 'Missing encrypted payload fields' 
+          };
+        }
+        
+        // If recipientPrivateKey is provided, use it (for edge-specific decryption)
+        // Otherwise fall back to identity key (for backward compatibility)
+        let privateKey: Uint8Array;
+        
+        if (message.payload.recipientPrivateKey) {
+          privateKey = fromBase64(message.payload.recipientPrivateKey);
+        } else if (unlockedIdentity) {
+          privateKey = unlockedIdentity.secretKey;
+        } else {
+          return { 
+            success: false, 
+            error: 'Identity not unlocked and no recipientPrivateKey provided' 
+          };
+        }
+        
+        const plaintext = decryptMessage(
+          message.payload.ciphertext,
+          message.payload.nonce,
+          fromBase64(message.payload.ephemeralPublicKey),
+          privateKey
+        );
+        
+        if (!plaintext) {
+          return { 
+            success: false, 
+            error: 'Decryption failed - invalid ciphertext or keys' 
+          };
+        }
+        
+        return {
+          success: true,
+          plaintext,
+        };
+      } catch (error) {
+        console.error('[Background] E2EE decryption failed:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Decryption failed' 
+        };
+      }
 
     // ============================================
     // Notification Preferences
@@ -1884,11 +1978,67 @@ async function getMessages(
           content = '[No content]';
         }
         
+        // 🚀 STREAMING: Check if this is a streaming chunk and process it
+        let finalContent = content;
+        let isStreamingChunk = false;
+        
+        if (conversationDetails?.origin === 'local-llm' && !isMine && msg.senderEdgeId) {
+          const chunkData = streamingManager.parseChunkMetadata(content);
+          
+          if (chunkData) {
+            isStreamingChunk = true;
+            const { metadata, content: chunkContent } = chunkData;
+            
+            console.log('[getMessages] Processing streaming chunk:', {
+              messageId: msg.id,
+              seq: metadata.seq,
+              isFinal: metadata.isFinal,
+              chunkLength: chunkContent.length,
+            });
+            
+            // Process through streaming manager
+            const result = streamingManager.processChunk(
+              conversationId,
+              msg.senderEdgeId,
+              metadata,
+              chunkContent
+            );
+            
+            if (result) {
+              // Use assembled content for display
+              finalContent = result.displayContent;
+              console.log('[getMessages] Updated display content:', {
+                length: finalContent.length,
+                isComplete: result.isComplete,
+              });
+              
+              // Update polling frequency when stream starts/completes
+              if (metadata.seq === 0) {
+                // First chunk - switch to fast polling
+                console.log('[getMessages] Stream started, increasing poll frequency');
+                await startAlarmPolling();
+              }
+              
+              if (result.isComplete) {
+                // Stream complete - restore normal polling
+                console.log('[getMessages] Stream complete, restoring poll frequency');
+                setTimeout(async () => {
+                  streamingManager.clearStream(conversationId, msg.senderEdgeId!);
+                  await startAlarmPolling(); // Restore normal frequency
+                }, 5000); // Clear after 5 seconds to allow UI to update
+              }
+            } else {
+              // Chunk buffered, waiting for earlier chunks
+              finalContent = streamingManager.getDisplayContent(conversationId, msg.senderEdgeId) || '';
+            }
+          }
+        }
+        
         return {
           id: msg.id,
           senderEdgeId: msg.senderEdgeId,
           senderExternalId: msg.senderExternalId,
-          content,
+          content: finalContent,
           createdAt: msg.createdAt,
           isMine,
         };
@@ -2531,7 +2681,7 @@ async function sendToEdge(
   recipientX25519PublicKey: string,
   content: string,
   conversationId?: string,
-  origin: 'native' | 'email' | 'contact_link' | 'discord' | 'other' = 'native'
+  origin: 'native' | 'email' | 'contact_link' | 'discord' | 'local-llm' | 'other' = 'native'
 ): Promise<{
   success: boolean;
   conversationId?: string;
@@ -2569,7 +2719,7 @@ async function sendToEdge(
     // 1. Get my edge secret key
     const storage = await chrome.storage.local.get(['edgeKeys']);
     const edgeKeys = storage.edgeKeys || {};
-    const myEdgeData = edgeKeys[myEdgeId] as { secretKey: string } | undefined;
+    const myEdgeData = edgeKeys[myEdgeId] as { secretKey: string; bridgeApiKey?: string } | undefined;
     
     if (!myEdgeData?.secretKey) {
       pendingNativeSends.delete(sendKey);
@@ -2578,12 +2728,20 @@ async function sendToEdge(
     
     const myEdgeSecretKey = fromBase64(myEdgeData.secretKey);
     const recipientPubKey = fromBase64(recipientX25519PublicKey);
+    
+    // For local-llm messages, prepend API key header if available
+    let messageContent = content;
+    if (origin === 'local-llm' && myEdgeData.bridgeApiKey) {
+      messageContent = `X-Relay-API-Key: ${myEdgeData.bridgeApiKey}\n${content}`;
+      console.log('[sendToEdge] Added API key header for local-llm message');
+    }
 
     console.log('[sendToEdge] Keys loaded:', {
       myEdgeSecretKeyLength: myEdgeSecretKey?.length,
       recipientPubKeyLength: recipientPubKey?.length,
-      contentLength: content?.length,
+      contentLength: messageContent?.length,
       conversationId,
+      hasApiKey: origin === 'local-llm' && !!myEdgeData.bridgeApiKey,
     });
 
     // 2. Build conversation object for ratchet
@@ -2611,7 +2769,7 @@ async function sendToEdge(
     try {
       const result = await sendUnifiedMessage(
         conversation,
-        content,
+        messageContent, // Use messageContent which may have API key header
         'text/plain',
         myEdgeSecretKey,
         recipientPubKey,
@@ -2717,10 +2875,11 @@ async function sendToEdge(
 // ============================================
 
 async function createEdge(
-  type: 'native' | 'email' | 'contact_link' | 'discord' | 'webhook' | 'local-llm',
+  type: 'native' | 'email' | 'contact_link' | 'discord' | 'webhook' | 'local-llm' | 'relay-ai',
   label?: string,
   customAddress?: string,
-  displayName?: string
+  displayName?: string,
+  bridgeApiKey?: string
 ): Promise<{
   success: boolean;
   edge?: {
@@ -2820,8 +2979,9 @@ async function createEdge(
           label: label,
           displayName: displayName,
           authToken: authToken, // For webhook edges
-          // For local-llm edges, store the bridge edge ID separately
+          // For local-llm edges, store the bridge edge ID and API key separately
           bridgeEdgeId: type === 'local-llm' ? customAddress : undefined,
+          bridgeApiKey: type === 'local-llm' ? bridgeApiKey : undefined,
           createdAt: new Date().toISOString(),
         },
       };
@@ -2953,6 +3113,8 @@ async function getEdges(): Promise<{
     securityLevel: string;
     messageCount: number;
     hasX25519?: boolean;
+    x25519PublicKey?: string;
+    metadata?: any;
     createdAt: string;
     lastActivityAt: string | null;
   }>;
@@ -3106,6 +3268,7 @@ async function burnEdge(edgeId: string): Promise<{
 const POLL_ALARM_NAME = 'relay-poll';
 const POLL_INTERVAL_BACKGROUND_SECONDS = 300; // 5min fallback (SSE is primary)
 const POLL_INTERVAL_ACTIVE_SECONDS = 60;      // 1min fallback (SSE is primary)
+const POLL_INTERVAL_STREAMING_SECONDS = 2;     // 2s during active streaming for fast chunk delivery
 
 // Track if panel is currently active
 let panelIsActive = false;
@@ -3125,6 +3288,13 @@ let sseHealthCheckInterval: number | null = null;
 const SSE_HEALTH_CHECK_INTERVAL = 15000; // Check every 15 seconds
 const SSE_MAX_SILENCE_MS = 60000; // 60 seconds without event = dead connection
 
+// State machine tracking
+let sseConnectionState: 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'failed' = 'disconnected';
+let isReconnecting = false;
+
+// Network state tracking
+let isOnline = true;
+
 /**
  * Connect to SSE stream for real-time updates
  * Falls back to polling if connection fails
@@ -3138,10 +3308,16 @@ async function connectSSE(): Promise<void> {
     return;
   }
 
+  // Determine if this is initial connection or reconnection
+  sseConnectionState = isReconnecting ? 'reconnecting' : 'connecting';
+  console.log(`[SSE] ${isReconnecting ? 'Reconnecting' : 'Connecting'} to real-time stream`, {
+    state: sseConnectionState,
+    attempt: sseRetryCount + 1,
+    maxAttempts: SSE_MAX_RETRY,
+  });
+
   const apiUrl = await getApiUrl();
   const streamUrl = `${apiUrl}/v1/stream`;
-
-  console.log('[SSE] Connecting to real-time stream');
 
   try {
     const response = await fetch(streamUrl, {
@@ -3161,7 +3337,9 @@ async function connectSSE(): Promise<void> {
 
     sseConnected = true;
     sseRetryCount = 0;
-    console.log('[SSE] Connected successfully');
+    isReconnecting = false;
+    sseConnectionState = 'connected';
+    console.log('[SSE] Connected successfully', { state: sseConnectionState });
 
     // Start health monitoring
     startSSEHealthCheck();
@@ -3207,8 +3385,24 @@ async function connectSSE(): Promise<void> {
     
     // Retry with exponential backoff
     if (sseRetryCount < SSE_MAX_RETRY && unlockedIdentity) {
+      isReconnecting = true;
+      sseConnectionState = 'reconnecting';
+      
+      // If offline, don't schedule reconnect - wait for network restore
+      if (!isOnline) {
+        console.log('[SSE] Network offline - pausing reconnection attempts', {
+          state: sseConnectionState,
+          attempt: sseRetryCount + 1,
+        });
+        return;
+      }
+      
       const delay = SSE_RETRY_DELAYS[Math.min(sseRetryCount, SSE_RETRY_DELAYS.length - 1)];
-      console.log(`[SSE] Reconnecting in ${delay}ms (attempt ${sseRetryCount + 1}/${SSE_MAX_RETRY})`);
+      console.log(`[SSE] Reconnecting in ${delay}ms`, {
+        state: sseConnectionState,
+        attempt: sseRetryCount + 1,
+        maxAttempts: SSE_MAX_RETRY,
+      });
       sseRetryCount++;
       
       setTimeout(() => {
@@ -3217,7 +3411,12 @@ async function connectSSE(): Promise<void> {
         }
       }, delay);
     } else {
-      console.log('[SSE] Max retries reached or wallet locked, falling back to polling only');
+      isReconnecting = false;
+      sseConnectionState = 'failed';
+      console.log('[SSE] Max retries reached or wallet locked', {
+        state: sseConnectionState,
+        reason: sseRetryCount >= SSE_MAX_RETRY ? 'max_retries' : 'wallet_locked',
+      });
     }
   }
 }
@@ -3251,13 +3450,35 @@ async function handleSSEEvent(type: string, dataStr: string): Promise<void> {
 }
 
 /**
+ * Force immediate SSE reconnection (bypasses backoff)
+ */
+function forceSSEReconnect(): void {
+  console.log('[SSE] Force reconnect requested');
+  
+  // Disconnect current connection
+  sseConnected = false;
+  stopSSEHealthCheck();
+  
+  // Reset retry count for immediate connection
+  sseRetryCount = 0;
+  isReconnecting = true;
+  
+  // Immediate reconnection
+  if (unlockedIdentity) {
+    connectSSE();
+  }
+}
+
+/**
  * Disconnect SSE stream
  */
 function disconnectSSE(): void {
   sseConnected = false;
   sseRetryCount = 0;
+  isReconnecting = false;
+  sseConnectionState = 'disconnected';
   stopSSEHealthCheck();
-  console.log('[SSE] Disconnected');
+  console.log('[SSE] Disconnected', { state: sseConnectionState });
 }
 
 /**
@@ -3285,9 +3506,11 @@ function startSSEHealthCheck(): void {
       console.warn('[SSE] Connection appears dead - no events received', {
         timeSinceLastEvent,
         maxSilence: SSE_MAX_SILENCE_MS,
+        currentState: sseConnectionState,
       });
       
       // Force disconnect and reconnect
+      isReconnecting = true;
       disconnectSSE();
       if (unlockedIdentity) {
         connectSSE();
@@ -3406,10 +3629,23 @@ async function startAlarmPolling(): Promise<void> {
   // Clear any existing alarm
   await chrome.alarms.clear(POLL_ALARM_NAME);
   
-  // Use appropriate interval based on panel state
-  const intervalMinutes = panelIsActive 
-    ? POLL_INTERVAL_ACTIVE_SECONDS / 60 
-    : POLL_INTERVAL_BACKGROUND_SECONDS / 60;
+  // Check if there are active streaming responses (fast polling)
+  const hasActiveStreams = streamingManager.hasActiveStreams();
+  
+  // Use appropriate interval: streaming > active panel > background
+  let intervalMinutes: number;
+  let mode: string;
+  
+  if (hasActiveStreams) {
+    intervalMinutes = POLL_INTERVAL_STREAMING_SECONDS / 60;
+    mode = 'streaming';
+  } else if (panelIsActive) {
+    intervalMinutes = POLL_INTERVAL_ACTIVE_SECONDS / 60;
+    mode = 'active';
+  } else {
+    intervalMinutes = POLL_INTERVAL_BACKGROUND_SECONDS / 60;
+    mode = 'background';
+  }
   
   // Create recurring alarm
   await chrome.alarms.create(POLL_ALARM_NAME, {
@@ -3417,7 +3653,7 @@ async function startAlarmPolling(): Promise<void> {
     delayInMinutes: 0.1, // Start almost immediately (6 seconds)
   });
   
-  console.log(`[Notifications] Alarm polling started (${panelIsActive ? 'active' : 'background'} mode: ${intervalMinutes * 60}s)`);
+  console.log(`[Notifications] Alarm polling started (${mode} mode: ${intervalMinutes * 60}s)`);
   
   // Also poll immediately
   await pollForNewMessages();
@@ -3736,3 +3972,15 @@ try {
     console.log('[Init] No active session - Relay is locked');
   }
 })();
+
+// ============================================
+// Network Event Listeners
+// ============================================
+
+// Note: Service workers don't have access to window.addEventListener
+// Network status is detected through SSE connection failures and health checks
+// The isOnline flag is managed by SSE retry logic
+
+// Initialize network state (assume online until proven otherwise)
+isOnline = true;
+console.log('[Network] Service worker started - assuming online');

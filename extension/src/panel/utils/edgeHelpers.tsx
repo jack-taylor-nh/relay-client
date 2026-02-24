@@ -1,6 +1,6 @@
 import { ComponentChildren } from 'preact';
 
-export type EdgeType = 'native' | 'email' | 'discord' | 'contact_link' | 'webhook' | 'local-llm';
+export type EdgeType = 'native' | 'email' | 'discord' | 'contact_link' | 'webhook' | 'local-llm' | 'relay-ai';
 
 export function getEdgeIcon(type: EdgeType): ComponentChildren {
   switch (type) {
@@ -42,6 +42,14 @@ export function getEdgeIcon(type: EdgeType): ComponentChildren {
           <path d="M9 7h6"/>
         </svg>
       );
+    case 'relay-ai':
+      return (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 8V4m0 16v-4"/>
+          <circle cx="12" cy="12" r="4"/>
+          <path d="m4.93 4.93 2.83 2.83m8.48 8.48 2.83 2.83M4.93 19.07l2.83-2.83m8.48-8.48 2.83-2.83"/>
+        </svg>
+      );
     case 'email':
     default:
       return (
@@ -60,7 +68,8 @@ export function getEdgeTypeLabel(type: EdgeType): string {
     discord: 'Discord',
     contact_link: 'Contact Link',
     webhook: 'Webhook',
-    'local-llm': 'Local LLM'
+    'local-llm': 'Local LLM',
+    'relay-ai': 'Relay AI'
   };
   return labels[type] || 'Unknown';
 }

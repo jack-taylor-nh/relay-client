@@ -312,6 +312,40 @@ export class LLMClient {
   }
 
   /**
+   * Send a streaming chat completion request
+   * Yields chunks of text as they arrive from LLM
+   */
+  async *chatStream(
+    messages: ChatMessage[],
+    options: ChatCompletionOptions = {}
+  ): AsyncGenerator<string, void, unknown> {
+    if (!this.activeLLM) {
+      throw new Error('No active LLM provider. Please start Ollama or LM Studio.');
+    }
+
+    const provider = this.activeLLM;
+    const model = options.model || provider.defaultModel || provider.models[0];
+
+    if (!model) {
+      throw new Error(`No model available for ${provider.name}`);
+    }
+
+    console.log('[LLM] Sending streaming chat request:', {
+      provider: provider.name,
+      model,
+      messageCount: messages.length,
+    });
+
+    if (provider.name === 'ollama') {
+      yield* this.chatStreamOllama(messages, model, options);
+    } else if (provider.name === 'lm-studio' || provider.name === 'custom') {
+      yield* this.chatStreamOpenAI(messages, model, options, provider.baseUrl);
+    } else {
+      throw new Error(`Unsupported provider: ${provider.name}`);
+    }
+  }
+
+  /**
    * Chat with Ollama
    */
   private async chatOllama(
@@ -364,6 +398,160 @@ export class LLMClient {
     ) as { choices: Array<{ message: { content: string } }> };
 
     return data.choices[0]?.message?.content || '';
+  }
+
+  /**
+   * Chat with Ollama using streaming
+   */
+  private async *chatStreamOllama(
+    messages: ChatMessage[],
+    model: string,
+    options: ChatCompletionOptions
+  ): AsyncGenerator<string, void, unknown> {
+    const urlObj = new URL(`${OLLAMA_DEFAULT_URL}/api/chat`);
+    const bodyStr = JSON.stringify({
+      model,
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content,
+      })),
+      stream: true,
+      options: {
+        temperature: options.temperature || 0.7,
+        num_predict: options.maxTokens || 2000,
+      },
+    });
+
+    const opts = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || 80,
+      path: urlObj.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(bodyStr),
+      },
+    };
+
+    const generator = await new Promise<AsyncGenerator<string, void, unknown>>((resolve, reject) => {
+      const req = http.request(opts, (res) => {
+        if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+
+        const gen = async function* () {
+          let buffer = '';
+          
+          for await (const chunk of res) {
+            buffer += chunk.toString();
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              
+              try {
+                const json = JSON.parse(line);
+                if (json.message?.content) {
+                  yield json.message.content;
+                }
+                if (json.done) {
+                  return;
+                }
+              } catch (error) {
+                console.error('[LLM] Failed to parse Ollama stream line:', error);
+              }
+            }
+          }
+        };
+
+        resolve(gen());
+      });
+
+      req.on('error', reject);
+      req.write(bodyStr);
+      req.end();
+    });
+
+    yield* generator;
+  }
+
+  /**
+   * Chat with OpenAI-compatible endpoint using streaming
+   */
+  private async *chatStreamOpenAI(
+    messages: ChatMessage[],
+    model: string,
+    options: ChatCompletionOptions,
+    baseUrl: string
+  ): AsyncGenerator<string, void, unknown> {
+    const urlObj = new URL(`${baseUrl}/v1/chat/completions`);
+    const bodyStr = JSON.stringify({
+      model,
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content,
+      })),
+      temperature: options.temperature || 0.7,
+      max_tokens: options.maxTokens || 2000,
+      stream: true,
+    });
+
+    const opts = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
+      path: urlObj.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(bodyStr),
+      },
+    };
+
+    const generator = await new Promise<AsyncGenerator<string, void, unknown>>((resolve, reject) => {
+      const req = http.request(opts, (res) => {
+        if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+
+        const gen = async function* () {
+          let buffer = '';
+          
+          for await (const chunk of res) {
+            buffer += chunk.toString();
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (!line.trim() || !line.startsWith('data: ')) continue;
+              
+              const data = line.slice(6); // Remove 'data: ' prefix
+              if (data === '[DONE]') return;
+              
+              try {
+                const json = JSON.parse(data);
+                const content = json.choices?.[0]?.delta?.content;
+                if (content) {
+                  yield content;
+                }
+              } catch (error) {
+                console.error('[LLM] Failed to parse OpenAI stream line:', error);
+              }
+            }
+          }
+        };
+
+        resolve(gen());
+      });
+
+      req.on('error', reject);
+      req.write(bodyStr);
+      req.end();
+    });
+
+    yield* generator;
   }
 
   /**

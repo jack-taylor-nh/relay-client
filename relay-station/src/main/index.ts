@@ -5,6 +5,7 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { randomBytes } from 'crypto';
 import AutoLaunch from 'electron-auto-launch';
 import { configStore } from './store';
 import * as crypto from './crypto';
@@ -14,8 +15,10 @@ import { bridgeManager } from './bridge';
 import { ollamaManager } from './ollama-manager';
 import { hardwareDetector } from './hardware-detector';
 import { modelCatalog } from './model-catalog';
-import type { AppConfig, EdgeConfig, LLMProvider, BridgeEdge } from '../shared/types';
-import { RELAY_API_BASE_URL } from '../shared/constants';
+import { statsDb } from './services/StatsDatabase';
+import { maintenanceJobs } from './services/MaintenanceJobs';
+import type { AppConfig, EdgeConfig, LLMProvider } from '../shared/types';
+// import { RELAY_API_BASE_URL } from '../shared/constants'; // Deprecated bridge functionality
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -245,10 +248,12 @@ function createIconCanvas(): string {
 }
 
 /**
+ * @deprecated Bridges are deprecated - this function is no longer used
  * Initialize or load the bridge's own edge
  * This edge is used by the bridge to authenticate with the server
  */
-async function initializeBridgeEdge(label?: string): Promise<BridgeEdge> {
+/*
+async function _initializeBridgeEdge_DEPRECATED(label?: string): Promise<BridgeEdge> {
   // Check if we already have a bridge edge
   let bridgeEdge = configStore.getBridgeEdge();
   
@@ -361,6 +366,7 @@ async function initializeBridgeEdge(label?: string): Promise<BridgeEdge> {
     throw error;
   }
 }
+*/
 
 /**
  * Register IPC handlers
@@ -388,6 +394,13 @@ function registerIPCHandlers(): void {
     configStore.updateEdge(edgeId, changes);
   });
 
+  // ========================================
+  // DEPRECATED: Bridge Operations
+  // Bridges are being phased out in favor of RelayAI Operators
+  // These handlers are kept for backward compatibility but should not be used
+  // ========================================
+
+  /*
   // Bridge edge operations
   ipcMain.handle('create-bridge-edge', async (_event, label: string): Promise<BridgeEdge> => {
     // Check if bridge edge already exists
@@ -443,6 +456,148 @@ function registerIPCHandlers(): void {
   ipcMain.handle('get-bridge-edge', (): BridgeEdge | undefined => {
     return configStore.getBridgeEdge();
   });
+  */
+
+  ipcMain.handle('get-bridge-config', (): { systemPrompt?: string; defaultModel?: string; availableModels?: string[] } => {
+    // DEPRECATED: Return empty config
+    return {
+      systemPrompt: undefined,
+      defaultModel: undefined,
+      availableModels: [],
+    };
+  });
+
+  ipcMain.handle('update-bridge-config', async (_event, _updates: { systemPrompt?: string; defaultModel?: string }): Promise<void> => {
+    // DEPRECATED: No-op
+    console.warn('[Bridge] Bridge configuration updates are deprecated');
+  });
+
+  ipcMain.handle('get-authorized-users', (): Array<{ id: string; label: string; addedAt: number; lastSeen?: number; requestCount: number }> => {
+    const config = configStore.getConfig();
+    return config.authorizedUsers || [];
+  });
+
+  ipcMain.handle('add-authorized-user', async (_event, user: { id: string; label: string }): Promise<void> => {
+    try {
+      const config = configStore.getConfig();
+      const authorizedUsers = config.authorizedUsers || [];
+      
+      // Check if user already exists
+      if (authorizedUsers.some(u => u.id === user.id)) {
+        throw new Error('User already authorized');
+      }
+      
+      const newUser = {
+        id: user.id,
+        label: user.label,
+        addedAt: Date.now(),
+        requestCount: 0,
+      };
+      
+      configStore.updateConfig({ 
+        authorizedUsers: [...authorizedUsers, newUser] 
+      });
+      console.log('[Bridge] Added authorized user:', user.id);
+    } catch (err) {
+      console.error('[Bridge] Failed to add authorized user:', err);
+      throw err;
+    }
+  });
+
+  ipcMain.handle('remove-authorized-user', async (_event, userId: string): Promise<void> => {
+    try {
+      const config = configStore.getConfig();
+      const authorizedUsers = config.authorizedUsers || [];
+      
+      configStore.updateConfig({ 
+        authorizedUsers: authorizedUsers.filter(u => u.id !== userId)
+      });
+      console.log('[Bridge] Removed authorized user:', userId);
+    } catch (err) {
+      console.error('[Bridge] Failed to remove authorized user:', err);
+      throw err;
+    }
+  });
+
+  // API Key management (new access control system)
+  ipcMain.handle('generate-api-key', async (_event, label: string): Promise<{ id: string; key: string }> => {
+    try {
+      // Generate API key inline
+      const bytes = randomBytes(24);
+      const key = `relay_pk_${bytes.toString('base64url')}`;
+      
+      const config = configStore.getConfig();
+      const apiKeys = config.apiKeys || [];
+      
+      const newKey = {
+        id: key.substring(0, 20), // Use prefix as ID
+        label,
+        key,
+        createdAt: Date.now(),
+        requestCount: 0,
+        tokensUsed: 0,
+      };
+      
+      configStore.updateConfig({ 
+        apiKeys: [...apiKeys, newKey] 
+      });
+      
+      console.log('[Bridge] Generated API key:', newKey.id);
+      return { id: newKey.id, key: newKey.key };
+    } catch (err) {
+      console.error('[Bridge] Failed to generate API key:', err);
+      throw err;
+    }
+  });
+
+  ipcMain.handle('get-api-keys', () => {
+    const config = configStore.getConfig();
+    return (config.apiKeys || []).map(key => ({
+      id: key.id,
+      label: key.label,
+      key: key.key,
+      createdAt: key.createdAt,
+      lastUsed: key.lastUsed,
+      requestCount: key.requestCount,
+      tokensUsed: key.tokensUsed,
+      rateLimit: key.rateLimit,
+    }));
+  });
+
+  ipcMain.handle('revoke-api-key', async (_event, keyId: string): Promise<void> => {
+    try {
+      const config = configStore.getConfig();
+      const apiKeys = config.apiKeys || [];
+      
+      configStore.updateConfig({ 
+        apiKeys: apiKeys.filter(k => k.id !== keyId)
+      });
+      console.log('[Bridge] Revoked API key:', keyId);
+    } catch (err) {
+      console.error('[Bridge] Failed to revoke API key:', err);
+      throw err;
+    }
+  });
+
+  ipcMain.handle('update-api-key-limits', async (_event, keyId: string, rateLimit: { requestsPerHour?: number; tokensPerDay?: number }): Promise<void> => {
+    try {
+      const config = configStore.getConfig();
+      const apiKeys = config.apiKeys || [];
+      
+      const updatedKeys = apiKeys.map(key => {
+        if (key.id === keyId) {
+          return { ...key, rateLimit };
+        }
+        return key;
+      });
+      
+      configStore.updateConfig({ apiKeys: updatedKeys });
+      console.log('[Bridge] Updated API key limits:', keyId, rateLimit);
+    } catch (err) {
+      console.error('[Bridge] Failed to update API key limits:', err);
+      throw err;
+    }
+  });
 
   // LLM operations
   ipcMain.handle('detect-llms', async (): Promise<LLMProvider[]> => {
@@ -466,27 +621,57 @@ function registerIPCHandlers(): void {
     return crypto.generateX25519Keypair();
   });
 
+  // E2EE encryption for AI operators
+  ipcMain.handle('encrypt-e2ee', (_event, payload: {
+    plaintext: string;
+    recipientPublicKey: string;
+  }): { ciphertext: string; ephemeralPublicKey: string; nonce: string } => {
+    return crypto.encrypt(payload.plaintext, payload.recipientPublicKey);
+  });
+
+  // E2EE decryption for AI operators
+  ipcMain.handle('decrypt-e2ee', (_event, payload: {
+    ciphertext: string;
+    ephemeralPublicKey: string;
+    nonce: string;
+    recipientPrivateKey: string;
+  }): string => {
+    return crypto.decrypt(
+      payload.ciphertext,
+      payload.ephemeralPublicKey,
+      payload.nonce,
+      payload.recipientPrivateKey
+    );
+  });
+
   // Legacy bridge operations (for client edges - deprecated)
   ipcMain.handle('connect-bridge', async (_event, _edgeId: string): Promise<void> => {
-    console.log('[Main] Bridge auto-starts on app launch');
+    console.warn('[Bridge] Bridge connections are deprecated');
   });
 
   // Stats
   ipcMain.handle('get-stats', (): any => {
-    const bridgeStatus = bridgeManager.getStatus();
-    
     return {
       uptime: process.uptime(),
       messageCount: contextManager.getTotalMessageCount(),
-      averageLatency: 0, // TODO: Track this
-      activeConversations: bridgeStatus === 'connected' ? 1 : 0,
-      bridgeStatus,
+      averageLatency: 0,
+      activeConversations: 0,
+      bridgeStatus: 'disconnected',
     };
   });
 
   // Bridge status
   ipcMain.handle('get-bridge-status', (): string => {
-    return bridgeManager.getStatus();
+    return 'disconnected'; // Bridges are deprecated
+  });
+
+  // Network event handlers (deprecated)
+  ipcMain.handle('network-online', (): void => {
+    console.log('[Main] Network online - bridge reconnection disabled');
+  });
+
+  ipcMain.handle('network-offline', (): void => {
+    console.log('[Main] Network offline - no action needed');
   });
 
   // Ollama management
@@ -508,6 +693,49 @@ function registerIPCHandlers(): void {
     } catch (error) {
       console.error('[Ollama] Failed to list models:', error);
       return [];
+    }
+  });
+
+  ipcMain.handle('ollama-running-models', async (): Promise<any[]> => {
+    try {
+      const response = await fetch('http://localhost:11434/api/ps');
+      const data = await response.json() as { models?: any[] };
+      return data.models || [];
+    } catch (error) {
+      console.error('[Ollama] Failed to get running models:', error);
+      return [];
+    }
+  });
+
+  ipcMain.handle('test-model', async (_event, modelName: string): Promise<{ success: boolean; response?: string; error?: string }> => {
+    try {
+      console.log('[Bridge] Testing model:', modelName);
+      
+      const response = await fetch('http://localhost:11434/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [{ role: 'user', content: 'Say "test successful"' }],
+          stream: false,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json() as { message?: { content: string } };
+      const content = data.message?.content || 'No response';
+      
+      console.log('[Bridge] Model test successful:', modelName);
+      return { success: true, response: content };
+    } catch (error) {
+      console.error('[Bridge] Model test failed:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : String(error) 
+      };
     }
   });
 
@@ -751,6 +979,33 @@ function registerIPCHandlers(): void {
   ipcMain.handle('open-external', async (_event, url: string): Promise<void> => {
     await shell.openExternal(url);
   });
+
+  // Stats database queries
+  ipcMain.handle('stats-get-current-session', () => {
+    return statsDb.getCurrentSession();
+  });
+
+  ipcMain.handle('stats-get-daily', (_event, bridgeId: string, startDate: string, endDate: string) => {
+    return statsDb.getDailyStats(bridgeId, startDate, endDate);
+  });
+
+  ipcMain.handle('stats-get-recent-events', (_event, bridgeId: string, limit: number = 100, offset: number = 0) => {
+    return statsDb.getRecentEvents(bridgeId, limit, offset);
+  });
+
+  ipcMain.handle('stats-get-lifetime', (_event, bridgeId: string) => {
+    return statsDb.getBridgeLifetimeStats(bridgeId);
+  });
+
+  ipcMain.handle('stats-get-top-users', (_event, bridgeId: string, limit: number = 10) => {
+    return statsDb.getTopUsers(bridgeId, limit);
+  });
+
+  ipcMain.handle('stats-trigger-aggregation', () => {
+    console.log('[Stats] Manual aggregation triggered via IPC');
+    maintenanceJobs.runAggregationNow();
+    return { success: true };
+  });
 }
 
 /**
@@ -793,6 +1048,14 @@ app.whenReady().then(async () => {
   console.log('🚀 Relay Station starting...');
   
   try {
+    // Initialize stats database
+    console.log('[App] Initializing stats database...');
+    await statsDb.initialize();
+
+    // Start maintenance jobs (cleanup, aggregation)
+    console.log('[App] Starting maintenance jobs...');
+    maintenanceJobs.start();
+
     registerIPCHandlers();
     createWindow();
     createTray();
@@ -828,6 +1091,9 @@ app.whenReady().then(async () => {
       }
     }
 
+    // DEPRECATED: Bridge auto-start disabled
+    // Bridges are being phased out in favor of RelayAI Operators
+    /*
     // Check if bridge edge exists, but don't auto-create
     const existingBridgeEdge = configStore.getBridgeEdge();
     if (existingBridgeEdge) {
@@ -842,6 +1108,7 @@ app.whenReady().then(async () => {
       await bridgeManager.reloadFromConfig();
       console.log('[App] Bridge manager started');
     }
+    */
     
     updateTrayMenu();
 
@@ -884,7 +1151,16 @@ app.on('before-quit', async () => {
   
   console.log('[App] Shutting down...');
   
-  // Cleanup
+  // Stop maintenance jobs
+  console.log('[App] Stopping maintenance jobs...');
+  maintenanceJobs.stop();
+  
+  // End current session and close database
+  console.log('[App] Closing stats database...');
+  statsDb.endSession();
+  statsDb.close();
+  
+  // Cleanup other services
   await ollamaManager.stop();
   llmClient.dispose();
   contextManager.dispose();

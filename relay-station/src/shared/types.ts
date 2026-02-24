@@ -13,6 +13,20 @@ export interface BridgeEdge {
   createdAt: string;
 }
 
+export interface BridgeAPIKey {
+  id: string; // Unique key ID (e.g., 'relay_pk_abc123')
+  label: string; // User-friendly name (e.g., 'Production Key')
+  key: string; // The actual API key
+  createdAt: number; // Timestamp
+  lastUsed?: number; // Last request timestamp
+  requestCount: number; // Total requests made
+  tokensUsed: number; // Total tokens consumed
+  rateLimit?: {
+    requestsPerHour?: number;
+    tokensPerDay?: number;
+  };
+}
+
 export interface AppConfig {
   bridgeEdge?: BridgeEdge;
   edges: EdgeConfig[];
@@ -26,10 +40,23 @@ export interface AppConfig {
   systemPrompt?: string;
   availableModels?: string[];
   rateLimit?: {
-    requests: number;
-    windowSeconds: number;
+    requestsPerHour?: number;
+    tokensPerDay?: number;
   };
-  accessControl?: 'public' | 'whitelist';
+  accessControl?: 'public' | 'private' | 'hidden';
+  // Streaming settings
+  streamResponses?: boolean;  // Enable/disable streaming (default: false)
+  chunkSize?: number;         // Tokens per chunk (default: 3)
+  maxChunkDelayMs?: number;   // Max ms to wait before sending chunk (default: 100)
+  apiKeys?: BridgeAPIKey[];
+  // DEPRECATED: Legacy edge ID whitelist (kept for migration)
+  authorizedUsers?: Array<{
+    id: string;
+    label: string;
+    addedAt: number;
+    lastSeen?: number;
+    requestCount: number;
+  }>;
 }
 
 export interface EdgeConfig {
@@ -74,7 +101,12 @@ export interface ConversationContext {
   lastActivity: Date;
 }
 
-export type BridgeStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type BridgeStatus = 
+  | 'disconnected'  // Not connected, idle
+  | 'connecting'    // Initial connection attempt
+  | 'connected'     // Successfully connected and healthy
+  | 'reconnecting'  // Connection lost, attempting to reconnect
+  | 'failed';       // Max retries reached, giving up
 
 export interface BridgeStats {
   uptime: number;

@@ -20,6 +20,7 @@ interface AddLLMBridgeModalProps {
 
 export function AddLLMBridgeModal({ open, onOpenChange, onSuccess }: AddLLMBridgeModalProps) {
   const [apiKey, setApiKey] = useState('');
+  const [bridgeApiKey, setBridgeApiKey] = useState(''); // NEW: Optional API key for private bridges
   const [customLabel, setCustomLabel] = useState('');
   const [isValidating, setIsValidating] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -28,6 +29,7 @@ export function AddLLMBridgeModal({ open, onOpenChange, onSuccess }: AddLLMBridg
     name: string;
     description?: string;
     availableModels?: string[];
+    accessMode?: 'public' | 'private' | 'hidden';
   } | null>(null);
 
   async function handleValidate() {
@@ -55,6 +57,7 @@ export function AddLLMBridgeModal({ open, onOpenChange, onSuccess }: AddLLMBridg
         name: 'My LLM Bridge',
         description: 'Coding assistant powered by Qwen2.5-Coder',
         availableModels: ['qwen2.5-coder:7b', 'llama3.2:3b'],
+        accessMode: 'public', // TODO: Fetch from bridge - 'public' | 'private' | 'hidden'
       });
     } catch (err: any) {
       setError(err.message || 'Failed to connect to bridge. Verify the API Key is correct.');
@@ -66,6 +69,12 @@ export function AddLLMBridgeModal({ open, onOpenChange, onSuccess }: AddLLMBridg
 
   async function handleCreate() {
     if (!bridgeMetadata) return;
+    
+    // Validate API key if bridge is in private mode
+    if (bridgeMetadata.accessMode === 'private' && !bridgeApiKey.trim()) {
+      setError('This bridge requires an API key. Please enter the Bridge API Key provided by the operator.');
+      return;
+    }
 
     setIsCreating(true);
     setError(null);
@@ -76,15 +85,18 @@ export function AddLLMBridgeModal({ open, onOpenChange, onSuccess }: AddLLMBridg
         label: customLabel.trim() || bridgeMetadata.name,
         customAddress: apiKey,
         apiKeyLength: apiKey.length,
+        hasBridgeApiKey: !!bridgeApiKey,
       });
       
       // Create local-llm edge with the bridge edge ID as customAddress
+      // Store the bridge API key in metadata (will be used when sending messages)
       const { createEdge } = await import('../state');
       const result = await createEdge(
         'local-llm',
         customLabel.trim() || bridgeMetadata.name,
         apiKey, // customAddress = the bridge edge ID
-        undefined
+        undefined, // displayName
+        bridgeApiKey || undefined // Bridge API key for private bridges
       );
 
       console.log('[AddLLMBridgeModal] Create edge result:', result);
@@ -95,6 +107,7 @@ export function AddLLMBridgeModal({ open, onOpenChange, onSuccess }: AddLLMBridg
         onOpenChange(false);
         // Reset form
         setApiKey('');
+        setBridgeApiKey('');
         setCustomLabel('');
         setBridgeMetadata(null);
       } else {
@@ -113,6 +126,7 @@ export function AddLLMBridgeModal({ open, onOpenChange, onSuccess }: AddLLMBridg
     if (!isValidating && !isCreating) {
       onOpenChange(false);
       setApiKey('');
+      setBridgeApiKey('');
       setCustomLabel('');
       setBridgeMetadata(null);
       setError(null);
@@ -186,7 +200,37 @@ export function AddLLMBridgeModal({ open, onOpenChange, onSuccess }: AddLLMBridg
                   )}
                 </div>
               </div>
-
+              {/* Bridge API Key (for private bridges) */}
+              {bridgeMetadata.accessMode === 'private' && (
+                <div className="space-y-2 pt-2 border-t">
+                  <Label htmlFor="bridge-api-key" className="text-xs flex items-center gap-1">
+                    Bridge API Key
+                    <span className="text-red-500">*</span>
+                  </Label>
+                  <input
+                    id="bridge-api-key"
+                    type="text"
+                    placeholder="relay_pk_xxxxxxxxxxxxx"
+                    value={bridgeApiKey}
+                    onInput={(e) => setBridgeApiKey((e.target as HTMLInputElement).value.trim())}
+                    disabled={isCreating}
+                    className="flex h-10 w-full rounded-lg border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3 py-2 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    This bridge is in private mode. You need an API key from the operator to connect.
+                  </p>
+                </div>
+              )}
+              
+              {bridgeMetadata.accessMode === 'public' && (
+                <div className="pt-2 border-t">
+                  <Alert>
+                    <AlertDescription className="text-xs">
+                      This bridge is publicly accessible. No API key required.
+                    </AlertDescription>
+                  </Alert>
+                </div>
+              )}
               {/* Optional custom label */}
               <div className="space-y-2 pt-2 border-t">
                 <Label htmlFor="custom-label" className="text-xs">

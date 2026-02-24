@@ -62,11 +62,13 @@ interface DownloadProgress {
 
 export function ModelManager() {
   const [installedModels, setInstalledModels] = useState<Model[]>([]);
+  const [runningModels, setRunningModels] = useState<string[]>([]); // Currently loaded in Ollama
   const [catalog, setCatalog] = useState<ModelCard[]>([]);
   const [filteredCatalog, setFilteredCatalog] = useState<ModelCard[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [loading, setLoading] = useState(true);
+  const [hardwareSpecs, setHardwareSpecs] = useState<HardwareSpecs | null>(null);
   
   // Modal states
   const [selectedModel, setSelectedModel] = useState<ModelCard | null>(null);
@@ -79,6 +81,7 @@ export function ModelManager() {
   
   useEffect(() => {
     loadData();
+    loadHardware();
     
     // Listen for download progress
     const unsubscribe = window.electronAPI.onOllamaPullProgress?.((progress: any) => {
@@ -163,17 +166,69 @@ export function ModelManager() {
 
   const loadData = async () => {
     try {
-      const [models, catalogData] = await Promise.all([
+      // Fetch data in parallel
+      const [models, running, libraryResponse] = await Promise.all([
         window.electronAPI.ollamaListModels(),
-        window.electronAPI.modelCatalogGet?.() || [],
+        window.electronAPI.ollamaRunningModels?.() || Promise.resolve([]),
+        fetch('https://ai.rlymsg.com/v1/models/library').catch(() => null),
       ]);
       
       setInstalledModels(models);
-      setCatalog(catalogData);
+      setRunningModels(running.map((m: any) => m.name));
+      
+      // Load available models from DB (same as operator registration)
+      if (libraryResponse && libraryResponse.ok) {
+        const libraryData = await libraryResponse.json();
+        const catalogData = libraryData.data?.map((m: any) => {
+          // Parse size from available_sizes array (e.g., "40b" -> 40)
+          const sizeStr = m.metadata?.available_sizes?.[0] || '0';
+          const sizeGB = parseFloat(sizeStr.replace(/[^0-9.]/g, '')) || 0;
+          
+          // Parse popularity from pulls (e.g., "108.4K" -> 108400)
+          const pullsStr = m.metadata?.pulls || '0';
+          const multiplier = pullsStr.includes('M') ? 1000000 : pullsStr.includes('K') ? 1000 : 1;
+          const popularity = parseFloat(pullsStr.replace(/[^0-9.]/g, '')) * multiplier;
+          
+          return {
+            id: m.name,
+            name: m.name,
+            displayName: m.display_name || m.name,
+            author: m.provider_family === 'other' ? 'Ollama' : m.provider_family || 'Ollama',
+            description: m.description || '',
+            parameters: m.model_class?.toUpperCase() || 'Unknown',
+            quantization: [],
+            contextWindow: Math.floor((m.context_length || 8192) / 1000), // Convert to k
+            architecture: '',
+            license: '',
+            tags: [],
+            capabilities: [],
+            sizeGB,
+            vramGB: sizeGB, // Estimate VRAM as same as size for now
+            popularity,
+          };
+        }) || [];
+        setCatalog(catalogData);
+      } else {
+        // Fallback to local catalog if API unavailable
+        const catalogData = await window.electronAPI.modelCatalogGet?.() || [];
+        setCatalog(catalogData);
+      }
+      
       setLoading(false);
     } catch (error) {
       console.error('Failed to load model data:', error);
       setLoading(false);
+    }
+  };
+
+  const loadHardware = async () => {
+    try {
+      if (window.electronAPI.hardwareDetect) {
+        const specs = await window.electronAPI.hardwareDetect();
+        setHardwareSpecs(specs);
+      }
+    } catch (error) {
+      console.error('Failed to load hardware specs:', error);
     }
   };
 
@@ -250,6 +305,10 @@ export function ModelManager() {
     return downloadingModels.get(modelName) || null;
   };
 
+  const isRunning = (modelName: string) => {
+    return runningModels.some(m => m === modelName || modelName.startsWith(m.split(':')[0]));
+  };
+
   const formatBytes = (bytes: number): string => {
     return `${(bytes / 1e9).toFixed(1)} GB`;
   };
@@ -266,17 +325,45 @@ export function ModelManager() {
     return `${Math.round(remaining / 3600)}h`;
   };
 
-  const getCompatibilityBadge = (sizeGB: number) => {
-    // Simple heuristic based on model size
-    if (sizeGB <= 4) {
-      return { label: 'Optimal', color: 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400' };
-    } else if (sizeGB <= 8) {
-      return { label: 'Compatible', color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400' };
-    } else if (sizeGB <= 16) {
-      return { label: 'Slow', color: 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-400' };
-    } else {
-      return { label: 'Incompatible', color: 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400' };
+  const getCompatibilityBadge = (model: ModelCard) => {
+    // Check if hardware specs are available yet
+    if (!hardwareSpecs) {
+      return { label: 'Checking...', color: 'bg-muted/50 text-muted-foreground border-border' };
     }
+    
+    const availableVRAM = hardwareSpecs.gpu?.vram || 0;
+    const availableRAM = hardwareSpecs.ram.available / (1024 ** 3); // Convert bytes to GB
+    const totalRAM = hardwareSpecs.ram.total / (1024 ** 3);
+    
+    // Optimal: Model fits in GPU VRAM (fastest performance)
+    if (availableVRAM > 0 && model.vramGB <= availableVRAM * 0.85) {
+      return { 
+        label: 'Optimal', 
+        color: 'bg-green-500/10 text-green-600 border-green-500/30' 
+      };
+    }
+    
+    // Compatible: Model fits in available RAM (good performance)
+    if (model.sizeGB <= availableRAM * 0.7) {
+      return { 
+        label: 'Compatible', 
+        color: 'bg-blue-500/10 text-blue-600 border-blue-500/30' 
+      };
+    }
+    
+    // Slow: Model fits in total RAM but needs swap (reduced performance)
+    if (model.sizeGB <= totalRAM * 0.9) {
+      return { 
+        label: 'Slow', 
+        color: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/30' 
+      };
+    }
+    
+    // Incompatible: Model exceeds available memory
+    return { 
+      label: 'Incompatible', 
+      color: 'bg-red-500/10 text-red-600 border-red-500/30' 
+    };
   };
 
   if (loading) {
@@ -294,8 +381,8 @@ export function ModelManager() {
     <div className="p-8 space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold mb-2">Model Library</h1>
-        <p className="text-muted-foreground">Browse and manage AI models</p>
+        <h1 className="text-3xl font-bold mb-2">My Models</h1>
+        <p className="text-muted-foreground">Manage your downloaded AI models</p>
       </div>
 
       {/* Search & Filter */}
@@ -349,12 +436,84 @@ export function ModelManager() {
         </div>
       )}
 
-      {/* Available Models Grid */}
+      {/* Installed Models - SHOWN FIRST */}
+      {installedModels.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold mb-4">Installed Models ({installedModels.length})</h2>
+          <div className="bg-card border border-border rounded-lg divide-y divide-border">
+            {installedModels.map(model => {
+              const downloading = isDownloading(model.name);
+              const progress = getDownloadProgress(model.name);
+              const running = isRunning(model.name);
+              
+              return (
+                <div key={model.name} className="p-3 hover:bg-accent/50 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <h3 className="text-sm font-medium">{model.name}</h3>
+                        {running ? (
+                          <span className="px-2 py-0.5 border border-green-600 bg-green-500/10 text-green-600 rounded text-[10px] font-semibold flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-600 animate-pulse"></span>
+                            LOADED
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 border border-border bg-muted text-muted-foreground rounded text-[10px] font-medium">
+                            Installed
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>{formatBytes(model.size)}</span>
+                        <span>•</span>
+                        <span>Modified {new Date(model.modified).toLocaleDateString()}</span>
+                      </div>
+                      
+                      {/* Show progress if currently downloading update */}
+                      {downloading && progress && (
+                        <div className="mt-2 max-w-md">
+                          <div className="flex items-center justify-between text-[10px] mb-1">
+                            <span className="text-muted-foreground">Updating: {progress.status}</span>
+                            <span className="font-medium">{Math.round(progress.percent)}%</span>
+                          </div>
+                          <div className="w-full bg-muted rounded-full h-1">
+                            <div
+                              className="bg-foreground h-1 rounded-full transition-all"
+                              style={{ width: `${progress.percent}%` }}
+                            />
+                          </div>
+                          <button
+                            onClick={() => handleCancelDownload(model.name)}
+                            className="mt-1 px-2 py-0.5 border border-destructive bg-destructive/5 hover:bg-destructive/10 text-destructive rounded text-[10px] font-medium transition-colors"
+                          >
+                            Cancel Update
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => {
+                        setModelToDelete(model.name);
+                        setShowDeleteConfirm(true);
+                      }}
+                      className="px-3 py-1.5 border border-destructive/50 hover:border-destructive hover:bg-destructive/5 text-destructive text-xs rounded transition-colors"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Available Models Grid - SHOWN SECOND */}
       <div>
-        <h2 className="text-lg font-semibold mb-4">Available Models</h2>
+        <h2 className="text-lg font-semibold mb-4">Available Models ({filteredCatalog.length})</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredCatalog.map(model => {
-            const compatibility = getCompatibilityBadge(model.sizeGB);
+            const compatibility = getCompatibilityBadge(model);
             const installed = isInstalled(model.name);
             const downloading = isDownloading(model.name);
             const progress = getDownloadProgress(model.name);

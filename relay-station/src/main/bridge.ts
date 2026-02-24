@@ -1,15 +1,26 @@
 /**
  * Relay Bridge Connection
  * 
+ * @deprecated Bridges are being phased out in favor of RelayAI Operators.
+ * This module is kept for backward compatibility only.
+ * New deployments should use the RelayAI Operator system instead.
+ * 
  * Manages SSE connection to Relay server and handles message encryption/decryption
  */
 
 import EventSource from 'eventsource';
+import { randomBytes } from 'crypto';
 import * as crypto from './crypto';
 import { llmClient } from './llm';
 import { contextManager } from './context';
 import { configStore } from './store';
 import { ratchetStorage } from './ratchet-storage';
+import { statsDb } from './services/StatsDatabase';
+import { 
+  sanitizeError, 
+  createSafeLogContext, 
+  estimateTokens 
+} from './utils/secure-logging';
 import { 
   type EncryptedRatchetMessage, 
   RatchetDecrypt,
@@ -17,6 +28,39 @@ import {
 import { decodeBase64 } from 'tweetnacl-util';
 import type { BridgeEdge, BridgeStatus } from '../shared/types';
 import { RELAY_API_BASE_URL, RELAY_API_TIMEOUT } from '../shared/constants';
+
+/**
+ * API Key Header Format
+ * 
+ * Clients embed API keys in message content using header format:
+ * X-Relay-API-Key: relay_pk_abc123
+ * 
+ * Actual message content...
+ */
+const API_KEY_HEADER_REGEX = /^X-Relay-API-Key:\s*([^\n]+)\n/i;
+
+/**
+ * Parse API key from message content
+ * Returns: { apiKey: string | null, content: string }
+ */
+function parseAPIKey(content: string): { apiKey: string | null; content: string } {
+  const match = content.match(API_KEY_HEADER_REGEX);
+  if (match) {
+    const apiKey = match[1].trim();
+    const cleanContent = content.replace(API_KEY_HEADER_REGEX, '').trim();
+    return { apiKey, content: cleanContent };
+  }
+  return { apiKey: null, content };
+}
+
+/**
+ * Generate a new API key
+ */
+function generateAPIKey(): string {
+  const bytes = randomBytes(24);
+  const key = bytes.toString('base64url'); // URL-safe base64
+  return `relay_pk_${key}`;
+}
 
 /**
  * Single bridge connection using the bridge's own edge
@@ -37,6 +81,12 @@ export class BridgeConnection {
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private readonly HEALTH_CHECK_INTERVAL = 15000; // Check every 15 seconds
   private readonly MAX_SILENCE_MS = 60000; // 60 seconds without event = dead connection
+  
+  // State machine tracking
+  private isReconnecting = false; // Track if we're in reconnection mode
+  
+  // Network state tracking
+  private isOnline = true;
 
   constructor(onStatusChange?: (status: BridgeStatus) => void, onLog?: (level: 'info' | 'warn' | 'error', message: string, details?: any) => void) {
     this.onStatusChange = onStatusChange;
@@ -44,9 +94,15 @@ export class BridgeConnection {
   }
 
   private log(level: 'info' | 'warn' | 'error', message: string, details?: any): void {
-    console.log(`[Bridge] ${message}`, details || '');
+    // 🔒 SECURITY: Ensure details don't contain plaintext message content
+    // Only log if details is a safe metadata object
+    const safeDetails = details && typeof details === 'object' 
+      ? createSafeLogContext(details)
+      : undefined;
+    
+    console.log(`[Bridge] ${message}`, safeDetails || '');
     if (this.onLog) {
-      this.onLog(level, message, details);
+      this.onLog(level, message, safeDetails);
     }
   }
 
@@ -59,7 +115,7 @@ export class BridgeConnection {
     
     if (!this.bridgeEdge) {
       this.log('error', 'No bridge edge found. Bridge edge must be initialized first.');
-      this.updateStatus('error');
+      this.updateStatus('failed');
       return;
     }
 
@@ -68,8 +124,14 @@ export class BridgeConnection {
       return;
     }
 
-    this.updateStatus('connecting');
-    this.log('info', 'Connecting with bridge edge', { edgeId: this.bridgeEdge.id });
+    // Determine if this is initial connection or reconnection
+    const targetStatus = this.isReconnecting ? 'reconnecting' : 'connecting';
+    this.updateStatus(targetStatus);
+    this.log('info', `${this.isReconnecting ? 'Reconnecting' : 'Connecting'} with bridge edge`, { 
+      edgeId: this.bridgeEdge.id,
+      attempt: this.reconnectAttempts + 1,
+      maxAttempts: this.maxReconnectAttempts,
+    });
 
     try {
       // Build SSE URL with bridge's edge ID in path
@@ -88,22 +150,24 @@ export class BridgeConnection {
       // Setup event handlers
       this.eventSource.onopen = () => {
         this.reconnectAttempts = 0;
+        this.isReconnecting = false;
         this.updateStatus('connected');
         this.log('info', 'Connected successfully to SSE stream');
+        
+        // 📊 STATS: Start session tracking
+        if (this.bridgeEdge) {
+          statsDb.startSession(this.bridgeEdge.id);
+          this.log('info', 'Session tracking started');
+        }
         
         // Start health monitoring
         this.startHealthCheck();
       };
 
       this.eventSource.onerror = (error: any) => {
-        const errorDetails = {
-          type: error.type,
-          message: error.message,
-          status: error.status,
-          statusText: error.statusText,
-        };
+        // 🔒 SECURITY: Sanitize error before logging
+        const errorDetails = sanitizeError(error);
         this.log('error', 'Connection error', errorDetails);
-        console.error('[Bridge] Full error object:', error);
         this.handleDisconnect();
       };
 
@@ -114,7 +178,7 @@ export class BridgeConnection {
 
     } catch (error) {
       this.log('error', 'Connection failed', error);
-      this.updateStatus('error');
+      // Don't update status here - scheduleReconnect will handle it
       this.scheduleReconnect();
     }
   }
@@ -155,6 +219,16 @@ export class BridgeConnection {
         return;
       }
 
+      // 🚫 CRITICAL: Skip messages sent by THIS bridge to prevent infinite loop
+      // When bridge sends streaming chunks, SSE notifies us about our own messages
+      if (message.edgeId === this.bridgeEdge?.id) {
+        this.log('info', 'Skipping own message', { 
+          messageId: data.messageId,
+          edgeId: message.edgeId,
+        });
+        return;
+      }
+
       // Decrypt the message using bridge's private key
       const decrypted = await this.decryptMessage(message);
       
@@ -169,8 +243,21 @@ export class BridgeConnection {
         contentLength: decrypted.content.length,
       });
 
-      // Process the message and generate response
-      await this.processMessage(message.conversationId, decrypted);
+      // Check streaming config and route accordingly
+      const config = configStore.getConfig();
+      const streamingEnabled = config.streamResponses ?? false; // Default to false (complete responses)
+
+      this.log('info', 'Processing message', {
+        conversationId: message.conversationId,
+        streamingEnabled,
+      });
+
+      // Process the message with streaming or completion
+      if (streamingEnabled) {
+        await this.processMessageStreaming(message.conversationId, decrypted);
+      } else {
+        await this.processMessage(message.conversationId, decrypted);
+      }
 
     } catch (error) {
       this.log('error', 'Error handling edge message', error);
@@ -400,25 +487,498 @@ export class BridgeConnection {
   }
 
   /**
+   * Send error message back to sender
+   */
+  private async sendErrorMessage(
+    conversationId: string,
+    recipientEdgeId: string,
+    errorMessage: string
+  ): Promise<void> {
+    try {
+      await this.sendResponse(conversationId, recipientEdgeId, errorMessage);
+    } catch (error) {
+      this.log('error', 'Failed to send error message', {
+        conversationId,
+        recipientEdgeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Update API key usage statistics
+   */
+  private updateAPIKeyStats(apiKey: string): void {
+    try {
+      const config = configStore.getConfig();
+      const apiKeys = config.apiKeys || [];
+      
+      const updatedKeys = apiKeys.map(key => {
+        if (key.key === apiKey) {
+          return {
+            ...key,
+            lastUsed: Date.now(),
+            requestCount: key.requestCount + 1,
+          };
+        }
+        return key;
+      });
+      
+      configStore.updateConfig({ apiKeys: updatedKeys });
+      
+      this.log('info', 'Updated API key stats', {
+        keyLabel: updatedKeys.find(k => k.key === apiKey)?.label,
+      });
+    } catch (error) {
+      this.log('error', 'Failed to update API key stats', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * DEPRECATED: Update authorized user stats (lastSeen and requestCount)
+   * Kept for backward compatibility with edge ID whitelist
+   */
+  // @ts-ignore - Deprecated but kept for migration
+  private updateUserStats(userId: string): void {
+    try {
+      const config = configStore.getConfig();
+      const authorizedUsers = config.authorizedUsers || [];
+      
+      const updatedUsers = authorizedUsers.map(user => {
+        if (user.id === userId) {
+          return {
+            ...user,
+            lastSeen: Date.now(),
+            requestCount: user.requestCount + 1,
+          };
+        }
+        return user;
+      });
+      
+      configStore.updateConfig({ authorizedUsers: updatedUsers });
+    } catch (error) {
+      this.log('error', 'Failed to update user stats', {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
    * Process decrypted message and generate LLM response
+   */
+  /**
+   * Process an incoming encrypted message and respond via streaming chunks
+   */
+  private async processMessageStreaming(
+    conversationId: string,
+    decrypted: {
+      content: string;
+      senderEdgeId: string;
+      messageId?: string;
+    }
+  ): Promise<void> {
+    if (!this.bridgeEdge) {
+      console.error('[Bridge] Cannot process message: bridge edge not initialized');
+      return;
+    }
+
+    const startTime = Date.now();
+    const messageId = decrypted.messageId || 'unknown';
+    let errorCode: string | null = null;
+
+    try {
+      const config = configStore.getConfig();
+      const systemPrompt = config.systemPrompt;
+      
+      // Parse API key and check access control (same as non-streaming)
+      const { apiKey, content } = parseAPIKey(decrypted.content);
+      const accessMode = config.accessControl || 'public';
+      const apiKeys = config.apiKeys || [];
+      
+      // Same access control logic as before
+      if (accessMode === 'hidden') {
+        errorCode = 'BRIDGE_OFFLINE';
+        this.log('warn', 'Request ignored: bridge is hidden/offline', {
+          conversationId,
+          senderEdgeId: decrypted.senderEdgeId,
+        });
+        return;
+      } else if (accessMode === 'private') {
+        if (!apiKey) {
+          errorCode = 'MISSING_API_KEY';
+          await this.sendErrorMessage(
+            conversationId,
+            decrypted.senderEdgeId,
+            'This bridge requires an API key. Please contact the operator for access.'
+          );
+          return;
+        }
+        
+        const keyConfig = apiKeys.find(k => k.key === apiKey);
+        if (!keyConfig) {
+          errorCode = 'INVALID_API_KEY';
+          await this.sendErrorMessage(
+            conversationId,
+            decrypted.senderEdgeId,
+            'Invalid API key. Please check your key and try again.'
+          );
+          return;
+        }
+        
+        // Rate limit checks (simplified - same as before)
+        if (keyConfig.rateLimit?.requestsPerHour) {
+          const now = Date.now();
+          const oneHourAgo = now - 3600000;
+          const recentRequests = keyConfig.lastUsed && keyConfig.lastUsed > oneHourAgo 
+            ? keyConfig.requestCount 
+            : 0;
+          
+          if (recentRequests >= keyConfig.rateLimit.requestsPerHour) {
+            errorCode = 'RATE_LIMIT_EXCEEDED';
+            await this.sendErrorMessage(
+              conversationId,
+              decrypted.senderEdgeId,
+              `Rate limit exceeded. Maximum ${keyConfig.rateLimit.requestsPerHour} requests per hour.`
+            );
+            return;
+          }
+        }
+        
+        this.updateAPIKeyStats(apiKey);
+      }
+      
+      // Get or create conversation context
+      contextManager.getContext(
+        conversationId,
+        decrypted.senderEdgeId,
+        systemPrompt
+      );
+      
+      // Add user message
+      contextManager.addMessage(
+        conversationId,
+        decrypted.senderEdgeId,
+        {
+          role: 'user',
+          content: content,
+          timestamp: new Date().toISOString(),
+        },
+        decrypted.senderEdgeId
+      );
+
+      const messages = contextManager.getMessagesForLLM(
+        conversationId,
+        decrypted.senderEdgeId
+      );
+
+      const llmProvider = llmClient.getActiveProvider();
+      if (!llmProvider) {
+        throw new Error('No active LLM provider configured');
+      }
+
+      const model = config.defaultModel || llmProvider.defaultModel || llmProvider.models[0];
+
+      this.log('info', 'Generating streaming LLM response', {
+        conversationId,
+        provider: llmProvider.name,
+        model,
+        messageCount: messages.length,
+      });
+
+      // 🚀 STREAMING: Send tokens with minimal buffering for better UX
+      // Reduced chunk size from 10 to 3 for faster visual updates
+      const chunkSize = config.chunkSize || 3;
+      let chunkBuffer: string[] = [];
+      let fullResponse = '';
+      let chunkSeq = 0;
+      let lastSendTime = Date.now();
+      const flushIntervalMs = 300; // Send chunk after 300ms even if not full
+
+      try {
+        for await (const token of llmClient.chatStream(messages, { model })) {
+          fullResponse += token;
+          chunkBuffer.push(token);
+
+          const timeSinceLastSend = Date.now() - lastSendTime;
+          const shouldFlush = chunkBuffer.length >= chunkSize || timeSinceLastSend >= flushIntervalMs;
+
+          // Send chunk when buffer reaches target size OR timeout passes
+          if (shouldFlush && chunkBuffer.length > 0) {
+            const chunkContent = chunkBuffer.join('');
+            await this.sendResponse(
+              conversationId,
+              decrypted.senderEdgeId,
+              chunkContent,
+              { seq: chunkSeq++, isFinal: false, streamingChunk: true }
+            );
+            
+            this.log('info', 'Sent streaming chunk', {
+              seq: chunkSeq - 1,
+              length: chunkContent.length,
+              tokens: chunkBuffer.length,
+              reason: chunkBuffer.length >= chunkSize ? 'size' : 'timeout',
+            });
+            
+            chunkBuffer = [];
+            lastSendTime = Date.now();
+          }
+        }
+
+        // Send final chunk with remaining tokens
+        if (chunkBuffer.length > 0) {
+          const finalChunk = chunkBuffer.join('');
+          await this.sendResponse(
+            conversationId,
+            decrypted.senderEdgeId,
+            finalChunk,
+            { seq: chunkSeq, isFinal: true, streamingChunk: true }
+          );
+          
+          this.log('info', 'Sent final streaming chunk', {
+            seq: chunkSeq,
+            length: finalChunk.length,
+          });
+        }
+
+      } catch (streamError) {
+        this.log('error', 'Streaming error', sanitizeError(streamError));
+        throw streamError;
+      }
+
+      this.log('info', 'Streaming response complete', {
+        totalLength: fullResponse.length,
+        chunkCount: chunkSeq + 1,
+      });
+
+      // Add complete assistant message to context
+      contextManager.addMessage(
+        conversationId,
+        decrypted.senderEdgeId,
+        {
+          role: 'assistant',
+          content: fullResponse,
+        }
+      );
+
+      // Log stats
+      const latencyMs = Date.now() - startTime;
+      const tokensIn = estimateTokens(content);
+      const tokensOut = estimateTokens(fullResponse);
+
+      const userFingerprint = accessMode === 'private' && apiKey 
+        ? apiKey.substring(0, 20)
+        : decrypted.senderEdgeId;
+
+      statsDb.logUsageEvent({
+        bridgeId: this.bridgeEdge.id,
+        userFingerprint,
+        userHandle: (apiKey ? apiKeys.find(k => k.key === apiKey)?.label : null) ?? null,
+        conversationId,
+        messageId,
+        model,
+        tokensIn,
+        tokensOut,
+        latencyMs,
+        errorCode: null,
+        metadata: {
+          provider: llmProvider.name,
+          messageCount: messages.length,
+          accessMode,
+          apiKeyUsed: !!apiKey,
+          streamingChunks: chunkSeq + 1,
+        },
+      });
+
+    } catch (error) {
+      errorCode = error instanceof Error ? error.constructor.name : 'UnknownError';
+      const latencyMs = Date.now() - startTime;
+      
+      const { content: cleanContent } = parseAPIKey(decrypted.content);
+      
+      statsDb.logUsageEvent({
+        bridgeId: this.bridgeEdge.id,
+        userFingerprint: decrypted.senderEdgeId,
+        userHandle: null,
+        conversationId,
+        messageId,
+        model: 'unknown',
+        tokensIn: estimateTokens(cleanContent),
+        tokensOut: 0,
+        latencyMs,
+        errorCode,
+        metadata: { errorMessage: error instanceof Error ? error.message : String(error) },
+      });
+
+      this.log('error', 'Error processing streaming message', sanitizeError(error));
+      
+      const errorMsg = 'Sorry, I encountered an error processing your message. Please try again.';
+      try {
+        await this.sendResponse(conversationId, decrypted.senderEdgeId, errorMsg);
+      } catch (sendError) {
+        this.log('error', 'Failed to send error message', sanitizeError(sendError));
+      }
+    }
+  }
+
+  /**
+   * Process an incoming encrypted message and respond
    */
   private async processMessage(conversationId: string, decrypted: {
     content: string;
     senderEdgeId: string;
+    messageId?: string;
   }): Promise<void> {
     if (!this.bridgeEdge) {
       console.error('[Bridge] Cannot process message: bridge edge not initialized');
       return;
     }
 
+    // 📊 STATS: Start timing
+    const startTime = Date.now();
+    const messageId = decrypted.messageId || 'unknown';
+    let errorCode: string | null = null;
+
     try {
-      // Get or create conversation context
+      // Get system prompt from config
+      const config = configStore.getConfig();
+      const systemPrompt = config.systemPrompt;
+      
+      // � PARSE API KEY: Extract from content if present
+      const { apiKey, content } = parseAPIKey(decrypted.content);
+      
+      // 🔒 ACCESS CONTROL: Check access mode and API key
+      const accessMode = config.accessControl || 'public';
+      const apiKeys = config.apiKeys || [];
+      
+      if (accessMode === 'hidden') {
+        // Hidden mode: Bridge is offline - don't respond at all
+        errorCode = 'BRIDGE_OFFLINE';
+        this.log('warn', 'Request ignored: bridge is hidden/offline', {
+          conversationId,
+          senderEdgeId: decrypted.senderEdgeId,
+        });
+        return; // Don't send error - just ignore silently
+      } else if (accessMode === 'private') {
+        // Private mode: requires valid API key
+        if (!apiKey) {
+          errorCode = 'MISSING_API_KEY';
+          this.log('warn', 'Request blocked: no API key provided', {
+            conversationId,
+            senderEdgeId: decrypted.senderEdgeId,
+          });
+          
+          await this.sendErrorMessage(
+            conversationId,
+            decrypted.senderEdgeId,
+            'This bridge requires an API key. Please contact the operator for access.'
+          );
+          return;
+        }
+        
+        // Find API key in config
+        const keyConfig = apiKeys.find(k => k.key === apiKey);
+        
+        if (!keyConfig) {
+          errorCode = 'INVALID_API_KEY';
+          this.log('warn', 'Request blocked: invalid API key', {
+            conversationId,
+            senderEdgeId: decrypted.senderEdgeId,
+            apiKeyPrefix: apiKey.substring(0, 15) + '...',
+          });
+          
+          await this.sendErrorMessage(
+            conversationId,
+            decrypted.senderEdgeId,
+            'Invalid API key. Please check your key and try again.'
+          );
+          return;
+        }
+        
+        // API key is valid - check rate limits if configured
+        if (keyConfig.rateLimit) {
+          const now = Date.now();
+          
+          // Check hourly request limit
+          if (keyConfig.rateLimit.requestsPerHour) {
+            const oneHourAgo = now - 3600000;
+            const recentRequests = keyConfig.lastUsed && keyConfig.lastUsed > oneHourAgo 
+              ? keyConfig.requestCount 
+              : 0;
+            
+            if (recentRequests >= keyConfig.rateLimit.requestsPerHour) {
+              errorCode = 'RATE_LIMIT_EXCEEDED';
+              this.log('warn', 'Request blocked: rate limit exceeded', {
+                conversationId,
+                keyLabel: keyConfig.label,
+                requestsPerHour: keyConfig.rateLimit.requestsPerHour,
+              });
+              
+              await this.sendErrorMessage(
+                conversationId,
+                decrypted.senderEdgeId,
+                `Rate limit exceeded. Maximum ${keyConfig.rateLimit.requestsPerHour} requests per hour.`
+              );
+              return;
+            }
+          }
+          
+          // Check daily token limit
+          if (keyConfig.rateLimit.tokensPerDay) {
+            // TODO: Track tokens per day (requires aggregating from stats DB)
+            // For now, skip this check - implement in future iteration
+          }
+        }
+        
+        // Update API key stats
+        this.updateAPIKeyStats(apiKey);
+      } else if (accessMode === 'public') {
+        // Public mode: Check global rate limits if configured
+        const globalRateLimit = config.rateLimit;
+        
+        if (globalRateLimit) {
+          // Check global hourly request limit
+          if (globalRateLimit.requestsPerHour) {
+            // TODO: Implement proper global rate limiting using stats DB
+            // For now, track in-memory per sender edge
+            // This is a placeholder - needs proper implementation with stats DB queries
+            this.log('info', 'Global rate limit configured but not enforced yet', {
+              conversationId,
+              senderEdgeId: decrypted.senderEdgeId,
+              limit: globalRateLimit.requestsPerHour,
+            });
+          }
+          
+          // Check global daily token limit
+          if (globalRateLimit.tokensPerDay) {
+            // TODO: Implement token tracking using stats DB
+            this.log('info', 'Global token limit configured but not enforced yet', {
+              conversationId,
+              senderEdgeId: decrypted.senderEdgeId,
+              limit: globalRateLimit.tokensPerDay,
+            });
+          }
+        }
+      }
+      
+      // If we reach here, user is authorized (or mode is public)
+      
+      // Get or create conversation context with system prompt
+      contextManager.getContext(
+        conversationId,
+        decrypted.senderEdgeId,
+        systemPrompt
+      );
+      
+      // Add user message to context (use cleaned content without API key header)
       contextManager.addMessage(
         conversationId,
         decrypted.senderEdgeId,
         {
           role: 'user',
-          content: decrypted.content,
+          content: content, // ← Use cleaned content
           timestamp: new Date().toISOString(),
         },
         decrypted.senderEdgeId // Store sender edge ID for response
@@ -437,8 +997,8 @@ export class BridgeConnection {
         throw new Error('No active LLM provider configured');
       }
 
-      // Use the default model
-      const model = llmProvider.defaultModel || llmProvider.models[0];
+      // Use configured default model, or fall back to provider's default
+      const model = config.defaultModel || llmProvider.defaultModel || llmProvider.models[0];
 
       this.log('info', 'Generating LLM response', {
         conversationId,
@@ -466,18 +1026,69 @@ export class BridgeConnection {
         }
       );
 
+      // 📊 STATS: Log successful usage event
+      const latencyMs = Date.now() - startTime;
+      const tokensIn = estimateTokens(content); // Use cleaned content
+      const tokensOut = estimateTokens(llmResponse);
+
+      // Track by API key ID in private mode, edge ID in public mode
+      const userFingerprint = accessMode === 'private' && apiKey 
+        ? apiKey.substring(0, 20) // Use API key prefix as fingerprint
+        : decrypted.senderEdgeId;
+
+      statsDb.logUsageEvent({
+        bridgeId: this.bridgeEdge.id, // Using bridge edge ID as bridge ID for now
+        userFingerprint,
+        userHandle: (apiKey ? apiKeys.find(k => k.key === apiKey)?.label : null) ?? null,
+        conversationId,
+        messageId,
+        model,
+        tokensIn,
+        tokensOut,
+        latencyMs,
+        errorCode: null,
+        metadata: {
+          provider: llmProvider.name,
+          messageCount: messages.length,
+          accessMode,
+          apiKeyUsed: !!apiKey,
+        },
+      });
+
       // Send encrypted response back
       await this.sendResponse(conversationId, decrypted.senderEdgeId, llmResponse);
 
     } catch (error) {
-      this.log('error', 'Error processing message', error);
+      // 📊 STATS: Log error event
+      errorCode = error instanceof Error ? error.constructor.name : 'UnknownError';
+      const latencyMs = Date.now() - startTime;
+      
+      // Parse content to get cleaned version (in case we error before parsing)
+      const { content: cleanContent } = parseAPIKey(decrypted.content);
+      
+      statsDb.logUsageEvent({
+        bridgeId: this.bridgeEdge.id,
+        userFingerprint: decrypted.senderEdgeId,
+        userHandle: null,
+        conversationId,
+        messageId,
+        model: 'unknown',
+        tokensIn: estimateTokens(cleanContent),
+        tokensOut: 0,
+        latencyMs,
+        errorCode,
+        metadata: { errorMessage: error instanceof Error ? error.message : String(error) },
+      });
+
+      // 🔒 SECURITY: Sanitize error before logging
+      this.log('error', 'Error processing message', sanitizeError(error));
       
       // Send error message back to user
       const errorMsg = 'Sorry, I encountered an error processing your message. Please try again.';
       try {
         await this.sendResponse(conversationId, decrypted.senderEdgeId, errorMsg);
       } catch (sendError) {
-        this.log('error', 'Failed to send error message', sendError);
+        this.log('error', 'Failed to send error message', sanitizeError(sendError));
       }
     }
   }
@@ -488,17 +1099,32 @@ export class BridgeConnection {
   private async sendResponse(
     conversationId: string,
     recipientEdgeId: string,
-    content: string
+    content: string,
+    metadata?: { seq?: number; isFinal?: boolean; streamingChunk?: boolean }
   ): Promise<void> {
     if (!this.bridgeEdge) {
       throw new Error('Bridge edge not initialized');
     }
 
     try {
+      // Prepend metadata if provided (for streaming chunks)
+      let messageContent = content;
+      if (metadata && metadata.streamingChunk) {
+        const metadataHeader = JSON.stringify({
+          type: 'streaming-chunk',
+          seq: metadata.seq ?? 0,
+          isFinal: metadata.isFinal ?? false,
+        });
+        messageContent = `__RELAY_CHUNK_METADATA__:${metadataHeader}\n${content}`;
+      }
+
       this.log('info', 'Sending response', {
         conversationId,
         recipientEdgeId,
-        contentLength: content.length,
+        contentLength: messageContent.length,
+        streaming: metadata?.streamingChunk ?? false,
+        seq: metadata?.seq,
+        isFinal: metadata?.isFinal,
       });
 
       // Load ratchet state for this conversation
@@ -510,7 +1136,7 @@ export class BridgeConnection {
 
       // Encrypt using Double Ratchet
       const { RatchetEncrypt } = await import('@relay/core');
-      const { message: encryptedMessage, newState } = RatchetEncrypt(ratchetState, content);
+      const { message: encryptedMessage, newState } = RatchetEncrypt(ratchetState, messageContent);
 
       // Save updated ratchet state
       await ratchetStorage.save(conversationId, newState);
@@ -584,8 +1210,20 @@ export class BridgeConnection {
    */
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.log('error', 'Max reconnect attempts reached');
-      this.updateStatus('error');
+      this.log('error', 'Max reconnect attempts reached', {
+        attempts: this.reconnectAttempts,
+        max: this.maxReconnectAttempts,
+      });
+      this.isReconnecting = false;
+      this.updateStatus('failed');
+      return;
+    }
+
+    // If offline, don't schedule reconnect - wait for network restore
+    if (!this.isOnline) {
+      this.log('info', 'Network offline - pausing reconnection attempts');
+      this.isReconnecting = true;
+      this.updateStatus('reconnecting');
       return;
     }
 
@@ -594,7 +1232,14 @@ export class BridgeConnection {
       30000 // Max 30 seconds
     );
 
-    this.log('info', 'Scheduling reconnect', { delayMs: delay, attempt: this.reconnectAttempts + 1 });
+    this.isReconnecting = true;
+    this.updateStatus('reconnecting');
+    
+    this.log('info', 'Scheduling reconnect', { 
+      delayMs: delay, 
+      attempt: this.reconnectAttempts + 1,
+      maxAttempts: this.maxReconnectAttempts,
+    });
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectAttempts++;
@@ -671,12 +1316,77 @@ export class BridgeConnection {
   }
 
   /**
+   * Force immediate reconnection (bypasses backoff)
+   * Used when network connectivity is restored
+   */
+  forceReconnect(): void {
+    this.log('info', 'Force reconnect requested');
+    
+    // Cancel any pending reconnection
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    
+    // Reset reconnect attempts for immediate connection
+    this.reconnectAttempts = 0;
+    this.isReconnecting = true;
+    
+    // Disconnect if currently connected
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+    
+    // Immediate reconnection
+    this.connect();
+  }
+
+  /**
+   * Handle network online event
+   */
+  handleNetworkOnline(): void {
+    this.log('info', 'Network online detected');
+    this.isOnline = true;
+    
+    // If we're in a reconnecting or failed state, force immediate reconnection
+    if (this.status === 'reconnecting' || this.status === 'failed') {
+      this.forceReconnect();
+    }
+  }
+
+  /**
+   * Handle network offline event
+   */
+  handleNetworkOffline(): void {
+    this.log('warn', 'Network offline detected');
+    this.isOnline = false;
+    
+    // Cancel any pending reconnection attempts
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    
+    // Keep current status but stop active attempts
+    if (this.status === 'connected' || this.status === 'connecting') {
+      this.updateStatus('reconnecting');
+    }
+  }
+
+  /**
    * Disconnect and cleanup
    */
   disconnect(): void {
     console.log('[Bridge] Disconnecting');
 
+    // 📊 STATS: End session tracking
+    statsDb.endSession();
+    this.log('info', 'Session tracking ended');
+
     this.stopHealthCheck();
+    this.isReconnecting = false;
+    this.reconnectAttempts = 0;
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -802,6 +1512,26 @@ export class BridgeManager {
   }
 
   /**
+   * Handle network online event
+   */
+  handleNetworkOnline(): void {
+    console.log('[BridgeManager] Network online event');
+    if (this.bridge) {
+      this.bridge.handleNetworkOnline();
+    }
+  }
+
+  /**
+   * Handle network offline event
+   */
+  handleNetworkOffline(): void {
+    console.log('[BridgeManager] Network offline event');
+    if (this.bridge) {
+      this.bridge.handleNetworkOffline();
+    }
+  }
+
+  /**
    * Dispose (cleanup on shutdown)
    */
   dispose(): void {
@@ -812,3 +1542,6 @@ export class BridgeManager {
 
 // Export singleton instance
 export const bridgeManager = new BridgeManager();
+
+// Export utility functions
+export { generateAPIKey, parseAPIKey };

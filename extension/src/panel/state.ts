@@ -105,6 +105,7 @@ export const edges = signal<Array<{
   metadata?: any; // Includes handle/displayName for native edges
   createdAt: string;
   lastActivityAt: string | null;
+  x25519PublicKey?: string; // Encryption key for E2EE messaging
 }>>([]);
 
 // ============================================
@@ -527,10 +528,11 @@ export function loadMockData() {
 // ============================================
 
 export async function createEdge(
-  type: 'native' | 'email' | 'contact_link' | 'discord' | 'webhook' | 'local-llm', 
+  type: 'native' | 'email' | 'contact_link' | 'discord' | 'webhook' | 'local-llm' | 'relay-ai', 
   label?: string,
   customAddress?: string,
-  displayName?: string
+  displayName?: string,
+  bridgeApiKey?: string
 ): Promise<{ success: boolean; edge?: any; error?: string }> {
   isLoading.value = true;
   try {
@@ -538,7 +540,7 @@ export async function createEdge(
       success: boolean;
       edge?: any;
       error?: string;
-    }>({ type: 'CREATE_EDGE', payload: { type, label, customAddress, displayName } });
+    }>({ type: 'CREATE_EDGE', payload: { type, label, customAddress, displayName, bridgeApiKey } });
 
     if (result.success && result.edge) {
       // Add to local state
@@ -570,6 +572,32 @@ export async function loadEdges(): Promise<void> {
   } catch (error) {
     console.error('Load edges error:', error);
   }
+}
+
+/**
+ * Get or create the relay-ai edge for anonymous AI chat
+ * This edge is auto-created on first use and reused for all AI requests
+ */
+export async function getOrCreateRelayAIEdge(): Promise<{ success: boolean; edge?: any; error?: string }> {
+  // Check if relay-ai edge already exists
+  const existingEdge = edges.value.find(e => e.type === 'relay-ai' && e.status === 'active');
+  
+  if (existingEdge) {
+    console.log('[getOrCreateRelayAIEdge] Using existing relay-ai edge:', existingEdge.id);
+    return { success: true, edge: existingEdge };
+  }
+  
+  // Create new relay-ai edge
+  console.log('[getOrCreateRelayAIEdge] Creating new relay-ai edge...');
+  const result = await createEdge('relay-ai', 'Relay AI');
+  
+  if (result.success && result.edge) {
+    console.log('[getOrCreateRelayAIEdge] Created relay-ai edge:', result.edge.id);
+    return { success: true, edge: result.edge };
+  }
+  
+  console.error('[getOrCreateRelayAIEdge] Failed to create relay-ai edge:', result.error);
+  return { success: false, error: result.error };
 }
 
 /**

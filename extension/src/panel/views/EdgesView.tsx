@@ -112,14 +112,15 @@ export function EdgesView() {
     }
   }
 
-  // All edges (native handles + email aliases + discord + contact links + webhooks + local-llm) come from the edges list
+  // All edges (native handles + email aliases + discord + contact links + webhooks + local-llm + relay-ai) come from the edges list
   const allEdges = edgeList.map(e => {
-    let mappedType: 'native' | 'email' | 'discord' | 'contact_link' | 'webhook' | 'local-llm' = 'email';
+    let mappedType: 'native' | 'email' | 'discord' | 'contact_link' | 'webhook' | 'local-llm' | 'relay-ai' = 'email';
     if (e.type === 'native') mappedType = 'native';
     else if (e.type === 'discord') mappedType = 'discord';
     else if (e.type === 'contact_link') mappedType = 'contact_link';
     else if (e.type === 'webhook') mappedType = 'webhook';
     else if (e.type === 'local-llm') mappedType = 'local-llm';
+    else if (e.type === 'relay-ai') mappedType = 'relay-ai';
     
     // For contact links, construct the shareable URL
     let displayAddress = e.address;
@@ -133,6 +134,9 @@ export function EdgesView() {
     } else if (e.type === 'local-llm') {
       // For local LLM edges, display edge ID (first 8 chars)
       displayAddress = `LLM ${e.id.slice(0, 8)}`;
+    } else if (e.type === 'relay-ai') {
+      // For relay-ai edges, display as "Relay AI" with edge ID
+      displayAddress = `Relay AI`;
     }
     
     return {

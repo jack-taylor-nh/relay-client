@@ -90,7 +90,7 @@ async function loadMessages(conversationId: string, isPolling = false) {
     }>({ type: 'GET_MESSAGES', payload: { conversationId } });
     
     if (result.success && result.messages) {
-      const newMessages = result.messages.map(msg => ({
+      const newMessages: Message[] = result.messages.map(msg => ({
         id: msg.id,
         senderFingerprint: msg.senderIdentityId || msg.senderExternalId || 'unknown',
         content: msg.content,
@@ -536,6 +536,9 @@ function MessageBubble({ message }: { message: Message }) {
   }
   
   // Regular message with glass effect
+  const isLocalLLM = conversationDetails.value?.type === 'local-llm';
+  const shouldRenderMarkdown = isLocalLLM && !message.isMine; // Only LLM responses get markdown
+  
   return (
     <div className={cn(
       "max-w-[75%] px-4 py-3 rounded-2xl",
@@ -543,7 +546,9 @@ function MessageBubble({ message }: { message: Message }) {
         ? cn("self-end rounded-br-md ml-[20%]", glassStyles.sent)
         : cn("self-start rounded-bl-md mr-[20%]", glassStyles.received)
     )}>
-      <div className="text-[15px] leading-snug whitespace-pre-wrap break-words">{message.content}</div>
+      <div className="text-[15px] leading-snug whitespace-pre-wrap break-words">
+        {shouldRenderMarkdown ? renderMarkdown(message.content) : message.content}
+      </div>
       <div className={cn(
         "text-[11px] mt-1 text-right font-medium",
         message.isMine ? "text-white/60" : "text-[hsl(var(--muted-foreground))]"
@@ -576,7 +581,7 @@ function MessageInput({ onSend }: { onSend: (content: string) => void }) {
     <div className="flex items-center gap-3 p-4 bg-[hsl(var(--card))] border-t border-[hsl(var(--border))]">
       <textarea
         ref={inputRef}
-        className="flex-1 px-4 py-2.5 text-sm bg-[hsl(var(--background))] border-2 border-[hsl(var(--border))] rounded-full resize-none max-h-32 min-h-10 leading-normal text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:border-[hsl(var(--primary))] transition-colors"
+        className="flex-1 px-3 py-2 text-sm bg-[hsl(var(--background))] border border-[hsl(var(--border))] rounded-md resize-none max-h-32 min-h-10 leading-normal text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary))] transition-colors"
         placeholder="Type a message..."
         value={text}
         onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
@@ -602,6 +607,7 @@ function MessageInput({ onSend }: { onSend: (content: string) => void }) {
 
 // Polling interval for new messages (5 seconds)
 const MESSAGE_POLL_INTERVAL = 5000;
+const MESSAGE_POLL_INTERVAL_STREAMING = 1500; // Faster polling for streaming LLM responses
 
 export function ConversationDetailView() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -623,10 +629,18 @@ export function ConversationDetailView() {
         })
         .catch(() => {}); // Ignore errors
       
+      // Use faster polling for local-llm conversations (for streaming responses)
+      const details = conversationDetails.value;
+      const pollInterval = details?.type === 'local-llm' 
+        ? MESSAGE_POLL_INTERVAL_STREAMING 
+        : MESSAGE_POLL_INTERVAL;
+      
+      console.log(`[ConversationDetailView] Starting polling at ${pollInterval}ms for ${details?.type || 'unknown'} conversation`);
+      
       // Set up polling for new messages
       pollIntervalRef.current = setInterval(() => {
         loadMessages(conversationId, true);
-      }, MESSAGE_POLL_INTERVAL);
+      }, pollInterval);
     }
     
     return () => {
@@ -1211,38 +1225,64 @@ export function ConversationDetailView() {
         
         /* Markdown rendering styles */
         .markdown-codeblock {
-          background: var(--color-background-elevated, #f1f5f9);
+          background: rgba(0, 0, 0, 0.05);
           padding: 12px;
           border-radius: 6px;
           overflow-x: auto;
           font-family: var(--font-mono, 'SF Mono', Monaco, Consolas, monospace);
-          font-size: 12px;
+          font-size: 13px;
           line-height: 1.5;
           margin: 8px 0;
-          border: 1px solid var(--color-border, #e2e8f0);
+          border: 1px solid rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Code blocks in sent messages (white text on accent) */
+        .message-bubble.mine .markdown-codeblock {
+          background: rgba(0, 0, 0, 0.15);
+          border-color: rgba(255, 255, 255, 0.15);
+          color: rgba(255, 255, 255, 0.95);
+        }
+        
+        /* Code blocks in received messages */
+        .message-bubble.theirs .markdown-codeblock {
+          background: rgba(0, 0, 0, 0.04);
+          border-color: rgba(0, 0, 0, 0.08);
         }
         
         .markdown-codeblock code {
-          color: var(--color-text-primary, #1e293b);
+          color: inherit;
         }
         
         .markdown-inline-code {
-          background: var(--color-background-elevated, #f1f5f9);
+          background: rgba(0, 0, 0, 0.08);
           padding: 2px 6px;
           border-radius: 4px;
           font-family: var(--font-mono, 'SF Mono', Monaco, Consolas, monospace);
           font-size: 0.9em;
-          color: var(--color-error);
+          color: inherit;
+          opacity: 0.95;
+        }
+        
+        /* Inline code in sent messages */
+        .message-bubble.mine .markdown-inline-code {
+          background: rgba(255, 255, 255, 0.2);
+          color: white;
         }
         
         .markdown-link {
-          color: var(--color-accent);
+          color: hsl(var(--accent));
           text-decoration: underline;
           text-underline-offset: 2px;
         }
         
+        /* Links in sent messages */
+        .message-bubble.mine .markdown-link {
+          color: rgba(255, 255, 255, 0.95);
+          text-decoration-color: rgba(255, 255, 255, 0.5);
+        }
+        
         .markdown-link:hover {
-          color: var(--color-accent-hover);
+          opacity: 0.8;
         }
         
         .markdown-bullet {
@@ -1253,7 +1293,7 @@ export function ConversationDetailView() {
         
         .bullet-dot {
           margin-right: 8px;
-          color: var(--color-text-tertiary, #6b7280);
+          opacity: 0.6;
           font-weight: bold;
         }
         

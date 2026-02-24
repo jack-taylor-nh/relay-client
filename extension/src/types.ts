@@ -42,6 +42,9 @@ export interface Edge {
   securityLevel: SecurityLevel;
   createdAt: string;
   messageCount: number;
+  x25519PublicKey?: string;  // Encryption key for E2EE messaging
+  metadata?: any;            // Bridge-specific metadata
+  lastActivityAt?: string | null;
 }
 
 // Legacy type - kept for backwards compatibility

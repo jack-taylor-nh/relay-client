@@ -29,7 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export type EdgeType = "native" | "email" | "discord" | "webhook" | "contact_link" | "local-llm";
+export type EdgeType = "native" | "email" | "discord" | "webhook" | "contact_link" | "local-llm" | "relay-ai";
 
 export interface EdgeCardProps {
   id: string;
@@ -88,6 +88,12 @@ const edgeConfig: Record<
     icon: Bot,
     label: "Local LLM",
     badgeVariant: "webhook",
+    colorClass: "text-purple-600 dark:text-purple-400",
+  },
+  "relay-ai": {
+    icon: Bot,
+    label: "Relay AI",
+    badgeVariant: "native",
     colorClass: "text-purple-600 dark:text-purple-400",
   },
 };

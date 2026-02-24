@@ -1,5 +1,15 @@
+/**
+ * @deprecated Bridges are being phased out in favor of RelayAI Operators.
+ * This component is kept for backward compatibility only.
+ * Use RelayAIOperator component instead for connecting to the Relay network.
+ */
+
 import { useState, useEffect, useRef } from 'react';
 import type { AppConfig } from '../../shared/types';
+import StatsOverview from './StatsOverview';
+import ConfigurationTab from './ConfigurationTab';
+import AnalyticsTab from './AnalyticsTab';
+import AccessControlTab from './AccessControlTab';
 
 interface BridgeLog {
   timestamp: string;
@@ -13,7 +23,10 @@ interface BridgeManagerProps {
   onReload: () => void;
 }
 
+type TabType = 'overview' | 'configuration' | 'stats' | 'analytics' | 'access';
+
 export function BridgeManager({ config, onReload }: BridgeManagerProps) {
+  const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [isCreating, setIsCreating] = useState(false);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -91,21 +104,43 @@ export function BridgeManager({ config, onReload }: BridgeManagerProps) {
           color: 'text-green-600 dark:text-green-400',
           dotColor: 'bg-green-500',
           label: 'Connected',
-          description: 'SSE stream active, ready to receive',
+          description: 'SSE stream active, ready to receive messages',
+          icon: '✓',
         };
       case 'connecting':
         return {
           color: 'text-yellow-600 dark:text-yellow-400',
           dotColor: 'bg-yellow-500',
           label: 'Connecting',
-          description: 'Establishing SSE connection...',
+          description: 'Establishing SSE connection to server...',
+          icon: '↻',
+          pulse: true,
+        };
+      case 'reconnecting':
+        return {
+          color: 'text-orange-600 dark:text-orange-400',
+          dotColor: 'bg-orange-500',
+          label: 'Reconnecting',
+          description: 'Connection lost. Attempting to reconnect...',
+          icon: '↻',
+          pulse: true,
+        };
+      case 'failed':
+        return {
+          color: 'text-red-600 dark:text-red-400',
+          dotColor: 'bg-red-500',
+          label: 'Failed',
+          description: 'Connection failed after multiple attempts. Check console for details.',
+          icon: '✕',
         };
       case 'error':
+        // Legacy support - map to failed
         return {
           color: 'text-red-600 dark:text-red-400',
           dotColor: 'bg-red-500',
           label: 'Error',
-          description: 'Connection failed. Check console.',
+          description: 'Connection error occurred. Check console for details.',
+          icon: '✕',
         };
       case 'disconnected':
       default:
@@ -114,6 +149,7 @@ export function BridgeManager({ config, onReload }: BridgeManagerProps) {
           dotColor: 'bg-muted-foreground',
           label: 'Disconnected',
           description: 'SSE stream not connected',
+          icon: '○',
         };
     }
   };
@@ -186,20 +222,106 @@ export function BridgeManager({ config, onReload }: BridgeManagerProps) {
         <p className="text-muted-foreground">Manage your Relay network connections</p>
       </div>
 
+      {/* Tab Navigation */}
+      {config?.bridgeEdge && (
+        <div className="border-b border-border">
+          <div className="flex gap-6">
+            <button
+              onClick={() => setActiveTab('overview')}
+              className={`pb-3 px-1 text-sm font-medium transition-colors relative ${
+                activeTab === 'overview'
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Overview
+              {activeTab === 'overview' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"></div>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('configuration')}
+              className={`pb-3 px-1 text-sm font-medium transition-colors relative ${
+                activeTab === 'configuration'
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Configuration
+              {activeTab === 'configuration' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"></div>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('stats')}
+              className={`pb-3 px-1 text-sm font-medium transition-colors relative ${
+                activeTab === 'stats'
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Statistics
+              {activeTab === 'stats' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"></div>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`pb-3 px-1 text-sm font-medium transition-colors relative ${
+                activeTab === 'analytics'
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Analytics
+              {activeTab === 'analytics' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"></div>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('access')}
+              className={`pb-3 px-1 text-sm font-medium transition-colors relative ${
+                activeTab === 'access'
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Access
+              {activeTab === 'access' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"></div>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tab Content */}
+      {activeTab === 'stats' ? (
+        <StatsOverview />
+      ) : activeTab === 'configuration' ? (
+        <ConfigurationTab />
+      ) : activeTab === 'analytics' ? (
+        <AnalyticsTab />
+      ) : activeTab === 'access' ? (
+        <AccessControlTab />
+      ) : (
+        <>
       {/* Active Bridge Card */}
       {config?.bridgeEdge ? (
         <div className="bg-card border border-border rounded-xl p-6">
           <div className="flex items-start justify-between mb-6">
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <div className={`w-3 h-3 ${getStatusDisplay(bridgeStatus).dotColor} rounded-full ${bridgeStatus === 'connected' ? 'animate-pulse' : ''}`}></div>
+                <div className={`relative w-3 h-3`}>
+                  {getStatusDisplay(bridgeStatus).pulse && (
+                    <span className={`absolute inline-flex h-full w-full rounded-full ${getStatusDisplay(bridgeStatus).dotColor} opacity-75 animate-ping`}></span>
+                  )}
+                  <div className={`relative w-3 h-3 ${getStatusDisplay(bridgeStatus).dotColor} rounded-full ${bridgeStatus === 'connected' ? 'animate-pulse' : ''}`}></div>
+                </div>
                 <h2 className="text-lg font-semibold">Active Bridge</h2>
               </div>
               <p className="text-sm text-muted-foreground">
-                {bridgeStatus === 'connected' ? 'Connected to Relay network' : 
-                 bridgeStatus === 'connecting' ? 'Connecting to Relay...' :
-                 bridgeStatus === 'error' ? 'Connection error' :
-                 'Not connected to SSE stream'}
+                {getStatusDisplay(bridgeStatus).icon} {getStatusDisplay(bridgeStatus).description}
               </p>
             </div>
             <div className="flex gap-2">
@@ -264,9 +386,14 @@ export function BridgeManager({ config, onReload }: BridgeManagerProps) {
             <div>
               <p className="text-[10px] font-medium text-muted-foreground mb-1.5">CONNECTION STATUS</p>
               <div className="border border-border bg-muted rounded p-2">
-                <p className={`text-xs font-medium ${getStatusDisplay(bridgeStatus).color}`}>
-                  {getStatusDisplay(bridgeStatus).label}
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-base ${getStatusDisplay(bridgeStatus).color}`}>
+                    {getStatusDisplay(bridgeStatus).icon}
+                  </span>
+                  <p className={`text-xs font-medium ${getStatusDisplay(bridgeStatus).color}`}>
+                    {getStatusDisplay(bridgeStatus).label}
+                  </p>
+                </div>
                 <p className="text-[10px] text-muted-foreground mt-0.5">
                   {getStatusDisplay(bridgeStatus).description}
                 </p>
@@ -498,6 +625,8 @@ export function BridgeManager({ config, onReload }: BridgeManagerProps) {
             )}
           </div>
         </div>
+      )}
+        </>
       )}
 
       {/* Edit Bridge Modal */}

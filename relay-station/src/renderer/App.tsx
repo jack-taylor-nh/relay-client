@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
 import { ModelManager } from './components/ModelManager';
-import { BridgeManager } from './components/BridgeManager';
 import { OllamaSetup } from './components/OllamaSetup';
-import { SettingsView } from './components/SettingsView';
+import { RelayAIOperator } from './components/RelayAIOperator';
 import type { AppConfig, LLMProvider } from '../shared/types';
 
-type View = 'dashboard' | 'models' | 'bridges' | 'settings';
+type View = 'dashboard' | 'models' | 'relayai';
 
 function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -140,35 +139,24 @@ function App() {
           />
           <NavItem
             icon={<ModelsIcon />}
-            label="Model Library"
+            label="My Models"
             active={currentView === 'models'}
             onClick={() => setCurrentView('models')}
           />
           <NavItem
-            icon={<BridgesIcon />}
-            label="Bridges"
-            active={currentView === 'bridges'}
-            onClick={() => setCurrentView('bridges')}
-            badge={config?.bridgeEdge ? '1' : undefined}
-          />
-          <NavItem
-            icon={<SettingsIcon />}
-            label="Settings"
-            active={currentView === 'settings'}
-            onClick={() => setCurrentView('settings')}
+            icon={<CloudIcon />}
+            label="AI Network"
+            active={currentView === 'relayai'}
+            onClick={() => setCurrentView('relayai')}
           />
         </nav>
 
         {/* Footer */}
         <div className="p-4 border-t border-border">
           <div className="text-xs text-muted-foreground">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${ollamaReady ? 'bg-green-500' : 'bg-red-500'}`}></div>
               <span>{ollamaReady ? 'Ollama Running' : 'Ollama Offline'}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${config?.bridgeEdge ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-              <span>{config?.bridgeEdge ? 'Bridge Active' : 'No Bridge'}</span>
             </div>
           </div>
         </div>
@@ -182,11 +170,8 @@ function App() {
         {currentView === 'models' && (
           <ModelManager />
         )}
-        {currentView === 'bridges' && (
-          <BridgeManager config={config} onReload={loadData} />
-        )}
-        {currentView === 'settings' && (
-          <SettingsView config={config} onReload={loadData} />
+        {currentView === 'relayai' && (
+          <RelayAIOperator />
         )}
       </main>
     </div>
@@ -358,21 +343,23 @@ function DashboardView({ hardwareSpecs, stats, config, onNavigate }: {
         </button>
 
         <button
-          onClick={() => onNavigate('bridges')}
+          onClick={() => onNavigate('relayai')}
           className="bg-card border border-border rounded-lg p-6 hover:shadow-lg transition-all text-left group"
         >
-          <BridgesIcon className="w-8 h-8 text-primary mb-3" />
-          <h3 className="font-semibold mb-1">Manage Bridges</h3>
-          <p className="text-sm text-muted-foreground">Connect to Relay network</p>
+          <CloudIcon className="w-8 h-8 text-primary mb-3" />
+          <h3 className="font-semibold mb-1">Become an Operator</h3>
+          <p className="text-sm text-muted-foreground">Join RelayAI network and earn</p>
         </button>
 
         <button
-          onClick={() => onNavigate('settings')}
-          className="bg-card border border-border rounded-lg p-6 hover:shadow-lg transition-all text-left group"
+          className="bg-card border border-border rounded-lg p-6 opacity-50 cursor-not-allowed text-left"
+          disabled
         >
-          <SettingsIcon className="w-8 h-8 text-primary mb-3" />
-          <h3 className="font-semibold mb-1">Settings</h3>
-          <p className="text-sm text-muted-foreground">Configure your setup</p>
+          <svg className="w-8 h-8 text-muted-foreground mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          <h3 className="font-semibold mb-1">Coming Soon</h3>
+          <p className="text-sm text-muted-foreground">More features in development</p>
         </button>
       </div>
 
@@ -421,6 +408,14 @@ function BridgesIcon({ className = "w-5 h-5" }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+    </svg>
+  );
+}
+
+function CloudIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
     </svg>
   );
 }

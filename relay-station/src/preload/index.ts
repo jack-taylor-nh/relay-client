@@ -33,6 +33,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Crypto operations
   generateKeypair: (): Promise<{ publicKey: string; privateKey: string }> => 
     ipcRenderer.invoke('generate-keypair'),
+  
+  // E2EE encryption/decryption for AI operators
+  encryptE2EE: (payload: { plaintext: string; recipientPublicKey: string }): Promise<{ 
+    ciphertext: string; 
+    ephemeralPublicKey: string; 
+    nonce: string 
+  }> =>
+    ipcRenderer.invoke('encrypt-e2ee', payload),
+  decryptE2EE: (payload: {
+    ciphertext: string;
+    ephemeralPublicKey: string;
+    nonce: string;
+    recipientPrivateKey: string;
+  }): Promise<string> =>
+    ipcRenderer.invoke('decrypt-e2ee', payload),
 
   // Bridge edge operations
   createBridgeEdge: (label: string): Promise<BridgeEdge> => 
@@ -41,8 +56,37 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('disconnect-bridge'),
   updateBridgeLabel: (label: string): Promise<void> =>
     ipcRenderer.invoke('update-bridge-label', label),
+  getBridgeConfig: (): Promise<{ systemPrompt?: string; defaultModel?: string; availableModels?: string[] }> =>
+    ipcRenderer.invoke('get-bridge-config'),
+  updateBridgeConfig: (updates: { systemPrompt?: string; defaultModel?: string }): Promise<void> =>
+    ipcRenderer.invoke('update-bridge-config', updates),
   getBridgeStatus: (): Promise<string> =>
     ipcRenderer.invoke('get-bridge-status'),
+  getAuthorizedUsers: (): Promise<Array<{ id: string; label: string; addedAt: number; lastSeen?: number; requestCount: number }>> =>
+    ipcRenderer.invoke('get-authorized-users'),
+  addAuthorizedUser: (user: { id: string; label: string }): Promise<void> =>
+    ipcRenderer.invoke('add-authorized-user', user),
+  removeAuthorizedUser: (userId: string): Promise<void> =>
+    ipcRenderer.invoke('remove-authorized-user', userId),
+
+  // API Key management (new)
+  generateAPIKey: (label: string): Promise<{ id: string; key: string }> =>
+    ipcRenderer.invoke('generate-api-key', label),
+  getAPIKeys: (): Promise<Array<{ 
+    id: string; 
+    label: string; 
+    key: string; 
+    createdAt: number; 
+    lastUsed?: number; 
+    requestCount: number; 
+    tokensUsed: number;
+    rateLimit?: { requestsPerHour?: number; tokensPerDay?: number };
+  }>> =>
+    ipcRenderer.invoke('get-api-keys'),
+  revokeAPIKey: (keyId: string): Promise<void> =>
+    ipcRenderer.invoke('revoke-api-key', keyId),
+  updateAPIKeyLimits: (keyId: string, rateLimit: { requestsPerHour?: number; tokensPerDay?: number }): Promise<void> =>
+    ipcRenderer.invoke('update-api-key-limits', keyId, rateLimit),
 
   // Legacy bridge operations (for client edges - deprecated)
   connectBridge: (edgeId: string): Promise<void> => 
@@ -59,6 +103,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('ollama-restart'),
   ollamaListModels: (): Promise<any[]> =>
     ipcRenderer.invoke('ollama-models-list'),
+  ollamaRunningModels: (): Promise<any[]> =>
+    ipcRenderer.invoke('ollama-running-models'),
+  testModel: (modelName: string): Promise<{ success: boolean; response?: string; error?: string }> =>
+    ipcRenderer.invoke('test-model', modelName),
   ollamaPullModel: (modelName: string): Promise<boolean> =>
     ipcRenderer.invoke('ollama-model-pull', modelName),
   ollamaCancelPull: (modelName: string): Promise<boolean> =>
@@ -104,6 +152,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('model-catalog-get'),
   modelCatalogSearch: (query: string): Promise<any[]> =>
     ipcRenderer.invoke('model-catalog-search', query),
+
+  // Stats database queries
+  statsGetCurrentSession: (): Promise<any> =>
+    ipcRenderer.invoke('stats-get-current-session'),
+  statsGetDaily: (bridgeId: string, startDate: string, endDate: string): Promise<any[]> =>
+    ipcRenderer.invoke('stats-get-daily', bridgeId, startDate, endDate),
+  statsGetRecentEvents: (bridgeId: string, limit?: number, offset?: number): Promise<any[]> =>
+    ipcRenderer.invoke('stats-get-recent-events', bridgeId, limit, offset),
+  statsGetLifetime: (bridgeId: string): Promise<any> =>
+    ipcRenderer.invoke('stats-get-lifetime', bridgeId),
+  statsGetTopUsers: (bridgeId: string, limit?: number): Promise<any[]> =>
+    ipcRenderer.invoke('stats-get-top-users', bridgeId, limit),
+  statsTriggerAggregation: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('stats-trigger-aggregation'),
 });
 
 // Type definitions for window.electronAPI
@@ -122,12 +184,32 @@ declare global {
       createBridgeEdge: (label: string) => Promise<BridgeEdge>;
       disconnectBridge: () => Promise<void>;
       updateBridgeLabel?: (label: string) => Promise<void>;
+      getBridgeConfig?: () => Promise<{ systemPrompt?: string; defaultModel?: string; availableModels?: string[] }>;
+      updateBridgeConfig?: (updates: { systemPrompt?: string; defaultModel?: string }) => Promise<void>;
       getBridgeStatus?: () => Promise<string>;
+      getAuthorizedUsers?: () => Promise<Array<{ id: string; label: string; addedAt: number; lastSeen?: number; requestCount: number }>>;
+      addAuthorizedUser?: (user: { id: string; label: string }) => Promise<void>;
+      removeAuthorizedUser?: (userId: string) => Promise<void>;
+      generateAPIKey?: (label: string) => Promise<{ id: string; key: string }>;
+      getAPIKeys?: () => Promise<Array<{ 
+        id: string; 
+        label: string; 
+        key: string; 
+        createdAt: number; 
+        lastUsed?: number; 
+        requestCount: number; 
+        tokensUsed: number;
+        rateLimit?: { requestsPerHour?: number; tokensPerDay?: number };
+      }>>;
+      revokeAPIKey?: (keyId: string) => Promise<void>;
+      updateAPIKeyLimits?: (keyId: string, rateLimit: { requestsPerHour?: number; tokensPerDay?: number }) => Promise<void>;
       connectBridge: (edgeId: string) => Promise<void>;
       getStats: () => Promise<any>;
       ollamaStatus: () => Promise<any>;
       ollamaRestart: () => Promise<boolean>;
       ollamaListModels: () => Promise<any[]>;
+      ollamaRunningModels?: () => Promise<any[]>;
+      testModel?: (modelName: string) => Promise<{ success: boolean; response?: string; error?: string }>;
       ollamaPullModel: (modelName: string) => Promise<boolean>;
       ollamaCancelPull?: (modelName: string) => Promise<boolean>;
       ollamaDeleteModel: (modelName: string) => Promise<boolean>;
@@ -144,6 +226,13 @@ declare global {
       hardwareEstimatePerformance?: (modelSizeGB: number, modelVRAM: number) => Promise<any>;
       modelCatalogGet?: () => Promise<any[]>;
       modelCatalogSearch?: (query: string) => Promise<any[]>;
+      // Stats database queries
+      statsGetCurrentSession?: () => Promise<any>;
+      statsGetDaily?: (bridgeId: string, startDate: string, endDate: string) => Promise<any[]>;
+      statsGetRecentEvents?: (bridgeId: string, limit?: number, offset?: number) => Promise<any[]>;
+      statsGetLifetime?: (bridgeId: string) => Promise<any>;
+      statsGetTopUsers?: (bridgeId: string, limit?: number) => Promise<any[]>;
+      statsTriggerAggregation?: () => Promise<{ success: boolean }>;
     };
   }
 }

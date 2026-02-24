@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { ChevronLeft, ChevronRight, Link2Off, Hash, Mail, User, Bot } from 'lucide-react';
+import { SecurityBadge } from '@/components/relay/SecurityBadge';
 import { showToast, selectedConversationId, conversations, tempConversations, resolveHandle, edges, sendMessage, loadEdges, loadConversations } from '../state';
 import { activeTab } from '../App';
 import { Button } from '@/components/ui/button';
@@ -8,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { EmptyState } from '@/components/relay/EmptyState';
 import { cn } from '@/lib/utils';
 import type { Conversation } from '../../types';
-import { AddLLMBridgeModal } from './AddLLMBridgeModal';
+import { AIChatView } from './AIChatView';
 
 interface PreviousRecipient {
   identifier: string; // handle or email
@@ -18,19 +19,17 @@ interface PreviousRecipient {
 }
 
 export function NewView() {
-  const [step, setStep] = useState<'selectEdge' | 'selectRecipient' | 'compose'>('selectEdge');
+  const [step, setStep] = useState<'selectEdge' | 'selectRecipient' | 'compose' | 'aiChat'>('selectEdge');
   const [selectedEdge, setSelectedEdge] = useState<{ id: string; type: 'native' | 'email' | 'local-llm'; address: string } | null>(null);
   const [recipientInput, setRecipientInput] = useState('');
   const [filteredRecipients, setFilteredRecipients] = useState<PreviousRecipient[]>([]);
   const [isResolving, setIsResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showLLMModal, setShowLLMModal] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const allEdges = edges.value;
   const nativeEdges = allEdges.filter(e => e.type === 'native' && e.status === 'active');
   const emailEdges = allEdges.filter(e => e.type === 'email' && e.status === 'active');
-  const localLlmEdges = allEdges.filter(e => e.type === 'local-llm' && e.status === 'active');
 
   // Load edges when component mounts
   useEffect(() => {
@@ -103,7 +102,10 @@ export function NewView() {
     setFilteredRecipients([]);
     setError(null);
   }
-
+  // If in AI chat mode, show the AI chat interface
+  if (step === 'aiChat') {
+    return <AIChatView onBack={resetFlow} />;
+  }
   // Step 1: Select edge
   async function handleEdgeSelect(edgeId: string, edgeType: 'native' | 'email' | 'local-llm', address: string) {
     const edge = allEdges.find(e => e.id === edgeId);
@@ -333,7 +335,7 @@ export function NewView() {
 
         <ScrollArea className="flex-1">
           <div className="p-4">
-            {(nativeEdges.length > 0 || emailEdges.length > 0 || localLlmEdges.length > 0) ? (
+            {(nativeEdges.length > 0 || emailEdges.length > 0) ? (
               <div className="flex flex-col gap-4">
                 {/* Native Handles */}
                 {nativeEdges.length > 0 && (
@@ -392,53 +394,29 @@ export function NewView() {
                   </div>
                 )}
 
-                {/* Local LLM Bridges */}
+                {/* AI Chat */}
                 <div>
                   <div className="flex items-center justify-between mb-2 pl-1">
-                    <h3 className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">Local AI</h3>
-                    <button
-                      onClick={() => setShowLLMModal(true)}
-                      className="text-xs text-[hsl(var(--primary))] hover:underline cursor-pointer bg-transparent border-none p-0"
-                    >
-                      Add Bridge →
-                    </button>
+                    <h3 className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">AI Chat</h3>
                   </div>
-                  {localLlmEdges.length > 0 ? (
-                    <div className="bg-[hsl(var(--card))] rounded-lg border border-[hsl(var(--border))] divide-y divide-[hsl(var(--border))]">
-                      {localLlmEdges.map((edge) => (
-                        <button
-                          key={edge.id}
-                          onClick={() => handleEdgeSelect(edge.id, 'local-llm', edge.address)}
-                          className="w-full flex items-center gap-3 p-3 hover:bg-[hsl(var(--accent))] transition-colors text-left"
-                        >
-                          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-500/10 to-pink-500/10 flex items-center justify-center">
-                            <Bot className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <span className="text-sm font-medium text-[hsl(var(--foreground))] block truncate">{edge.label || 'Local LLM'}</span>
-                            <span className="text-xs text-[hsl(var(--muted-foreground))]">LLM {edge.id.slice(0, 8)}</span>
-                          </div>
-                          <ChevronRight className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="bg-[hsl(var(--card))] rounded-lg border border-[hsl(var(--border))] p-6 text-center">
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500/10 to-pink-500/10 flex items-center justify-center mx-auto mb-3">
-                        <Bot className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+                  <button
+                    onClick={() => setStep('aiChat')}
+                    className="w-full bg-[hsl(var(--card))] rounded-lg border border-[hsl(var(--border))] p-4 hover:bg-[hsl(var(--accent))] transition-colors text-left cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500/10 to-pink-500/10 flex items-center justify-center">
+                        <Bot className="h-5 w-5 text-purple-600 dark:text-purple-400" />
                       </div>
-                      <p className="text-sm font-medium text-[hsl(var(--foreground))] mb-1">No Local AI configured</p>
-                      <p className="text-xs text-[hsl(var(--muted-foreground))] mb-3">
-                        Connect your local AI models to chat privately
-                      </p>
-                      <button
-                        onClick={() => setShowLLMModal(true)}
-                        className="px-3 py-1.5 text-xs font-medium rounded-md bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:opacity-90 transition-opacity cursor-pointer border-none"
-                      >
-                        Add LLM Bridge
-                      </button>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-sm font-semibold text-[hsl(var(--foreground))]">Start AI Chat</span>
+                          <SecurityBadge level="e2ee" variant="solid" showLabel={false} size="sm" />
+                        </div>
+                        <span className="text-xs text-[hsl(var(--muted-foreground))]">End-to-end encrypted via Relay Network</span>
+                      </div>
+                      <ChevronRight className="h-5 w-5 text-[hsl(var(--muted-foreground))]" />
                     </div>
-                  )}
+                  </button>
                 </div>
               </div>
             ) : (
@@ -456,16 +434,6 @@ export function NewView() {
             )}
           </div>
         </ScrollArea>
-
-        {/* Add LLM Bridge Modal */}
-        <AddLLMBridgeModal
-          open={showLLMModal}
-          onOpenChange={setShowLLMModal}
-          onSuccess={() => {
-            loadEdges();
-            showToast('LLM Bridge added successfully!');
-          }}
-        />
       </div>
     );
   }

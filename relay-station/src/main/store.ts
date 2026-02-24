@@ -69,6 +69,78 @@ const schema = {
     type: 'boolean',
     default: true,
   },
+  defaultModel: {
+    type: 'string',
+    default: '',
+  },
+  systemPrompt: {
+    type: 'string',
+    default: '',
+  },
+  availableModels: {
+    type: 'array',
+    items: {
+      type: 'string',
+    },
+  },
+  rateLimit: {
+    type: 'object',
+  },
+  accessControl: {
+    type: 'string',
+    enum: ['public', 'private', 'hidden'],
+    default: 'public',
+  },
+  streamResponses: {
+    type: 'boolean',
+    default: true,
+  },
+  chunkSize: {
+    type: 'number',
+    default: 10,
+  },
+  maxChunkDelayMs: {
+    type: 'number',
+    default: 100,
+  },
+  apiKeys: {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        label: { type: 'string' },
+        key: { type: 'string' },
+        createdAt: { type: 'number' },
+        lastUsed: { type: 'number' },
+        requestCount: { type: 'number' },
+        tokensUsed: { type: 'number' },
+        rateLimit: {
+          type: 'object',
+          properties: {
+            requestsPerHour: { type: 'number' },
+            tokensPerDay: { type: 'number' },
+          },
+        },
+      },
+    },
+    default: [],
+  },
+  // DEPRECATED: Legacy edge ID whitelist (kept for backward compatibility)
+  authorizedUsers: {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        label: { type: 'string' },
+        addedAt: { type: 'number' },
+        lastSeen: { type: 'number' },
+        requestCount: { type: 'number' },
+      },
+    },
+    default: [],
+  },
 } as const;
 
 class ConfigStore {
@@ -99,6 +171,8 @@ class ConfigStore {
       availableModels: this.store.get('availableModels'),
       rateLimit: this.store.get('rateLimit'),
       accessControl: this.store.get('accessControl', 'public'),
+      apiKeys: this.store.get('apiKeys', []),
+      authorizedUsers: this.store.get('authorizedUsers', []),
     };
   }
 
@@ -128,7 +202,11 @@ class ConfigStore {
    */
   updateConfig(updates: Partial<AppConfig>): void {
     Object.entries(updates).forEach(([key, value]) => {
-      this.store.set(key as keyof AppConfig, value);
+      // Skip undefined values to avoid electron-store validation issues
+      if (value !== undefined) {
+        this.store.set(key as keyof AppConfig, value);
+        console.log(`[ConfigStore] Set ${key}:`, typeof value === 'string' ? value.substring(0, 50) + '...' : value);
+      }
     });
   }
 
