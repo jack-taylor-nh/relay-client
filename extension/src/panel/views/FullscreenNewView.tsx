@@ -5,11 +5,14 @@ import { activeTab } from '../App';
 import { EdgeCard } from '@/components/relay/EdgeCard';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Link, User, Users, MessageSquare, ChevronRight } from 'lucide-react';
+import { Link, User, Users, MessageSquare, ChevronRight, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AIChatView, aiConversationId, aiMessages } from './AIChatView';
+import { SecurityBadge } from '@/components/relay/SecurityBadge';
 
 // Track state for fullscreen new view
 const selectedEdge = signal<string | null>(null);
+const aiChatMode = signal(false);
 
 interface RecentContact {
   handle: string;
@@ -18,6 +21,15 @@ interface RecentContact {
 }
 
 export function FullscreenNewView() {
+  // AI Chat mode — renders full-panel AIChatView
+  if (aiChatMode.value) {
+    return (
+      <AIChatView
+        onBack={() => { aiChatMode.value = false; }}
+      />
+    );
+  }
+
   const [recipientHandle, setRecipientHandle] = useState('');
   const [recents, setRecents] = useState<RecentContact[]>([]);
   const [filteredRecents, setFilteredRecents] = useState<RecentContact[]>([]);
@@ -275,6 +287,31 @@ export function FullscreenNewView() {
                 </div>
               </div>
             )}
+
+            {/* AI Chat */}
+            <div>
+              <h3 className="text-xs font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-2">AI Chat</h3>
+              <button
+                onClick={() => {
+                  aiConversationId.value = null;
+                  aiMessages.value = [];
+                  aiChatMode.value = true;
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-lg bg-[hsl(var(--card))] border border-[hsl(var(--border))] hover:bg-[hsl(var(--accent))] transition-colors text-left cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-500/10 to-pink-500/10 flex items-center justify-center flex-shrink-0">
+                  <Bot className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-sm font-semibold text-[hsl(var(--foreground))]">Start AI Chat</span>
+                    <SecurityBadge level="e2ee" variant="solid" showLabel={false} size="sm" />
+                  </div>
+                  <span className="text-xs text-[hsl(var(--muted-foreground))]">End-to-end encrypted via Relay Network</span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-[hsl(var(--muted-foreground))] flex-shrink-0" />
+              </button>
+            </div>
 
             {/* Empty state */}
             {allEdges.length === 0 && (

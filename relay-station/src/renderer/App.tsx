@@ -13,24 +13,42 @@ function App() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [ollamaReady, setOllamaReady] = useState(false);
-  const [checkingOllama, setCheckingOllama] = useState(true);
   const [hardwareSpecs, setHardwareSpecs] = useState<any>(null);
 
-  useEffect(() => {
-    checkOllama();
-  }, []);
+  // Startup sequence
+  const [startupDone, setStartupDone] = useState(false);
+  const [startupPhase, setStartupPhase] = useState<{ phase: string; message: string; step: number; total: number }>({
+    phase: 'init',
+    message: 'Preparing AI runtime...',
+    step: 0,
+    total: 4,
+  });
 
-  const checkOllama = async () => {
-    try {
-      const status = await window.electronAPI.ollamaStatus();
-      setOllamaReady(status.running);
-      setCheckingOllama(false);
-    } catch (error) {
-      console.error('Failed to check Ollama:', error);
-      setOllamaReady(false);
-      setCheckingOllama(false);
-    }
-  };
+  // On mount: subscribe to status events from main, then trigger the boot cleanup.
+  // restartClean() kills orphaned Ollama runners (which silently hold VRAM across sessions)
+  // and starts a fresh instance so models load fully onto GPU.
+  useEffect(() => {
+    window.electronAPI.onStartupStatus?.((data) => {
+      setStartupPhase(data);
+    });
+
+    const init = async () => {
+      try {
+        await window.electronAPI.startupClean?.();
+        setOllamaReady(true);
+      } catch {
+        // Cleanup failed — check if Ollama is at least reachable
+        try {
+          const status = await window.electronAPI.ollamaStatus();
+          setOllamaReady(status.running);
+        } catch {
+          setOllamaReady(false);
+        }
+      }
+      setStartupDone(true);
+    };
+    init();
+  }, []);
 
   useEffect(() => {
     if (!ollamaReady) return;
@@ -68,16 +86,10 @@ function App() {
     }
   };
 
-  // Show Ollama setup if not ready
-  if (checkingOllama) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-2 border-border border-t-primary mx-auto mb-3"></div>
-          <p className="text-muted-foreground text-sm">Initializing...</p>
-        </div>
-      </div>
-    );
+  // Boot startup — show friendly phase-by-phase screen while Ollama is
+  // being restarted clean and VRAM is being freed
+  if (!startupDone) {
+    return <StartupScreen phase={startupPhase} />;
   }
 
   if (!ollamaReady) {
@@ -174,6 +186,109 @@ function App() {
           <RelayAIOperator />
         )}
       </main>
+    </div>
+  );
+}
+
+// Startup Screen — shown while main process kills stale Ollama runners and boots fresh
+function StartupScreen({ phase }: {
+  phase: { phase: string; message: string; step: number; total: number };
+}) {
+  const steps = [
+    { label: 'Checking for previous sessions' },
+    { label: 'Freeing GPU memory' },
+    { label: 'Starting AI runtime' },
+    { label: 'All systems ready' },
+  ];
+
+  const subtitles: Record<string, string> = {
+    init:     'Just a moment…',
+    checking: 'Looking for any leftover AI processes from your last session',
+    clearing: 'Releasing GPU memory so your model loads at full speed',
+    killing:  'Releasing GPU memory so your model loads at full speed',
+    waiting:  'Waiting for memory to fully clear',
+    starting: 'Launching a fresh instance of your AI runtime',
+    ready:    "Your AI backbone is online and ready",
+  };
+
+  const subtitle = subtitles[phase.phase] ?? 'Just a moment…';
+
+  return (
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center select-none">
+      {/* Logo with soft pulse rings */}
+      <div className="relative flex items-center justify-center mb-10">
+        <div
+          className="absolute w-28 h-28 rounded-full border border-primary/15 animate-ping"
+          style={{ animationDuration: '2.8s' }}
+        />
+        <div
+          className="absolute w-22 h-22 rounded-full border border-primary/20 animate-ping"
+          style={{ animationDuration: '2.8s', animationDelay: '0.5s', width: '5.5rem', height: '5.5rem' }}
+        />
+        <div className="relative w-16 h-16 rounded-2xl bg-card border border-border flex items-center justify-center shadow-lg">
+          <svg width="36" height="36" viewBox="20 20 216 216" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="ss-gradient" x1="44" y1="28" x2="212" y2="232" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stopColor="#38BDF8" />
+                <stop offset="0.55" stopColor="#60A5FA" />
+                <stop offset="1" stopColor="#A5B4FC" />
+              </linearGradient>
+            </defs>
+            <g transform="translate(128 128) scale(1.14) translate(-128 -128)">
+              <path d="M92 176V86c0-10 8-18 18-18h30c22 0 40 18 40 40s-18 40-40 40h-22" fill="none" stroke="url(#ss-gradient)" strokeWidth="18" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M118 148l52 28" fill="none" stroke="url(#ss-gradient)" strokeWidth="18" strokeLinecap="round" />
+              <circle cx="188" cy="176" r="10" fill="url(#ss-gradient)" />
+            </g>
+          </svg>
+        </div>
+      </div>
+
+      {/* Title + subtitle */}
+      <h1 className="text-2xl font-bold mb-1.5">Relay Station</h1>
+      <p className="text-sm text-muted-foreground mb-10 text-center max-w-xs leading-relaxed">
+        {subtitle}
+      </p>
+
+      {/* Step checklist */}
+      <div className="space-y-4 w-72">
+        {steps.map((step, i) => {
+          const stepNum = i + 1;
+          const isDone = phase.step > stepNum;
+          const isActive = phase.step === stepNum;
+          const isPending = phase.step < stepNum;
+          return (
+            <div
+              key={step.label}
+              className={`flex items-center gap-3 transition-opacity duration-500 ${
+                isPending ? 'opacity-25' : 'opacity-100'
+              }`}
+            >
+              {/* Status icon */}
+              <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+                {isDone ? (
+                  <svg className="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : isActive ? (
+                  <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                ) : (
+                  <div className="w-2 h-2 rounded-full bg-border mx-auto" />
+                )}
+              </div>
+              {/* Label */}
+              <span className={`text-sm transition-colors duration-300 ${
+                isDone
+                  ? 'text-muted-foreground line-through decoration-muted-foreground/40'
+                  : isActive
+                  ? 'text-foreground font-medium'
+                  : 'text-muted-foreground'
+              }`}>
+                {step.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

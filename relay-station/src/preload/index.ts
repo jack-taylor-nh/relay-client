@@ -126,6 +126,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('operator-status-changed', (_event, stats) => callback(stats));
   },
 
+  // Startup sequence — triggers boot cleanup in main, streams status events back
+  startupClean: (): Promise<void> =>
+    ipcRenderer.invoke('startup-clean'),
+  onStartupStatus: (callback: (data: { phase: string; message: string; step: number; total: number }) => void) => {
+    ipcRenderer.on('startup-status', (_event, data) => callback(data));
+  },
+
   // Ollama management
   ollamaStatus: (): Promise<any> =>
     ipcRenderer.invoke('ollama-status'),
@@ -235,6 +242,8 @@ declare global {
       updateAPIKeyLimits?: (keyId: string, rateLimit: { requestsPerHour?: number; tokensPerDay?: number }) => Promise<void>;
       connectBridge: (edgeId: string) => Promise<void>;
       getStats: () => Promise<any>;
+      startupClean?: () => Promise<void>;
+      onStartupStatus?: (callback: (data: { phase: string; message: string; step: number; total: number }) => void) => void;
       ollamaStatus: () => Promise<any>;
       ollamaRestart: () => Promise<boolean>;
       ollamaListModels: () => Promise<any[]>;

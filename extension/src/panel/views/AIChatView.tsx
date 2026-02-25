@@ -95,19 +95,30 @@ const TOOL_UI: Record<string, { label: string; icon: preact.JSX.Element; color: 
   deep_search:   { label: 'Researching',      icon: <BookOpen className="w-3.5 h-3.5" />, color: 'text-emerald-400' },
 };
 
+// Spinner that never re-renders after mount — zero props means memo() never invalidates it,
+// so the CSS animation runs continuously without ever resetting mid-spin.
+const PersistentSpinner = memo(function PersistentSpinner({ size = 'sm' }: { size?: 'sm' | 'md' }) {
+  return (
+    <Loader2
+      class={size === 'md' ? 'w-4 h-4 opacity-80' : 'w-3 h-3 opacity-60'}
+      style={{ animation: 'spin 1s linear infinite', willChange: 'transform', flexShrink: 0 }}
+    />
+  );
+});
+
 // Wrap in memo so parent re-renders from token streaming never touch this component.
 // It re-renders only when aiToolStatus signal changes (2× per tool call).
 const ToolStatusIndicator = memo(function ToolStatusIndicator() {
   // Read signal directly — this component only re-renders when aiToolStatus changes,
-  // NOT on every streaming token from the parent. This keeps the spinner animation smooth.
+  // NOT on every streaming token from the parent. The spinner is isolated in PersistentSpinner.
   const status = aiToolStatus.value;
   const ui = status ? TOOL_UI[status.tool] : null;
 
   if (!status || !ui) {
-    // Default: generic thinking spinner
+    // Default: generic thinking state
     return (
       <div class="flex items-center gap-2 text-[hsl(var(--muted-foreground))]">
-        <Loader2 class="w-4 h-4 animate-spin" />
+        <PersistentSpinner size="md" />
         <span class="text-sm">Thinking…</span>
       </div>
     );
@@ -119,7 +130,7 @@ const ToolStatusIndicator = memo(function ToolStatusIndicator() {
         <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[hsl(var(--muted))/30] border border-[hsl(var(--border))] text-xs text-emerald-400">
           <CheckCircle2 class="w-3.5 h-3.5 flex-shrink-0" />
           <span>Got results — generating response…</span>
-          <Loader2 class="w-3 h-3 animate-spin opacity-60" />
+          <PersistentSpinner />
         </div>
       </div>
     );
@@ -138,7 +149,7 @@ const ToolStatusIndicator = memo(function ToolStatusIndicator() {
         {truncated && (
           <span class="text-[hsl(var(--muted-foreground))] truncate max-w-[180px]">“{truncated}”</span>
         )}
-        <Loader2 class="w-3 h-3 animate-spin flex-shrink-0 opacity-60" />
+        <PersistentSpinner />
       </div>
     </div>
   );
@@ -436,14 +447,26 @@ const selectedModelData = computed(() => {
 
 interface AIChatViewProps {
   onBack?: () => void;
+  /** Custom title shown in the header instead of "AI Chat" (e.g. conversation name from Inbox) */
+  conversationTitle?: string;
+  /** Pre-load a specific conversation by ID (used when opening from Inbox) */
+  initialConversationId?: string;
 }
 
-export function AIChatView({ onBack }: AIChatViewProps) {
+export function AIChatView({ onBack, conversationTitle, initialConversationId }: AIChatViewProps) {
   const [prompt, setPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showBrowseModal, setShowBrowseModal] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // When opened from Inbox with a specific conversation, load it into the AI chat signals
+  useEffect(() => {
+    if (initialConversationId && aiConversationId.value !== initialConversationId) {
+      aiMessages.value = []; // Clear so the module-level effect re-fetches
+      aiConversationId.value = initialConversationId;
+    }
+  }, [initialConversationId]);
 
   // Load model availability on mount
   useEffect(() => {
@@ -594,26 +617,17 @@ export function AIChatView({ onBack }: AIChatViewProps) {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-purple-600 dark:text-purple-400" />
             <h2 className="text-lg font-semibold text-[hsl(var(--foreground))]">
-              AI Chat
+              {conversationTitle ?? 'AI Chat'}
             </h2>
             <SecurityBadge level="e2ee" variant="solid" size="sm" />
           </div>
           <div className="flex items-center gap-2">
             {aiMessages.value.length > 0 && (
-              <>
-                <ContextWheel 
-                  currentTokens={totalContextTokens.value}
-                  maxTokens={8192}
-                  messageCount={aiMessages.value.length}
-                />
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={clearHistory}
-                >
-                  Clear
-                </Button>
-              </>
+              <ContextWheel 
+                currentTokens={totalContextTokens.value}
+                maxTokens={8192}
+                messageCount={aiMessages.value.length}
+              />
             )}
           </div>
         </div>

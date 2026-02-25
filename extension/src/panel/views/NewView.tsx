@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { EmptyState } from '@/components/relay/EmptyState';
 import { cn } from '@/lib/utils';
 import type { Conversation } from '../../types';
-import { AIChatView } from './AIChatView';
+import { AIChatView, aiConversationId, aiMessages } from './AIChatView';
 
 interface PreviousRecipient {
   identifier: string; // handle or email
@@ -400,7 +400,11 @@ export function NewView() {
                     <h3 className="text-xs font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-wide">AI Chat</h3>
                   </div>
                   <button
-                    onClick={() => setStep('aiChat')}
+                    onClick={() => {
+                      aiConversationId.value = null;
+                      aiMessages.value = [];
+                      setStep('aiChat');
+                    }}
                     className="w-full bg-[hsl(var(--card))] rounded-lg border border-[hsl(var(--border))] p-4 hover:bg-[hsl(var(--accent))] transition-colors text-left cursor-pointer"
                   >
                     <div className="flex items-center gap-3">

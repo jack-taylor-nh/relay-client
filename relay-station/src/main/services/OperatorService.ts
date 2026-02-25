@@ -641,9 +641,32 @@ class OperatorService extends EventEmitter {
 
     for (const toolCall of toolCalls) {
       try {
-        if (toolCall.function.name === 'web_search') {
+        // Safely parse arguments — they may be a JSON string (assembled from stream
+        // fragments), a pre-parsed object, or malformed/empty if the model misfired.
+        let args: any = {};
+        try {
           const rawArgs = toolCall.function.arguments;
-          const args = typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs;
+          if (typeof rawArgs === 'string' && rawArgs.trim()) {
+            args = JSON.parse(rawArgs);
+          } else if (rawArgs && typeof rawArgs === 'object') {
+            args = rawArgs;
+          }
+        } catch {
+          console.warn(`[Operator] Failed to parse tool arguments for ${toolCall.function.name}:`, toolCall.function.arguments);
+          // args stays {} — required-arg validation below will return an error to the model
+        }
+
+        if (toolCall.function.name === 'web_search') {
+          if (!args.query || typeof args.query !== 'string') {
+            console.warn(`[Operator] web_search called without a valid query — returning error to model`);
+            toolResults.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name: 'web_search',
+              content: 'Error: Required parameter "query" was missing or empty. You must provide a non-empty search query string.',
+            });
+            continue;
+          }
           // Models often return count as a string — coerce before sending
           const count = args.count ? Number(args.count) || 10 : 10;
           const searchResult = await this.callWebSearchTool(args.query, count);
@@ -668,8 +691,16 @@ class OperatorService extends EventEmitter {
           });
 
         } else if (toolCall.function.name === 'fetch_content') {
-          const rawArgs = toolCall.function.arguments;
-          const args = typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs;
+          if (!args.url || typeof args.url !== 'string') {
+            console.warn(`[Operator] fetch_content called without a valid url — returning error to model`);
+            toolResults.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name: 'fetch_content',
+              content: 'Error: Required parameter "url" was missing or empty. You must provide a valid URL string.',
+            });
+            continue;
+          }
           const fetchResult = await this.callFetchContentTool(args.url, args.selector);
 
           toolResults.push({
@@ -686,8 +717,16 @@ class OperatorService extends EventEmitter {
           });
 
         } else if (toolCall.function.name === 'deep_search') {
-          const rawArgs = toolCall.function.arguments;
-          const args = typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs;
+          if (!args.query || typeof args.query !== 'string') {
+            console.warn(`[Operator] deep_search called without a valid query — returning error to model`);
+            toolResults.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              name: 'deep_search',
+              content: 'Error: Required parameter "query" was missing or empty. You must provide a non-empty search query string.',
+            });
+            continue;
+          }
           const count = args.count ? Number(args.count) || 3 : 3;
           const deepResult = await this.callDeepSearchTool(args.query, count);
 
@@ -839,7 +878,17 @@ class OperatorService extends EventEmitter {
               }
               if (tc.id) toolCallsAccumulator[idx].id = tc.id;
               if (tc.function?.name) toolCallsAccumulator[idx].function.name += tc.function.name;
-              if (tc.function?.arguments) toolCallsAccumulator[idx].function.arguments += tc.function.arguments;
+              // arguments can arrive as string fragments (OpenAI spec) OR as a pre-parsed
+              // object (Ollama non-standard). Handle both so we always store a JSON string.
+              const argChunk = tc.function?.arguments;
+              if (argChunk !== undefined && argChunk !== null && argChunk !== '') {
+                if (typeof argChunk === 'string') {
+                  toolCallsAccumulator[idx].function.arguments += argChunk;
+                } else if (typeof argChunk === 'object') {
+                  // Ollama sometimes delivers the whole parsed object in one shot
+                  toolCallsAccumulator[idx].function.arguments = JSON.stringify(argChunk);
+                }
+              }
             }
           }
 

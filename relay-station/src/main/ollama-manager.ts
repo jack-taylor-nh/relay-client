@@ -342,8 +342,15 @@ export class OllamaManager {
    * indefinitely. This method uses taskkill / pkill to nuke everything, then
    * starts a clean Ollama instance.
    */
-  async restartClean(): Promise<boolean> {
-    console.log('[OllamaManager] Boot cleanup: killing all Ollama processes for clean VRAM state...');
+  async restartClean(
+    onStatus?: (phase: string, message: string, step: number, total: number) => void
+  ): Promise<boolean> {
+    const report = (phase: string, message: string, step: number) => {
+      console.log(`[OllamaManager] ${message}`);
+      onStatus?.(phase, message, step, 4);
+    };
+
+    report('checking', 'Checking for previous AI sessions...', 1);
 
     // Disable auto-restart so the exit handler doesn't race with us
     this.autoRestart = false;
@@ -359,11 +366,14 @@ export class OllamaManager {
       this.process = null;
     }
 
-    // Kill any remaining ollama processes at the OS level (orphaned runners, etc.)
+    report('clearing', 'Freeing GPU memory...', 2);
+
+    // Kill any remaining Ollama processes at the OS level (orphaned runners, etc.)
+    // windowsHide: true ensures taskkill never flashes a visible CMD window.
     await new Promise<void>(resolve => {
       try {
         const killer = process.platform === 'win32'
-          ? spawn('taskkill', ['/f', '/im', 'ollama.exe'], { shell: false, stdio: 'ignore' })
+          ? spawn('taskkill', ['/f', '/im', 'ollama.exe'], { shell: false, stdio: 'ignore', windowsHide: true })
           : spawn('pkill', ['-f', 'ollama'], { stdio: 'ignore' });
         killer.on('exit', () => resolve());
         killer.on('error', () => resolve()); // command not found etc. — non-fatal
@@ -372,22 +382,26 @@ export class OllamaManager {
         resolve();
       }
     });
-    console.log('[OllamaManager] Boot cleanup: all Ollama processes terminated');
+    console.log('[OllamaManager] All Ollama processes terminated');
 
     // Wait for port 11434 to be released
-    const released = await this.waitForPortFree(5000);
+    const released = await this.waitForPortFree(6000);
     if (!released) {
-      console.warn('[OllamaManager] Boot cleanup: port 11434 still busy after kill — proceeding anyway');
-    } else {
-      console.log('[OllamaManager] Boot cleanup: port 11434 free, starting fresh Ollama instance');
+      console.warn('[OllamaManager] Port 11434 still busy after kill — proceeding anyway');
     }
+
+    report('starting', 'Starting AI runtime...', 3);
 
     // Re-enable normal lifecycle and start fresh
     this.autoRestart = true;
     this.isShuttingDown = false;
     this.startTime = null;
 
-    return this.start();
+    const started = await this.start();
+    if (started) {
+      report('ready', 'AI runtime ready', 4);
+    }
+    return started;
   }
 
   /**

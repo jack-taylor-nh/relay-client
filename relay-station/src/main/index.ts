@@ -1148,10 +1148,8 @@ app.whenReady().then(async () => {
       console.error('[App] Ollama startup error:', err);
     }
 
-    // Kill all Ollama processes and restart clean — this is the only reliable way
-    // to free VRAM from orphaned runners (prior crashes, external sessions, etc.).
-    // The /api/ps eviction only works for runners Ollama's scheduler still tracks.
-    await ollamaManager.restartClean();
+    // Startup cleanup runs when the renderer loads (via startup-clean IPC).
+    // See ipcMain.handle('startup-clean') below for the implementation.
 
     // Load saved active LLM
     const savedLLM = configStore.getActiveLLM();

@@ -10,6 +10,7 @@ import { SecurityBadge } from '@/components/relay/SecurityBadge';
 import { ViaBadge } from '@/components/relay/ViaBadge';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { AIChatView } from './AIChatView';
 
 // ============================================
 // Types
@@ -923,6 +924,17 @@ export function ConversationDetailView() {
   const details = conversationDetails.value;
   const conv = conversations.value.find(c => c.id === conversationId);
   const isNativeChat = details?.type === 'native';
+
+  // AI conversations get the full AIChatView experience (streaming, model picker, tool calls, etc.)
+  if (conv?.type === 'local-llm') {
+    return (
+      <AIChatView
+        onBack={handleBack}
+        conversationTitle={conv.counterpartyName ?? 'AI Assistant'}
+        initialConversationId={conversationId}
+      />
+    );
+  }
   
   return (
     <div className="flex flex-col h-full bg-[hsl(var(--background))]">
