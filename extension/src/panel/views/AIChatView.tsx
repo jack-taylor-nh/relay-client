@@ -932,8 +932,13 @@ function MessageBubble({ message }: { message: Message }) {
   if (!isUser) {
     // Latency/generation time
     if (message.latency !== undefined) {
-      const latencySec = (message.latency / 1000).toFixed(1);
-      detailedStats.push(`Generated in ${latencySec}s`);
+      // latency = total end-to-end time; timeToFirstToken = thinking/TTFT.
+      // "Generated in" should be just the token generation phase, not the thinking phase.
+      const generationMs = (message.timeToFirstToken !== undefined)
+        ? Math.max(0, message.latency - message.timeToFirstToken)
+        : message.latency;
+      const generatedSec = (generationMs / 1000).toFixed(1);
+      detailedStats.push(`Generated in ${generatedSec}s`);
       
       // Show thinking time if available
       if (message.timeToFirstToken !== undefined) {
