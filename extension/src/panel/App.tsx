@@ -65,7 +65,7 @@ function MainApp() {
   return (
     <div class="flex flex-col h-screen">
       <Header />
-      <main class="flex-1 overflow-y-auto">
+      <main class="flex-1 overflow-hidden flex flex-col min-h-0">
         {activeTab.value === 'inbox' && <InboxView />}
         {activeTab.value === 'new' && <NewView />}
         {activeTab.value === 'edges' && <EdgesView />}
@@ -106,7 +106,7 @@ function FullscreenMainApp() {
         </nav>
         
         {/* Main content area */}
-        <main class="flex-1 overflow-hidden">
+        <main class="flex-1 overflow-hidden flex flex-col">
           {activeTab.value === 'inbox' && <FullscreenInboxView />}
           {activeTab.value === 'new' && <FullscreenNewView />}
           {activeTab.value === 'edges' && <FullscreenEdgesView />}

@@ -32,3 +32,6 @@ yarn-error.log*
 *.md
 !README.md
 !ui/README.md
+
+# Planning documents (internal)
+.planning/

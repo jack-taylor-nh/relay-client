@@ -36,6 +36,13 @@ interface OperatorStats {
   uptime: number;
   lastActivity: number | null;
   errorMessage?: string;
+  gpuStatus?: {
+    modelLoaded: string | null;
+    gpuLayers: number;
+    totalLayers: number;
+    vramUsed: string;
+    loadedAt: number | null;
+  };
 }
 
 interface RequestMetrics {
@@ -98,6 +105,10 @@ class OperatorService extends EventEmitter {
     this.reconnectAttempts = 0;
     this.errorMessage = undefined;
 
+    // CRITICAL: Kill orphaned Ollama runner processes BEFORE starting
+    // These hog VRAM and prevent models from loading on GPU
+    await this.killOrphanedOllamaRunners();
+
     // Start connection in background (don't await - it's a long-running SSE stream)
     this.connect();
   }
@@ -105,6 +116,62 @@ class OperatorService extends EventEmitter {
   /**
    * Stop the operator and cleanup
    */
+  /**
+   * Kill orphaned Ollama runner processes (Windows only)
+   * These are child processes that didn't exit cleanly and are hogging VRAM
+   */
+  async killOrphanedOllamaRunners(): Promise<void> {
+    if (process.platform !== 'win32') return; // Windows only
+    
+    try {
+      console.log('[Operator] Checking for orphaned Ollama runner processes...');
+      
+      // Use PowerShell to find and kill ollama.exe processes with "runner" in command line
+      const { execSync } = require('child_process');
+      
+      // Step 1: Get all ollama.exe runner processes (exclude the main service)
+      // We look for processes with "runner" or "--model" in the command line
+      // Fixed syntax: Get-CimInstance without spaces in filter
+      const psCommand = 'Get-Process -Name ollama -ErrorAction SilentlyContinue | Where-Object { $_.Path -like \'*ollama.exe*\' } | ForEach-Object { $id = $_.Id; $cmdline = (Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq $id }).CommandLine; if ($cmdline -match \'runner|--model|--ollama-engine\') { Write-Output "$id" } }';
+      
+      const result = execSync(`powershell -Command "${psCommand}"`, {
+        encoding: 'utf-8',
+        timeout: 5000,
+      }).trim();
+      
+      if (!result) {
+        console.log('[Operator] No orphaned Ollama runners found');
+        return;
+      }
+      
+      const pids = result.split('\n').map((pid: string) => pid.trim()).filter(Boolean);
+      
+      if (pids.length === 0) {
+        console.log('[Operator] No orphaned Ollama runners found');
+        return;
+      }
+      
+      console.log(`[Operator] Found ${pids.length} orphaned Ollama runner(s), killing: ${pids.join(', ')}`);
+      
+      // Step 2: Kill each runner process
+      for (const pid of pids) {
+        try {
+          execSync(`taskkill /F /PID ${pid}`, { timeout: 3000 });
+          console.log(`[Operator] ✓ Killed runner process ${pid}`);
+        } catch (err) {
+          console.warn(`[Operator] Could not kill runner ${pid}:`, err);
+        }
+      }
+      
+      // Wait for processes to fully terminate
+      await new Promise(r => setTimeout(r, 1000));
+      
+      console.log('[Operator] ✓ Orphaned runner cleanup complete');
+    } catch (err) {
+      console.warn('[Operator] Failed to kill orphaned runners:', err);
+    }
+  }
+  
   /**
    * On boot: query Ollama /api/ps and evict any models left loaded from a prior
    * crash or unclean shutdown. Prevents VRAM exhaustion across restarts.
@@ -203,6 +270,9 @@ class OperatorService extends EventEmitter {
         console.log(`[Operator] Could not unload model ${modelToUnload} (Ollama may be stopping)`);
       }
     }
+    
+    // Kill any orphaned runner processes to free VRAM
+    await this.killOrphanedOllamaRunners();
 
     this.emit('status-change', this.getStats());
   }
@@ -273,6 +343,28 @@ class OperatorService extends EventEmitter {
   }
 
   /**
+   * Send heartbeat pong to server
+   * Responds to ping events to keep connection alive bidirectionally
+   */
+  private async sendHeartbeatPong(): Promise<void> {
+    if (!this.config) return;
+
+    try {
+      await fetch(`${RELAY_AI_ROUTER_URL}/v1/operators/heartbeat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          edge_id: this.config.edge_id,
+        }),
+      });
+    } catch (error: any) {
+      // Don't log every failure - pong is best-effort
+      // Only throw so caller can log if needed
+      throw new Error(`Heartbeat pong failed: ${error.message}`);
+    }
+  }
+
+  /**
    * Process SSE event stream
    */
   private async processSSEStream(response: any): Promise<void> {
@@ -298,8 +390,11 @@ class OperatorService extends EventEmitter {
               
               // Handle different event types
               if (currentEvent.event === 'ping') {
-                // Just a heartbeat, update activity
+                // Heartbeat from server — respond with pong
                 this.lastActivity = Date.now();
+                this.sendHeartbeatPong().catch(err => {
+                  console.warn('[Operator] Failed to send heartbeat pong:', err.message);
+                });
               } else if (eventData.type === 'connected') {
                 // Connection confirmation
                 console.log('[Operator] Received connection confirmation');
@@ -471,7 +566,10 @@ class OperatorService extends EventEmitter {
       '- fetch_content: read the full text of a URL the user provides or that appeared in a prior search result.\n' +
       '- deep_search: thorough research — use this whenever the user asks to "research", "explain in detail", ' +
       '"summarize multiple sources", "find everything about", or needs comprehensive multi-source information. ' +
-      'Prefer deep_search over web_search whenever depth matters more than speed.';
+      'Prefer deep_search over web_search whenever depth matters more than speed.\n\n' +
+      'IMPORTANT: Use the structured function calling format provided by the tools parameter. ' +
+      'Do NOT output XML tags like <tool_call> or <function_calls> in your response text. ' +
+      'When you need to call a tool, use the native JSON function calling mechanism.';
 
     if (baseMessages.length > 0 && baseMessages[0].role === 'system') {
       // Augment existing system message
@@ -816,13 +914,16 @@ class OperatorService extends EventEmitter {
     let finishReason: string | null = null;
 
     // Use provided messages or original payload messages
-    const includeTools = !messages; // Only include tools on first call, not on continuation
+    // CRITICAL: Always include tools, even on continuation calls, so model knows it can call more tools
+    const includeSystemPrompt = !messages; // Only add system prompt on first call
     const rawMessages = messages || decryptedPayload.messages;
     const prunedMessages = this.pruneMessageHistory(rawMessages);
-    const messagesToSend = includeTools ? this.buildMessagesWithSystemPrompt(prunedMessages) : prunedMessages;
+    const messagesToSend = includeSystemPrompt ? this.buildMessagesWithSystemPrompt(prunedMessages) : prunedMessages;
 
     // Track the active model for VRAM cleanup on shutdown
     this.activeModel = decryptedPayload.model;
+    
+    console.log(`[Operator] Calling Ollama with model: ${decryptedPayload.model}`);
 
     // Call local Ollama with streaming via OpenAI-compatible endpoint.
     // keep_alive is an Ollama extension supported on this endpoint.
@@ -836,7 +937,7 @@ class OperatorService extends EventEmitter {
         messages: messagesToSend,
         stream: true,
         keep_alive: -1, // Ollama extension — keep model loaded between requests
-        ...(includeTools ? { tools: this.getToolsDefinition() } : {}),
+        tools: this.getToolsDefinition(), // Always include tools for multi-turn tool calling
       }),
     });
 
@@ -1035,13 +1136,17 @@ class OperatorService extends EventEmitter {
     messages?: any[] // For tool call continuation
   ): Promise<void> {
     // Use provided messages or original payload messages
-    const includeTools = !messages; // Only include tools on first call
+    // CRITICAL: Always include tools, even on continuation calls, so model knows it can call more tools
+    const includeSystemPrompt = !messages; // Only add system prompt on first call
     const rawMessages = messages || decryptedPayload.messages;
     const prunedMessages = this.pruneMessageHistory(rawMessages);
-    const messagesToSend = includeTools ? this.buildMessagesWithSystemPrompt(prunedMessages) : prunedMessages;
+    const messagesToSend = includeSystemPrompt ? this.buildMessagesWithSystemPrompt(prunedMessages) : prunedMessages;
 
     // Use OpenAI-compatible endpoint — keep_alive is supported as an Ollama extension
     this.activeModel = decryptedPayload.model;
+    
+    console.log(`[Operator] Calling Ollama (non-streaming) with model: ${decryptedPayload.model}`);
+    
     const response = await fetch('http://localhost:11434/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1052,7 +1157,7 @@ class OperatorService extends EventEmitter {
         max_tokens: decryptedPayload.max_tokens ?? 2048,
         stream: false,
         keep_alive: -1,
-        ...(includeTools ? { tools: this.getToolsDefinition() } : {}),
+        tools: this.getToolsDefinition(), // Always include tools for multi-turn tool calling
       }),
     });
 
@@ -1135,11 +1240,65 @@ class OperatorService extends EventEmitter {
   }
 
   /**
+   * Get GPU status from Ollama (running models)
+   */
+  async getGPUStatus(): Promise<OperatorStats['gpuStatus']> {
+    try {
+      const response = await fetch('http://localhost:11434/api/ps', {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000),
+      });
+      
+      if (!response.ok) return undefined;
+      
+      const data = await response.json() as { models?: any[] };
+      const models = data.models || [];
+      
+      if (models.length === 0) {
+        return {
+          modelLoaded: null,
+          gpuLayers: 0,
+          totalLayers: 0,
+          vramUsed: '0 MB',
+          loadedAt: null,
+        };
+      }
+      
+      // Get the most recently loaded model
+      const latestModel = models.sort((a: any, b: any) => 
+        new Date(b.expires_at || 0).getTime() - new Date(a.expires_at || 0).getTime()
+      )[0];
+      
+      // Parse layer info (e.g., "28/28 layers on GPU")
+      const gpuLayers = latestModel.details?.gpu_layers || 0;
+      const totalLayers = latestModel.details?.num_layers || 0;
+      
+      // Format VRAM usage
+      const sizeBytes = latestModel.size || 0;
+      const sizeMB = Math.round(sizeBytes / (1024 * 1024));
+      const sizeGB = (sizeBytes / (1024 * 1024 * 1024)).toFixed(1);
+      const vramUsed = sizeMB > 1024 ? `${sizeGB} GB` : `${sizeMB} MB`;
+      
+      return {
+        modelLoaded: latestModel.name || null,
+        gpuLayers,
+        totalLayers,
+        vramUsed,
+        loadedAt: latestModel.expires_at ? new Date(latestModel.expires_at).getTime() : Date.now(),
+      };
+    } catch (error) {
+      // Non-fatal - GPU status is optional
+      return undefined;
+    }
+  }
+
+  /**
    * Get current operator stats
    */
-  getStats(): OperatorStats {
+  async getStats(): Promise<OperatorStats> {
     const uptime = this.startTime ? Date.now() - this.startTime : 0;
     const averageLatency = this.successfulRequests > 0 ? this.latencySum / this.successfulRequests : 0;
+    const gpuStatus = await this.getGPUStatus();
 
     return {
       isRunning: this.isRunning,
@@ -1153,6 +1312,7 @@ class OperatorService extends EventEmitter {
       uptime: Math.round(uptime / 1000), // seconds
       lastActivity: this.lastActivity,
       errorMessage: this.errorMessage,
+      gpuStatus,
     };
   }
 

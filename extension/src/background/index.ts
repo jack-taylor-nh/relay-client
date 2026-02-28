@@ -32,6 +32,8 @@ import { RatchetState, RatchetDecrypt, RatchetInitAlice, RatchetInitBob, seriali
 import type { Conversation as RatchetConversation, SecurityLevel, EdgeType } from '@relay/core';
 import { ratchetStorage } from '../lib/storage';
 import { streamingManager } from './streamingManager';
+import { exportIdentity, importIdentity, estimateExportSize } from '@relay/core';
+import { chromeIdentityStorage } from '../lib/identity-storage';
 
 // ============================================
 // Types
@@ -476,7 +478,18 @@ type MessageType =
   | { type: 'FORCE_POLL' }
   // E2EE crypto operations
   | { type: 'ENCRYPT_E2EE'; payload: { plaintext: string; recipientPublicKey: string } }
-  | { type: 'DECRYPT_E2EE'; payload: { ciphertext: string; ephemeralPublicKey: string; nonce: string; recipientPrivateKey?: string } };
+  | { type: 'DECRYPT_E2EE'; payload: { ciphertext: string; ephemeralPublicKey: string; nonce: string; recipientPrivateKey?: string } }
+  // Identity Export/Import
+  | { type: 'EXPORT_IDENTITY'; payload: { passphrase: string; includeMessages?: boolean; includeAssets?: boolean; exportReason?: string } }
+  | { type: 'IMPORT_IDENTITY'; payload: { fileContent: string; passphrase: string; conflictStrategy?: 'abort' | 'replace' } }
+  | { type: 'VALIDATE_IMPORT'; payload: { exportData: any; passphrase: string } }
+  | { type: 'ESTIMATE_EXPORT_SIZE'; payload: { includeMessages?: boolean } }
+  // Asset Management
+  | { type: 'REDEEM_ASSET_CODE'; payload: { code: string } }
+  | { type: 'GET_ASSETS' }
+  | { type: 'GET_ENTITLEMENTS' }
+  | { type: 'CHECK_ENTITLEMENT'; payload: { feature: string } }
+  | { type: 'GET_ASSET_BALANCE'; payload: { assetType: string } };
 
 async function handleMessage(message: MessageType): Promise<unknown> {
   // Reset lock timer on activity
@@ -714,9 +727,478 @@ async function handleMessage(message: MessageType): Promise<unknown> {
       await pollForNewMessages();
       return { success: true };
 
+    // ============================================
+    // Identity Export/Import
+    // ============================================
+
+    case 'EXPORT_IDENTITY': {
+      try {
+        // Verify identity is unlocked
+        if (!unlockedIdentity) {
+          return {
+            success: false,
+            error: 'Identity must be unlocked to export'
+          };
+        }
+
+        const { passphrase, includeMessages = true, includeAssets = true, exportReason = 'manual' } = message.payload;
+
+        // Export via core library
+        const result = await exportIdentity(
+          chromeIdentityStorage,
+          passphrase,
+          {
+            includeMessages,
+            includeAssets,
+            exportReason: exportReason as 'migration' | 'backup' | 'manual'
+          }
+        );
+
+        // Generate filename
+        const timestamp = new Date().toISOString().split('T')[0];
+        const fingerprintShort = unlockedIdentity.fingerprint.substring(0, 8);
+        const filename = `relay-identity-${fingerprintShort}-${timestamp}.relay`;
+
+        // Create downloadable file using data URL (service workers don't have Blob/URL.createObjectURL)
+        const exportJson = JSON.stringify(result.export, null, 2);
+        const base64Data = btoa(unescape(encodeURIComponent(exportJson)));
+        // Use octet-stream to preserve .relay extension instead of Chrome auto-correcting to .json
+        const dataUrl = `data:application/octet-stream;base64,${base64Data}`;
+
+        // Trigger download
+        await chrome.downloads.download({
+          url: dataUrl,
+          filename,
+          saveAs: true
+        });
+
+        console.log('[Export] Identity exported successfully:', {
+          filename,
+          conversations: result.metadata.conversationCount,
+          edges: result.metadata.edgeCount,
+          size: result.metadata.totalSize
+        });
+
+        return {
+          success: true,
+          filename,
+          metadata: result.metadata
+        };
+      } catch (error) {
+        console.error('[Export] Failed:', error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Export failed'
+        };
+      }
+    }
+
+    case 'VALIDATE_IMPORT': {
+      try {
+        const { exportData, passphrase } = message.payload;
+
+        // Validate via core library with verifyOnly: true
+        const result = await importIdentity(
+          exportData,
+          passphrase,
+          chromeIdentityStorage,
+          { verifyOnly: true, conflictStrategy: 'abort' }
+        );
+
+        if (!result.success) {
+          return {
+            success: false,
+            error: result.error || 'Validation failed'
+          };
+        }
+
+        // Build preview data
+        const preview = {
+          version: exportData.version,
+          exportedAt: exportData.exportedAt,
+          fingerprint: result.fingerprint || '',
+          platform: exportData.exportedFrom || 'unknown',
+          edgeCount: result.metadata?.edgesImported || 0,
+          conversationCount: result.metadata?.conversationsImported || 0,
+          messageCount: result.metadata?.messagesImported || 0,
+          hasAssets: (result.metadata?.assetsImported || 0) > 0,
+          assetCount: result.metadata?.assetsImported || 0
+        };
+
+        // Check for conflicts
+        const existingIdentity = await chromeIdentityStorage.getIdentity();
+        let conflict: { type: 'none' | 'fingerprint'; currentFingerprint?: string; importFingerprint?: string };
+        
+        if (existingIdentity && result.fingerprint) {
+          conflict = {
+            type: 'fingerprint',
+            currentFingerprint: existingIdentity.fingerprint,
+            importFingerprint: result.fingerprint
+          };
+        } else {
+          conflict = { type: 'none' };
+        }
+
+        console.log('[Validate Import] Preview:', preview);
+
+        return {
+          success: true,
+          preview,
+          conflict,
+          warnings: result.warnings
+        };
+      } catch (error) {
+        console.error('[Validate Import] Failed:', error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Validation failed'
+        };
+      }
+    }
+
+    case 'IMPORT_IDENTITY': {
+      try {
+        const payload = message.payload as any;
+        const { exportData, passphrase, strategy = 'abort' } = payload;
+
+        // Import via core library
+        const result = await importIdentity(
+          exportData,
+          passphrase,
+          chromeIdentityStorage,
+          { conflictStrategy: strategy }
+        );
+
+        if (!result.success) {
+          return {
+            success: false,
+            error: result.error,
+            conflicts: result.conflicts,
+            warnings: result.warnings
+          };
+        }
+
+        console.log('[Import] Identity imported successfully:', {
+          fingerprint: result.fingerprint,
+          conversations: result.metadata?.conversationsImported,
+          edges: result.metadata?.edgesImported
+        });
+
+        // Lock the imported identity (require passphrase to unlock)
+        unlockedIdentity = null;
+        storageKey = null;
+        decryptedMessageCache.clear();
+        await chrome.storage.session.remove([SESSION_STATE_KEY]);
+
+        // TODO: Disconnect SSE if connected (when SSE is implemented)
+        // if (sseController) {
+        //   sseController.abort();
+        //   sseController = null;
+        // }
+
+        // Notify panel
+        notifyPanel({ type: 'IDENTITY_IMPORTED', fingerprint: result.fingerprint });
+
+        return {
+          success: true,
+          fingerprint: result.fingerprint,
+          metadata: result.metadata,
+          warnings: result.warnings,
+          message: 'Identity imported successfully. Please unlock to use.'
+        };
+      } catch (error) {
+        console.error('[Import] Failed:', error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Import failed'
+        };
+      }
+    }
+
+    case 'ESTIMATE_EXPORT_SIZE': {
+      try {
+        const { includeMessages = true } = message.payload;
+        const estimatedSize = await estimateExportSize(
+          chromeIdentityStorage,
+          { includeMessages }
+        );
+        
+        return {
+          success: true,
+          estimatedSize,
+          estimatedSizeFormatted: formatBytes(estimatedSize)
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to estimate size'
+        };
+      }
+    }
+
+    case 'VALIDATE_IMPORT': {
+      try {
+        const { exportData, passphrase } = message.payload;
+
+        // Try to decrypt and validate the export
+        // We'll use a simplified validation without actually importing
+        const { isV2Export, validateExportStructure } = await import('@relay/core');
+        
+        if (!isV2Export(exportData)) {
+          return {
+            success: false,
+            error: 'Invalid export format - only V2 exports are supported'
+          };
+        }
+
+        if (!validateExportStructure(exportData)) {
+          return {
+            success: false,
+            error: 'Export file structure is invalid'
+          };
+        }
+
+        // Try to decrypt the payload to validate passphrase
+        const { decryptPayload } = await import('@relay/core');
+        let payload;
+        try {
+          payload = await decryptPayload(exportData.encrypted, passphrase);
+        } catch (err) {
+          return {
+            success: false,
+            error: 'Incorrect passphrase or corrupted file'
+          };
+        }
+
+        // Check for conflicts
+        const currentIdentity = await chromeIdentityStorage.getIdentity();
+        const conflict = currentIdentity && currentIdentity.fingerprint !== payload.identity.fingerprint
+          ? {
+              type: 'fingerprint' as const,
+              currentFingerprint: currentIdentity.fingerprint,
+              importFingerprint: payload.identity.fingerprint
+            }
+          : { type: 'none' as const };
+
+        // Build preview
+        const preview = {
+          version: exportData.version,
+          exportedAt: exportData.exportedAt,
+          fingerprint: payload.identity.fingerprint,
+          platform: exportData.exportedFrom,
+          edgeCount: payload.edges?.length || 0,
+          conversationCount: payload.ratchetStates?.length || 0,
+          messageCount: payload.messageCache ? Object.keys(payload.messageCache.messages || {}).length : 0,
+          hasAssets: !!payload.assets,
+          assetCount: payload.assets 
+            ? (payload.assets.permanent?.length || 0) + (payload.assets.consumable?.length || 0)
+            : 0
+        };
+
+        return {
+          success: true,
+          preview,
+          conflict
+        };
+      } catch (error) {
+        console.error('[Validate Import] Failed:', error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Validation failed'
+        };
+      }
+    }
+
+    // ============================================
+    // Asset Management
+    // ============================================
+
+    case 'REDEEM_ASSET_CODE': {
+      try {
+        if (!unlockedIdentity) {
+          return {
+            success: false,
+            error: 'Identity must be unlocked to redeem codes'
+          };
+        }
+
+        const { code } = message.payload;
+        const { fingerprint, secretKey } = unlockedIdentity;
+
+        // Sign redemption request
+        const signaturePayload = code + fingerprint;
+        const signature = signString(signaturePayload, secretKey);
+
+        // Call server API
+        const apiUrl = await getApiUrl();
+        const response = await fetch(`${apiUrl}/v1/assets/redeem`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code,
+            identityFingerprint: fingerprint,
+            signature
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          return {
+            success: false,
+            error: error.message || error.error || 'Redemption failed'
+          };
+        }
+
+        const { asset } = await response.json();
+
+        // Store asset locally
+        const currentAssets = await chromeIdentityStorage.getAssets();
+        const redeemedAt = new Date().toISOString();
+
+        if (asset.type === 'permanent') {
+          currentAssets.permanent.push({
+            id: asset.id,
+            type: asset.assetType,
+            grantedAt: redeemedAt,
+            redemptionCode: code,
+            redeemedAt,
+            metadata: asset.metadata
+          });
+        } else {
+          currentAssets.consumable.push({
+            id: asset.id,
+            type: asset.assetType,
+            balance: asset.value,
+            initialBalance: asset.value,
+            grantedAt: redeemedAt,
+            redemptionCode: code,
+            redeemedAt,
+            metadata: asset.metadata,
+            usageHistory: []
+          });
+        }
+
+        await chromeIdentityStorage.setAssets(currentAssets);
+
+        console.log('[Assets] Code redeemed successfully:', asset.assetType);
+
+        return {
+          success: true,
+          asset
+        };
+      } catch (error) {
+        console.error('[Assets] Redemption failed:', error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Redemption failed'
+        };
+      }
+    }
+
+    case 'GET_ASSETS': {
+      try {
+        const assets = await chromeIdentityStorage.getAssets();
+        return {
+          success: true,
+          assets
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to get assets'
+        };
+      }
+    }
+
+    case 'GET_ENTITLEMENTS': {
+      try {
+        const assets = await chromeIdentityStorage.getAssets();
+        
+        // Build entitlements list from permanent assets
+        const entitlements = assets.permanent.flatMap((asset: any) => {
+          const features = asset.metadata?.features || [];
+          return features.map((feature: string) => ({
+            feature,
+            enabled: true,
+            source: asset.type,
+            expiresAt: asset.metadata?.expiresAt
+          }));
+        });
+        
+        return {
+          success: true,
+          entitlements
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to get entitlements'
+        };
+      }
+    }
+
+    case 'CHECK_ENTITLEMENT': {
+      try {
+        const { feature } = message.payload;
+        const assets = await chromeIdentityStorage.getAssets();
+        
+        const hasEntitlement = assets.permanent.some(
+          (asset: any) => asset.metadata.features.includes(feature)
+        );
+        
+        return {
+          success: true,
+          hasEntitlement
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to check entitlement'
+        };
+      }
+    }
+
+    case 'GET_ASSET_BALANCE': {
+      try {
+        const { assetType } = message.payload;
+        const assets = await chromeIdentityStorage.getAssets();
+        
+        const totalBalance = assets.consumable
+          .filter((a: any) => a.type === assetType)
+          .reduce((sum: number, a: any) => sum + a.balance, 0);
+        
+        return {
+          success: true,
+          balance: totalBalance
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to get balance'
+        };
+      }
+    }
+
     default:
       throw new Error(`Unknown message type: ${(message as { type: string }).type}`);
   }
+}
+
+// ============================================
+// Utility Functions
+// ============================================
+
+/**
+ * Format bytes to human-readable string
+ */
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 Bytes';
+  
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
 }
 
 // ============================================

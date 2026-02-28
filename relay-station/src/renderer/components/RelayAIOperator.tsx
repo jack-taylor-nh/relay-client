@@ -27,6 +27,65 @@ interface HardwareSpecs {
   gpu?: { model: string; vram: number };
 }
 
+interface EnhancedSystemSpecs {
+  cpu: {
+    name: string;
+    manufacturer: string;
+    cores: number;
+    physicalCores: number;
+    speed: number;
+    architecture: string;
+  };
+  memory: {
+    total_gb: number;
+    available_gb: number;
+    used_gb: number;
+  };
+  gpus: Array<{
+    name: string;
+    vendor: string;
+    vram_gb: number | null;
+    backend: string;
+    count: number;
+    unified_memory: boolean;
+  }>;
+  primary_gpu: {
+    name: string;
+    vendor: string;
+    vram_gb: number | null;
+    backend: string;
+    unified_memory: boolean;
+  } | null;
+  has_gpu: boolean;
+  unified_memory: boolean;
+  platform: string;
+  backend: string;
+}
+
+interface ModelFitAnalysis {
+  model_name: string;
+  fit_level: 'perfect' | 'good' | 'marginal' | 'too_tight';
+  run_mode: 'gpu' | 'cpu_offload' | 'moe_offload' | 'cpu_only';
+  runtime: 'mlx' | 'llama.cpp' | 'vllm';
+  memory_required_gb: number;
+  memory_available_gb: number;
+  utilization_pct: number;
+  recommended_quant: string;
+  available_quants: string[];
+  estimated_tokens_per_sec: number;
+  estimated_load_time_sec: number;
+  composite_score: number;
+  score_components: {
+    quality: number;
+    speed: number;
+    fit: number;
+    context: number;
+  };
+  notes: string[];
+  warnings: string[];
+  recommendations: string[];
+}
+
 interface ModelOption {
   name: string;
   displayName: string;
@@ -55,7 +114,7 @@ interface ModelOption {
 }
 
 interface WizardStep {
-  phase: 'download' | 'load' | 'connect';
+  phase: 'download' | 'cleanup' | 'load' | 'connect';
   progress: number;
   message: string;
 }
@@ -97,7 +156,7 @@ const CURATED_MODELS = [
   'qwen2.5',
 ];
 
-export function RelayAIOperator() {
+export function RelayAIOperator({ onNavigate }: { onNavigate?: (view: 'dashboard' | 'models' | 'relayai') => void }) {
   const [step, setStep] = useState<'setup' | 'wizard' | 'connected'>('setup');
   const [wizardStep, setWizardStep] = useState<WizardStep>({
     phase: 'download',
@@ -114,10 +173,12 @@ export function RelayAIOperator() {
     offersAPI: true,
   });
   const [hardwareSpecs, setHardwareSpecs] = useState<HardwareSpecs | null>(null);
+  const [enhancedSpecs, setEnhancedSpecs] = useState<EnhancedSystemSpecs | null>(null);
   const [recommendedModels, setRecommendedModels] = useState<ModelOption[]>([]);
   const [allModels, setAllModels] = useState<ModelOption[]>([]);
   const [showBrowseModal, setShowBrowseModal] = useState(false);
   const [selectedModel, setSelectedModel] = useState<ModelOption | null>(null);
+  const [modelAnalyses, setModelAnalyses] = useState<Map<string, ModelFitAnalysis>>(new Map());
   const [operatorId, setOperatorId] = useState<string | null>(null);
   const [startTime, setStartTime] = useState<number>(0);
   const [stats, setStats] = useState<Stats>({
@@ -143,6 +204,13 @@ export function RelayAIOperator() {
     uptime: number;
     lastActivity: number | null;
     errorMessage?: string;
+    gpuStatus?: {
+      modelLoaded: string | null;
+      gpuLayers: number;
+      totalLayers: number;
+      vramUsed: string;
+      loadedAt: number | null;
+    };
   } | null>(null);
   
   // Store keys in ref so event handlers always access latest values
@@ -248,9 +316,22 @@ export function RelayAIOperator() {
       }
 
       // Normal setup initialization (only if operator not running)
-      // Get hardware specs
+      // Get hardware specs (both formats)
       const hardware = await window.electronAPI.hardwareDetect?.() || null;
       setHardwareSpecs(hardware);
+      
+      const enhanced = await window.electronAPI.modelFitGetSystemSpecs?.() || null;
+      setEnhancedSpecs(enhanced);
+
+      // Load model fit analyses
+      if (window.electronAPI.modelFitAnalyzeAll) {
+        const analyses: ModelFitAnalysis[] = await window.electronAPI.modelFitAnalyzeAll();
+        const analysisMap = new Map<string, ModelFitAnalysis>();
+        analyses.forEach(analysis => {
+          analysisMap.set(analysis.model_name, analysis);
+        });
+        setModelAnalyses(analysisMap);
+      }
 
       // Detect region once and cache it
       if (config.region === 'detecting...') {
@@ -305,125 +386,172 @@ export function RelayAIOperator() {
     }
   };
 
-  // Get recommended models based on hardware
+  // Get recommended models based on hardware - ONLY SHOW DOWNLOADED MODELS
   const getRecommendedModels = async (hardware: HardwareSpecs | null): Promise<ModelOption[]> => {
-    // Get downloaded models from Ollama
-    const ollamaModels = await window.electronAPI.listModels?.() || [];
-    const downloadedSet = new Set(ollamaModels.map((m: any) => m.name));
-
     try {
-      // Fetch model library from Relay AI API
-      const response = await fetch(`${RELAY_AI_URL}/v1/models/library`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch model library');
+      // Get downloaded models from Ollama
+      const ollamaModels = await window.electronAPI.ollamaListModels() || [];
+      const downloadedNames = ollamaModels.map((m: any) => m.name);
+      const downloadedSet = new Set(downloadedNames);
+      
+      console.log('[AI Network] Downloaded models from Ollama:', downloadedNames);
+      
+      // Get enhanced models from database (60 curated models with full metadata)
+      const enhancedModels = await window.electronAPI.enhancedModelsGetAll?.() || [];
+      console.log('[AI Network] Enhanced models count:', enhancedModels.length);
+      
+      if (enhancedModels.length > 0) {
+        console.log('[AI Network] Sample enhanced model names:', enhancedModels.slice(0, 5).map((m: any) => m.name));
       }
       
-      const libraryData = await response.json();
-      const apiModels = libraryData.data || [];
+      // Helper function to check if a model is downloaded (flexible matching)
+      const isDownloaded = (modelName: string): boolean => {
+        // Direct match
+        if (downloadedSet.has(modelName)) return true;
+        
+        // Check base name matching (e.g., "llama3.2:3b" matches "llama3.2:latest")
+        const baseName = modelName.split(':')[0];
+        for (const downloaded of downloadedNames) {
+          const downloadedBase = downloaded.split(':')[0];
+          if (baseName === downloadedBase) return true;
+        }
+        
+        return false;
+      };
       
-      // Transform API models to our ModelOption format
-      const catalog: ModelOption[] = apiModels
-        .filter((m: any) => !m.name.includes('embedding')) // Exclude embedding models
+      // Transform enhanced models to ModelOption format
+      const catalog: ModelOption[] = enhancedModels
+        .filter((m: any) => isDownloaded(m.name)) // ONLY show downloaded models
         .map((m: any) => {
-          // Estimate size and requirements based on model class
-          const sizeMap: { [key: string]: { size: string; ram: number } } = {
-            '1b': { size: '1.5 GB', ram: 2 },
-            '3b': { size: '2.0 GB', ram: 4 },
-            '7b': { size: '4.5 GB', ram: 8 },
-            '70b': { size: '40 GB', ram: 48 },
-            '405b': { size: '230 GB', ram: 256 },
-          };
-          const specs = sizeMap[m.model_class] || { size: '5 GB', ram: 8 };
+          // Find the ACTUAL downloaded Ollama model that matches this enhanced model
+          const baseName = m.name.split(':')[0];
+          const matchedOllamaModel = ollamaModels.find((om: any) => 
+            om.name === m.name || om.name.startsWith(baseName + ':')
+          );
+          const ollamaLiteralName = matchedOllamaModel?.name || m.name;
           
-          // Estimate earnings based on model class (more capable = higher earnings)
-          const earningsMap: { [key: string]: { payout: number; monthly: { low: number; mid: number; high: number } } } = {
-            '1b': { payout: 0.10, monthly: { low: 30, mid: 100, high: 250 } },
-            '3b': { payout: 0.15, monthly: { low: 50, mid: 150, high: 400 } },
-            '7b': { payout: 0.25, monthly: { low: 80, mid: 250, high: 650 } },
-            '70b': { payout: 0.85, monthly: { low: 350, mid: 1200, high: 3200 } },
-            '405b': { payout: 2.00, monthly: { low: 800, mid: 2800, high: 7500 } },
-          };
-          const earnings = earningsMap[m.model_class] || { payout: 0.20, monthly: { low: 60, mid: 200, high: 500 } };
+          // Get model analysis data
+          const analysis = modelAnalyses.get(m.name);
           
-          // Estimate demand based on model class
-          const demandMap: { [key: string]: 'low' | 'medium' | 'high' | 'very-high' } = {
-            '1b': 'medium',
-            '3b': 'very-high',
-            '7b': 'high',
-            '70b': 'medium',
-            '405b': 'low',
-          };
-          const demand = demandMap[m.model_class] || 'medium';
+          // Estimate payout based on model size (PLACEHOLDER - real rates TBD)
+          const paramCount = m.parameters_raw || 0;
+          let payoutPer1kTokens = 0.10; // default
+          let monthlyEarnings = { low: 30, mid: 100, high: 250 };
           
-          // Estimate operator count based on demand and model class
-          const operatorMap: { [key: string]: number } = {
-            '1b': 450,
-            '3b': 1247,
-            '7b': 892,
-            '70b': 127,
-            '405b': 18,
-          };
-          const operators = operatorMap[m.model_class] || 500;
+          if (paramCount >= 70000000000) { // 70B+
+            payoutPer1kTokens = 0.85;
+            monthlyEarnings = { low: 350, mid: 1200, high: 3200 };
+          } else if (paramCount >= 30000000000) { // 30B-70B
+            payoutPer1kTokens = 0.50;
+            monthlyEarnings = { low: 200, mid: 700, high: 1800 };
+          } else if (paramCount >= 10000000000) { // 10B-30B
+            payoutPer1kTokens = 0.30;
+            monthlyEarnings = { low: 100, mid: 350, high: 900 };
+          } else if (paramCount >= 6000000000) { // 6B-10B
+            payoutPer1kTokens = 0.25;
+            monthlyEarnings = { low: 80, mid: 250, high: 650 };
+          } else if (paramCount >= 3000000000) { // 3B-6B
+            payoutPer1kTokens = 0.15;
+            monthlyEarnings = { low: 50, mid: 150, high: 400 };
+          }
+          
+          // Estimate demand based on popularity and fit
+          let demand: 'low' | 'medium' | 'high' | 'very-high' = 'medium';
+          if (m.popularity >= 90) demand = 'very-high';
+          else if (m.popularity >= 75) demand = 'high';
+          else if (m.popularity >= 50) demand = 'medium';
+          else demand = 'low';
+          
+          // Estimate operator count (PLACEHOLDER)
+          const operators = Math.floor(m.popularity * 15) || 100;
           
           return {
             name: m.name,
-            displayName: m.display_name,
-            size: specs.size,
-            ramRequired: specs.ram,
+            displayName: m.displayName,
+            size: `${m.sizeGB.toFixed(1)} GB`,
+            ramRequired: m.min_ram_gb,
             contextLength: `${Math.floor(m.context_length / 1000)}K`,
             description: m.description,
-            payoutPer1kTokens: earnings.payout,
-            estimatedMonthlyEarnings: earnings.monthly,
+            payoutPer1kTokens,
+            estimatedMonthlyEarnings: monthlyEarnings,
             demand,
             operators,
-            downloaded: downloadedSet.has(m.name),
-            performance: hardware ? calculatePerformance(m.name, hardware) : undefined,
-            metadata: m.metadata || {},
+            downloaded: true, // All models in this list are downloaded
+            performance: analysis ? {
+              tokensPerSecond: analysis.estimated_tokens_per_sec,
+              latencyMs: Math.round(1000 / analysis.estimated_tokens_per_sec),
+            } : undefined,
+            metadata: {
+              available_sizes: m.available_quantizations || [],
+              pulls: `${m.popularity}`,
+              supports_reasoning: m.tags?.includes('reasoning'),
+              is_embedding: m.tags?.includes('embedding'),
+              ollama_name: ollamaLiteralName, // Use the actual Ollama model name with tag
+            },
           };
         });
       
-      // Sort by recommended (downloaded first, then by demand and hardware compatibility)
+      console.log('[AI Network] Matched models:', catalog.length, catalog.map(m => m.name));
+      
+      // If no models matched from enhanced database, create entries from Ollama models directly
+      if (catalog.length === 0 && downloadedNames.length > 0) {
+        console.log('[AI Network] No matches in enhanced DB, falling back to Ollama models directly');
+        
+        const fallbackCatalog: ModelOption[] = ollamaModels.map((m: any) => {
+          const analysis = modelAnalyses.get(m.name);
+          
+          return {
+            name: m.name,
+            displayName: m.name.split(':')[0].toUpperCase(),
+            size: `${(m.size / (1024 * 1024 * 1024)).toFixed(1)} GB`,
+            ramRequired: Math.ceil((m.size / (1024 * 1024 * 1024)) * 1.5),
+            contextLength: '128K',
+            description: `Downloaded model from Ollama`,
+            payoutPer1kTokens: 0.20,
+            estimatedMonthlyEarnings: { low: 60, mid: 200, high: 500 },
+            demand: 'medium' as const,
+            operators: 500,
+            downloaded: true,
+            performance: analysis ? {
+              tokensPerSecond: analysis.estimated_tokens_per_sec,
+              latencyMs: Math.round(1000 / analysis.estimated_tokens_per_sec),
+            } : undefined,
+            metadata: {
+              available_sizes: [],
+              pulls: 'unknown',
+              supports_reasoning: false,
+              is_embedding: false,
+              ollama_name: m.name,
+            },
+          };
+        });
+        
+        console.log('[AI Network] Returning', fallbackCatalog.length, 'fallback models');
+        return fallbackCatalog;
+      }
+      
+      // Sort by composite score (if available), then popularity
       const sortedCatalog = catalog.sort((a, b) => {
-        if (a.downloaded && !b.downloaded) return -1;
-        if (!a.downloaded && b.downloaded) return 1;
+        const analysisA = modelAnalyses.get(a.name);
+        const analysisB = modelAnalyses.get(b.name);
         
-        // Check hardware compatibility
-        const aCompatible = hardware ? a.ramRequired <= hardware.ram.total / 1024 : true;
-        const bCompatible = hardware ? b.ramRequired <= hardware.ram.total / 1024 : true;
+        if (analysisA && analysisB) {
+          return analysisB.composite_score - analysisA.composite_score;
+        }
         
-        if (aCompatible && !bCompatible) return -1;
-        if (!aCompatible && bCompatible) return 1;
-        
-        // Sort by demand
+        // Fallback to demand then popularity
         const demandOrder = { 'very-high': 0, 'high': 1, 'medium': 2, 'low': 3 };
-        return demandOrder[a.demand] - demandOrder[b.demand];
+        const demandDiff = demandOrder[a.demand] - demandOrder[b.demand];
+        if (demandDiff !== 0) return demandDiff;
+        
+        return b.operators - a.operators;
       });
       
-      // Store all models
-      setAllModels(sortedCatalog);
-      
-      // Return only curated models for default view
-      return sortedCatalog.filter(m => CURATED_MODELS.includes(m.name));
+      console.log('[AI Network] Returning', sortedCatalog.length, 'models for AI Network');
+      return sortedCatalog;
     } catch (error) {
-      console.error('Failed to fetch model library, using fallback:', error);
-      
-      // Fallback to minimal catalog if API fails
-      return [
-        {
-          name: 'llama3.2:3b',
-          displayName: 'Llama 3.2 (3B)',
-          size: '2.0 GB',
-          ramRequired: 4,
-          contextLength: '128K',
-          description: 'Ultra-fast responses, perfect for everyday tasks',
-          payoutPer1kTokens: 0.15,
-          estimatedMonthlyEarnings: { low: 50, mid: 150, high: 400 },
-          demand: 'very-high',
-          operators: 1247,
-          downloaded: downloadedSet.has('llama3.2:3b'),
-          performance: hardware ? calculatePerformance('llama3.2:3b', hardware) : undefined,
-        },
-      ];
+      console.error('Failed to fetch downloaded models:', error);
+      return [];
     }
   };
 
@@ -498,7 +626,58 @@ export function RelayAIOperator() {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      // Phase 2: Load and validate model in Ollama
+      // Phase 2: Cleanup VRAM and validate GPU resources
+      setWizardStep({ phase: 'cleanup', progress: 0, message: 'Checking GPU resources...' });
+      
+      // Get model VRAM requirements
+      const modelVRAMRequired = selectedModel.ramRequired || 8; // Default to 8GB if unknown
+      const totalVRAM = enhancedSpecs?.primary_gpu?.vram_gb || 0;
+      
+      console.log(`[Operator Setup] Model requires ~${modelVRAMRequired} GB VRAM, system has ${totalVRAM} GB total`);
+      
+      // Check if system has enough total VRAM for this model
+      if (totalVRAM > 0 && totalVRAM < modelVRAMRequired) {
+        throw new Error(
+          `Insufficient GPU memory for "${selectedModel.displayName}"\n\n` +
+          `Required: ~${modelVRAMRequired} GB VRAM\n` +
+          `Available: ${totalVRAM} GB total\n\n` +
+          `To fix this:\n` +
+          `• Choose a smaller model that fits your GPU\n` +
+          `• Consider a model with lower quantization (e.g., Q4 instead of Q8)\n` +
+          `• Upgrade to a GPU with more VRAM\n\n` +
+          `Relay operators must serve models entirely on GPU for optimal performance.`
+        );
+      }
+      
+      setWizardStep({ phase: 'cleanup', progress: 30, message: 'Cleaning up VRAM...' });
+      
+      try {
+        // CRITICAL: Free VRAM before testing model
+        // Kill orphaned Ollama runners and evict cached models so the test model
+        // can load fully onto GPU instead of falling back to CPU
+        await window.electronAPI.operatorCleanupVRAM?.();
+        console.log('[Operator Setup] VRAM cleanup complete');
+      } catch (cleanupErr: any) {
+        throw new Error(
+          `Failed to clean up GPU memory: ${cleanupErr.message}\n\n` +
+          `This may indicate:\n` +
+          `• Ollama service is not responding\n` +
+          `• Other processes are holding VRAM\n` +
+          `• System permissions issue\n\n` +
+          `Try:\n` +
+          `• Restart Relay Station\n` +
+          `• Close other GPU-intensive applications\n` +
+          `• Check Task Manager for stuck processes`
+        );
+      }
+      
+      // Give system a moment to fully release VRAM
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      setWizardStep({ phase: 'cleanup', progress: 100, message: 'VRAM cleanup complete!' });
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Phase 3: Load and validate model in Ollama
       setWizardStep({ phase: 'load', progress: 0, message: 'Loading model into memory...' });
       
       try {
@@ -535,7 +714,7 @@ export function RelayAIOperator() {
         throw new Error(`Failed to load model: ${loadErr.message}`);
       }
 
-      // Phase 3: Connect to RelayAI network
+      // Phase 4: Connect to RelayAI network
       setWizardStep({ phase: 'connect', progress: 0, message: 'Generating operator credentials...' });
 
       // Step 1: Generate X25519 keypair locally (operator's own credentials)
@@ -581,6 +760,9 @@ export function RelayAIOperator() {
       setWizardStep({ phase: 'connect', progress: 33, message: 'Registering with RelayAI network...' });
 
       // Step 2: Register operator with RelayAI (includes model info and X25519 public key)
+      // Use the literal Ollama model name (e.g., "qwen2.5:7b") not display name
+      const literalModelName = selectedModel.metadata?.ollama_name || selectedModel.name;
+      
       const registerRes = await fetch(`${RELAY_AI_URL}/v1/operators/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -595,7 +777,7 @@ export function RelayAIOperator() {
           offers_api: config.offersAPI,
           models: [
             {
-              model_name: selectedModel.name, // Use the selected model, not config.modelName
+              model_name: literalModelName, // CRITICAL: Use literal Ollama name (e.g., "qwen2.5:7b")
               is_public_pool: config.isPublicPool,
               max_concurrent_requests: config.maxConcurrentRequests,
             }
@@ -627,13 +809,14 @@ export function RelayAIOperator() {
 
       console.log('[Operator Setup] Starting operator service...');
       // Step 3: Start background operator service (runs in main process)
+      // Use the same literal model name for consistency
       await window.electronAPI.operatorStart?.({
         edge_id: edgeId,
         name: config.operatorName,
         region: config.region,
         models: [
           {
-            model_id: selectedModel.name,
+            model_id: literalModelName, // Use literal name (e.g., "qwen2.5:7b")
             provider: 'ollama',
             payout_rate_per_token: (selectedModel.payoutPer1kTokens / 1000).toString(),
           }
@@ -1407,40 +1590,127 @@ export function RelayAIOperator() {
           )}
 
           {/* Hardware Overview */}
-          {hardwareSpecs && (
+          {enhancedSpecs && (
             <div className="bg-card border border-border rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-                </svg>
-                Your Hardware
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <div className="text-sm text-muted-foreground mb-1">Processor</div>
-                  <div className="font-medium">{hardwareSpecs.cpu.brand}</div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {hardwareSpecs.cpu.cores} cores @ {hardwareSpecs.cpu.speed}GHz
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold flex items-center gap-2">
+                  <span className="text-2xl">💻</span>
+                  System Specifications
+                  <span className="ml-2 w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                </h2>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* GPU Section */}
+                <div className="bg-card/50 border border-border rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl">🎮</span>
+                    <h3 className="font-semibold text-sm">Graphics</h3>
                   </div>
-                </div>
-                <div>
-                  <div className="text-sm text-muted-foreground mb-1">Memory</div>
-                  <div className="font-medium">{hardwareSpecs.ram.total}GB RAM</div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {hardwareSpecs.ram.available}GB available
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm text-muted-foreground mb-1">Graphics</div>
-                  {hardwareSpecs.gpu ? (
+                  {enhancedSpecs.primary_gpu ? (
                     <>
-                      <div className="font-medium">{hardwareSpecs.gpu.model}</div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {hardwareSpecs.gpu.vram}GB VRAM
+                      <div>
+                        <p className="text-[10px] text-muted-foreground mb-1">GPU</p>
+                        <p className="text-xs font-medium truncate" title={enhancedSpecs.primary_gpu.name}>
+                          {enhancedSpecs.primary_gpu.name}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground capitalize mt-0.5">
+                          {enhancedSpecs.primary_gpu.vendor} • {enhancedSpecs.primary_gpu.backend.toUpperCase()}
+                        </p>
                       </div>
+                      {enhancedSpecs.primary_gpu.vram_gb && enhancedSpecs.primary_gpu.vram_gb > 0 ? (
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-[10px] text-muted-foreground">VRAM</p>
+                            <p className="text-[10px] font-medium">{enhancedSpecs.primary_gpu.vram_gb.toFixed(1)} GB</p>
+                          </div>
+                          <div className="w-full bg-muted rounded-full h-2">
+                            <div
+                              className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full"
+                              style={{ width: '100%' }}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-muted-foreground">
+                          {enhancedSpecs.unified_memory ? '🔄 Unified Memory' : 'VRAM info unavailable'}
+                        </div>
+                      )}
                     </>
                   ) : (
-                    <div className="text-sm text-muted-foreground">CPU Only</div>
+                    <div className="text-xs text-muted-foreground">
+                      No discrete GPU detected<br />
+                      <span className="text-[10px]">CPU-only inference</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Memory Section */}
+                <div className="bg-card/50 border border-border rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl">🧠</span>
+                    <h3 className="font-semibold text-sm">Memory</h3>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-[10px] text-muted-foreground">Total RAM</p>
+                      <p className="text-[10px] font-medium">{enhancedSpecs.memory.total_gb.toFixed(1)} GB</p>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-2 mb-2">
+                      <div
+                        className="bg-gradient-to-r from-green-500 to-emerald-500 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${(enhancedSpecs.memory.used_gb / enhancedSpecs.memory.total_gb) * 100}%` }}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                      <div>
+                        <p className="text-muted-foreground">Used</p>
+                        <p className="font-medium">{enhancedSpecs.memory.used_gb.toFixed(1)} GB</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Available</p>
+                        <p className="font-medium text-green-600">{enhancedSpecs.memory.available_gb.toFixed(1)} GB</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CPU Section */}
+                <div className="bg-card/50 border border-border rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl">⚡</span>
+                    <h3 className="font-semibold text-sm">Processor</h3>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground mb-1">CPU</p>
+                    <p className="text-xs font-medium truncate" title={enhancedSpecs.cpu.name}>
+                      {enhancedSpecs.cpu.manufacturer} {enhancedSpecs.cpu.name}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {enhancedSpecs.cpu.physicalCores}C/{enhancedSpecs.cpu.cores}T @ {enhancedSpecs.cpu.speed.toFixed(2)} GHz
+                    </p>
+                  </div>
+                  <div className="pt-2 border-t border-border">
+                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                      <div>
+                        <p className="text-muted-foreground">Architecture</p>
+                        <p className="font-medium uppercase">{enhancedSpecs.cpu.architecture}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Platform</p>
+                        <p className="font-medium capitalize">{enhancedSpecs.platform}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Backend Info */}
+              <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
+                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  <span>Backend: <span className="font-medium text-foreground uppercase">{enhancedSpecs.backend}</span></span>
+                  {enhancedSpecs.gpus.length > 1 && (
+                    <span>Multi-GPU: <span className="font-medium text-foreground">{enhancedSpecs.gpus.length} devices</span></span>
                   )}
                 </div>
               </div>
@@ -1457,7 +1727,7 @@ export function RelayAIOperator() {
                 Choose Your Model
               </h2>
               <button
-                onClick={() => setShowBrowseModal(true)}
+                onClick={() => onNavigate?.('models')}
                 className="text-sm text-primary hover:underline flex items-center gap-1"
               >
                 Browse All Models
@@ -1467,7 +1737,7 @@ export function RelayAIOperator() {
               </button>
             </div>
             <p className="text-sm text-muted-foreground mb-6">
-              Recommended models optimized for your hardware. Select one to continue.
+              Downloaded models ready to serve. Visit My Models to download more.
             </p>
 
             <div className="space-y-3">
@@ -1489,6 +1759,7 @@ export function RelayAIOperator() {
                       <div className="flex items-center gap-3 mb-2">
                         <div className="font-semibold text-lg">{model.displayName}</div>
                         <ModelStatusBadge model={model} />
+                        <FitLevelBadge analysis={modelAnalyses.get(model.name)} />
                         <DemandBadge demand={model.demand} />
                         {model.metadata?.supports_reasoning && (
                           <span className="px-2 py-0.5 bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 rounded text-xs font-medium">
@@ -1584,8 +1855,16 @@ export function RelayAIOperator() {
                 <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
                 </svg>
-                <p className="font-medium mb-1">No suitable models found</p>
-                <p className="text-sm">Please ensure Ollama is running and models are available.</p>
+                <p className="font-medium mb-1">No models ready for serving</p>
+                <p className="text-sm mb-3">
+                  Download models in the My Models tab to get started.
+                </p>
+                <button
+                  onClick={() => onNavigate?.('models')}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                >
+                  Go to My Models →
+                </button>
               </div>
             )}
           </div>
@@ -1808,6 +2087,7 @@ export function RelayAIOperator() {
               <h2 className="text-2xl font-bold mb-2">Setting Up Your Operator</h2>
               <p className="text-muted-foreground">
                 {wizardStep.phase === 'download' && 'Downloading model files...'}
+                {wizardStep.phase === 'cleanup' && 'Preparing GPU memory...'}
                 {wizardStep.phase === 'load' && 'Loading model into memory...'}
                 {wizardStep.phase === 'connect' && 'Connecting to RelayAI network...'}
               </p>
@@ -1815,13 +2095,18 @@ export function RelayAIOperator() {
 
             {/* Phase Indicators */}
             <div className="flex items-center justify-center gap-4 mb-8">
-              {['download', 'load', 'connect'].map((phase, i) => {
+              {['download', 'cleanup', 'load', 'connect'].map((phase, i) => {
                 const isActive = wizardStep.phase === phase;
-                const isDone = ['download', 'load', 'connect'].indexOf(wizardStep.phase) > i;
+                const isDone = ['download', 'cleanup', 'load', 'connect'].indexOf(wizardStep.phase) > i;
                 const Icon = {
                   download: (
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  ),
+                  cleanup: (
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
                   ),
                   load: (
@@ -1857,6 +2142,7 @@ export function RelayAIOperator() {
                     </div>
                     <div className={`text-xs mt-2 font-medium ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}>
                       {phase === 'download' && 'Download'}
+                      {phase === 'cleanup' && 'Cleanup'}
                       {phase === 'load' && 'Load'}
                       {phase === 'connect' && 'Connect'}
                     </div>
@@ -1943,7 +2229,7 @@ export function RelayAIOperator() {
                     </svg>
                     Operator Active & Earning!
                   </div>
-                  <div className="text-sm text-muted-foreground flex items-center gap-3">
+                  <div className="text-sm text-muted-foreground flex items-center gap-3 flex-wrap">
                     <span>Serving {selectedModel?.displayName}</span>
                     <span>•</span>
                     <span>Uptime: {formatUptime(startTime)}</span>
@@ -1954,6 +2240,36 @@ export function RelayAIOperator() {
                       </svg>
                       E2EE Active
                     </span>
+                    {operatorStatus?.gpuStatus && operatorStatus.gpuStatus.modelLoaded && (
+                      <>
+                        <span>•</span>
+                        <span className="flex items-center gap-1.5 px-2 py-1 bg-background border border-border rounded text-xs font-medium">
+                          {operatorStatus.gpuStatus.gpuLayers === operatorStatus.gpuStatus.totalLayers ? (
+                            <>
+                              <svg className="w-3.5 h-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <span className="text-green-600 dark:text-green-400">GPU: {operatorStatus.gpuStatus.gpuLayers}/{operatorStatus.gpuStatus.totalLayers} layers</span>
+                            </>
+                          ) : operatorStatus.gpuStatus.gpuLayers > 0 ? (
+                            <>
+                              <svg className="w-3.5 h-3.5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                              </svg>
+                              <span className="text-yellow-600 dark:text-yellow-400">Partial GPU: {operatorStatus.gpuStatus.gpuLayers}/{operatorStatus.gpuStatus.totalLayers} layers</span>
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-3.5 h-3.5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                              <span className="text-red-600 dark:text-red-400">CPU Only ({operatorStatus.gpuStatus.totalLayers} layers)</span>
+                            </>
+                          )}
+                          <span className="text-muted-foreground ml-1">({operatorStatus.gpuStatus.vramUsed})</span>
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2346,6 +2662,42 @@ function DemandBadge({ demand }: { demand: 'low' | 'medium' | 'high' | 'very-hig
   return (
     <span className={`px-2 py-0.5 text-xs font-medium rounded flex items-center gap-1 ${className}`}>
       {icon}
+      {label}
+    </span>
+  );
+}
+
+function FitLevelBadge({ analysis }: { analysis?: ModelFitAnalysis }) {
+  if (!analysis) return null;
+  
+  const config = {
+    'perfect': {
+      label: 'Perfect Fit',
+      className: 'bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20',
+      icon: '✓',
+    },
+    'good': {
+      label: 'Good Fit',
+      className: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20',
+      icon: '✓',
+    },
+    'marginal': {
+      label: 'Marginal',
+      className: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20',
+      icon: '!',
+    },
+    'too_tight': {
+      label: 'Too Tight',
+      className: 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20',
+      icon: '✗',
+    },
+  };
+
+  const { label, className, icon } = config[analysis.fit_level];
+
+  return (
+    <span className={`px-2 py-0.5 text-xs font-medium rounded flex items-center gap-1 ${className}`}>
+      <span className="font-bold">{icon}</span>
       {label}
     </span>
   );

@@ -108,6 +108,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('operator-start', config),
   operatorStop: (): Promise<void> =>
     ipcRenderer.invoke('operator-stop'),
+  operatorCleanupVRAM: (): Promise<void> =>
+    ipcRenderer.invoke('operator-cleanup-vram'),
   operatorGetStats: (): Promise<{
     isRunning: boolean;
     isConnected: boolean;
@@ -190,6 +192,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
   modelCatalogSearch: (query: string): Promise<any[]> =>
     ipcRenderer.invoke('model-catalog-search', query),
 
+  // Model fit analysis
+  modelFitGetSystemSpecs: (): Promise<any> =>
+    ipcRenderer.invoke('model-fit:get-system-specs'),
+  modelFitAnalyze: (modelId: string): Promise<any> =>
+    ipcRenderer.invoke('model-fit:analyze', modelId),
+  modelFitAnalyzeAll: (): Promise<any[]> =>
+    ipcRenderer.invoke('model-fit:analyze-all'),
+  modelFitRecommend: (filters?: { 
+    useCase?: string;
+    minFitLevel?: string;
+    runtime?: string;
+    maxSizeGB?: number;
+    limit?: number;
+  }): Promise<any[]> =>
+    ipcRenderer.invoke('model-fit:recommend', filters),
+  modelFitGetByFitLevel: (): Promise<any> =>
+    ipcRenderer.invoke('model-fit:get-by-fit-level'),
+  modelFitGetFastest: (limit?: number): Promise<any[]> =>
+    ipcRenderer.invoke('model-fit:get-fastest', limit),
+
+  // Enhanced model database
+  enhancedModelsGetAll: (): Promise<any[]> =>
+    ipcRenderer.invoke('enhanced-models:get-all'),
+  enhancedModelsGet: (modelId: string): Promise<any> =>
+    ipcRenderer.invoke('enhanced-models:get', modelId),
+  enhancedModelsSearch: (query: string): Promise<any[]> =>
+    ipcRenderer.invoke('enhanced-models:search', query),
+
   // Stats database queries
   statsGetCurrentSession: (): Promise<any> =>
     ipcRenderer.invoke('stats-get-current-session'),
@@ -265,6 +295,23 @@ declare global {
       hardwareEstimatePerformance?: (modelSizeGB: number, modelVRAM: number) => Promise<any>;
       modelCatalogGet?: () => Promise<any[]>;
       modelCatalogSearch?: (query: string) => Promise<any[]>;
+      // Model fit analysis
+      modelFitGetSystemSpecs?: () => Promise<any>;
+      modelFitAnalyze?: (modelId: string) => Promise<any>;
+      modelFitAnalyzeAll?: () => Promise<any[]>;
+      modelFitRecommend?: (filters?: { 
+        useCase?: string;
+        minFitLevel?: string;
+        runtime?: string;
+        maxSizeGB?: number;
+        limit?: number;
+      }) => Promise<any[]>;
+      modelFitGetByFitLevel?: () => Promise<any>;
+      modelFitGetFastest?: (limit?: number) => Promise<any[]>;
+      // Enhanced model database
+      enhancedModelsGetAll?: () => Promise<any[]>;
+      enhancedModelsGet?: (modelId: string) => Promise<any>;
+      enhancedModelsSearch?: (query: string) => Promise<any[]>;
       // Stats database queries
       statsGetCurrentSession?: () => Promise<any>;
       statsGetDaily?: (bridgeId: string, startDate: string, endDate: string) => Promise<any[]>;

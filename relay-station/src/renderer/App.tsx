@@ -183,7 +183,7 @@ function App() {
           <ModelManager />
         )}
         {currentView === 'relayai' && (
-          <RelayAIOperator />
+          <RelayAIOperator onNavigate={setCurrentView} />
         )}
       </main>
     </div>

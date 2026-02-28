@@ -2,13 +2,15 @@ import { useState } from 'preact/hooks';
 import { unlockIdentity, logoutIdentity, isLoading, currentIdentity } from '../state';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Lock, Eye, EyeOff } from 'lucide-react';
+import { Lock, Eye, EyeOff, Upload } from 'lucide-react';
+import { ImportIdentityView } from './ImportIdentityView';
 
 export function LockScreen() {
   const [passphrase, setPassphrase] = useState('');
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   async function handleUnlock() {
     if (!passphrase) return;
@@ -30,6 +32,24 @@ export function LockScreen() {
     if (e.key === 'Enter') {
       handleUnlock();
     }
+  }
+
+  // Show import identity view
+  if (showImport) {
+    return (
+      <div className="flex flex-col min-h-screen bg-[hsl(var(--background))]">
+        <div className="flex items-center gap-3 px-4 py-4 border-b border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+          <Button variant="ghost" size="sm" onClick={() => setShowImport(false)}>
+            ← Back to Login
+          </Button>
+          <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] m-0 flex items-center gap-2">
+            <Upload className="h-5 w-5" />
+            Import Identity
+          </h2>
+        </div>
+        <ImportIdentityView />
+      </div>
+    );
   }
 
   return (
@@ -119,6 +139,18 @@ export function LockScreen() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Import Identity */}
+        <div className="mt-4 w-full">
+          <Button
+            variant="ghost"
+            className="w-full text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
+            onClick={() => setShowImport(true)}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Import Identity from Backup
+          </Button>
         </div>
       </div>
     </div>

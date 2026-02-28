@@ -5,7 +5,8 @@
   "description": "Your private communications perimeter",
   "permissions": [
     "storage",
-    "sidePanel"
+    "sidePanel",
+    "downloads"
   ],
   "host_permissions": [],
   "background": {

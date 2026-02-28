@@ -15,6 +15,8 @@ import { bridgeManager } from './bridge';
 import { ollamaManager } from './ollama-manager';
 import { hardwareDetector } from './hardware-detector';
 import { modelCatalog } from './model-catalog';
+import { modelFitService } from './services/ModelFitService';
+import { enhancedModelDatabase } from './services/EnhancedModelDatabase';
 import { statsDb } from './services/StatsDatabase';
 import { maintenanceJobs } from './services/MaintenanceJobs';
 import { operatorService } from './services/OperatorService';
@@ -96,11 +98,11 @@ function createWindow(): void {
 /**
  * Update tray menu with current status
  */
-function updateTrayMenu(): void {
+async function updateTrayMenu(): Promise<void> {
   if (!tray) return;
 
   const activeLLM = llmClient.getActiveProvider();
-  const operatorStats = operatorService.getStats();
+  const operatorStats = await operatorService.getStats();
 
   // Status summary
   const llmStatus = activeLLM 
@@ -691,16 +693,52 @@ function registerIPCHandlers(): void {
     updateTrayMenu();
   });
 
-  ipcMain.handle('operator-get-stats', (): any => {
-    return operatorService.getStats();
+  ipcMain.handle('operator-cleanup-vram', async (): Promise<void> => {
+    console.log('[IPC] Manual VRAM cleanup requested');
+    await operatorService.killOrphanedOllamaRunners();
+    await operatorService.evictAllLoadedModels();
+  });
+
+  // Startup cleanup - kills orphaned runners and evicts stale models
+  // This runs when the app first loads to ensure GPU memory is free
+  ipcMain.handle('startup-clean', async (): Promise<void> => {
+    console.log('[IPC] Startup cleanup requested');
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('startup-status', {
+        phase: 'cleanup',
+        message: 'Cleaning up VRAM...',
+        step: 1,
+        total: 2,
+      });
+    }
+    
+    await operatorService.killOrphanedOllamaRunners();
+    await operatorService.evictAllLoadedModels();
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('startup-status', {
+        phase: 'ready',
+        message: 'Startup complete!',
+        step: 2,
+        total: 2,
+      });
+    }
+    
+    console.log('[IPC] Startup cleanup complete');
+  });
+
+  ipcMain.handle('operator-get-stats', async (): Promise<any> => {
+    return await operatorService.getStats();
   });
 
   // Listen for operator status changes and update tray
-  operatorService.on('status-change', () => {
-    updateTrayMenu();
+  operatorService.on('status-change', async () => {
+    await updateTrayMenu();
     // Send update to renderer if window is open
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('operator-status-changed', operatorService.getStats());
+      const stats = await operatorService.getStats();
+      mainWindow.webContents.send('operator-status-changed', stats);
     }
   });
 
@@ -1043,6 +1081,68 @@ function registerIPCHandlers(): void {
     await modelCatalog.getCatalog(); // Ensure catalog is loaded
     return modelCatalog.search(query);
   });
+
+  // Model fit analysis
+  ipcMain.handle('model-fit:get-system-specs', async () => {
+    return await modelFitService.getSystemSpecs();
+  });
+
+  ipcMain.handle('model-fit:analyze', async (_event, modelId: string) => {
+    const model = await enhancedModelDatabase.getModel(modelId);
+    if (!model) {
+      throw new Error(`Model not found: ${modelId}`);
+    }
+    return await modelFitService.analyzeModel(model);
+  });
+
+  ipcMain.handle('model-fit:analyze-all', async () => {
+    const models = await enhancedModelDatabase.getAllModels();
+    return await modelFitService.analyzeAllModels(models);
+  });
+
+  ipcMain.handle('model-fit:recommend', async (_event, filters?: { 
+    useCase?: string; 
+    minFitLevel?: string;
+    runtime?: string;
+    maxSizeGB?: number;
+    limit?: number;
+  }) => {
+    const models = await enhancedModelDatabase.getAllModels();
+    
+    // Convert camelCase to snake_case for RecommendationFilters
+    const serviceFilters = filters ? {
+      use_case: filters.useCase,
+      min_fit_level: filters.minFitLevel as any,
+      runtime: filters.runtime as any,
+      max_size_gb: filters.maxSizeGB,
+      limit: filters.limit
+    } : undefined;
+    
+    return await modelFitService.getRecommendations(models, serviceFilters);
+  });
+
+  ipcMain.handle('model-fit:get-by-fit-level', async () => {
+    const models = await enhancedModelDatabase.getAllModels();
+    return await modelFitService.getModelsByFitLevel(models);
+  });
+
+  ipcMain.handle('model-fit:get-fastest', async (_event, limit: number = 5) => {
+    const models = await enhancedModelDatabase.getAllModels();
+    return await modelFitService.getFastestModels(models, limit);
+  });
+
+  ipcMain.handle('enhanced-models:get-all', async () => {
+    return await enhancedModelDatabase.getAllModels();
+  });
+
+  ipcMain.handle('enhanced-models:get', async (_event, modelId: string) => {
+    return await enhancedModelDatabase.getModel(modelId);
+  });
+
+  ipcMain.handle('enhanced-models:search', async (_event, query: string) => {
+    return enhancedModelDatabase.searchModels(query);
+  });
+
   ipcMain.handle('open-external', async (_event, url: string): Promise<void> => {
     await shell.openExternal(url);
   });

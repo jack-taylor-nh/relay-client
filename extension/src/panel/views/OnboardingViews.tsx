@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'preact/hooks';
-import { onboardingStep, createIdentity, isLoading, showToast, completeOnboarding, currentIdentity, pendingPassphrase, edgeTypes, loadEdgeTypes, createEdge, sendMessage, handles } from '../state';
+import { onboardingStep, createIdentity, isLoading, showToast, completeOnboarding, currentIdentity, pendingPassphrase, edgeTypes, loadEdgeTypes, createEdge, sendMessage, handles, checkIdentityState } from '../state';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Lock, Mail, User, AlertTriangle, Eye, EyeOff, Dices, Download, CheckCircle, Shield, Link, AtSign, Users, Check } from 'lucide-react';
+import { Lock, Mail, User, AlertTriangle, Eye, EyeOff, Dices, Download, CheckCircle, Shield, Link, AtSign, Users, Check, Upload } from 'lucide-react';
+import { ImportIdentityView } from './ImportIdentityView';
 
 // ============================================
 // Custom Icons (not in lucide)
@@ -85,6 +86,26 @@ function generateSecurePassphrase(wordCount: number = 4): string {
 // ============================================
 
 export function WelcomeScreen() {
+  const [showImport, setShowImport] = useState(false);
+
+  // Show import view in overlay
+  if (showImport) {
+    return (
+      <div className="flex flex-col min-h-screen bg-[hsl(var(--background))]">
+        <div className="flex items-center gap-3 px-4 py-4 border-b border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+          <Button variant="ghost" size="sm" onClick={() => setShowImport(false)}>
+            ← Back to Welcome
+          </Button>
+          <h2 className="text-lg font-semibold text-[hsl(var(--foreground))] m-0 flex items-center gap-2">
+            <Upload className="h-5 w-5" />
+            Import Identity
+          </h2>
+        </div>
+        <ImportIdentityView />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-[hsl(var(--background))] px-6 py-12">
       <div className="mb-8">
@@ -132,9 +153,8 @@ export function WelcomeScreen() {
       <p className="text-sm text-[hsl(var(--muted-foreground))] mt-6">
         Already have an identity? <a href="#" className="text-[hsl(var(--foreground))] hover:underline font-medium" onClick={(e) => {
           e.preventDefault();
-          // TODO: Import flow
-          showToast('Import coming soon');
-        }}>Import backup</a>
+          setShowImport(true);
+        }}>Import Identity</a>
       </p>
     </div>
   );

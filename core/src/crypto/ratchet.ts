@@ -412,9 +412,14 @@ function createAD(dhPublic: Uint8Array, pn: number, n: number): Uint8Array {
 // =============================================================================
 
 /**
+ * Serialized ratchet state type (JSON string)
+ */
+export type SerializedRatchetState = string;
+
+/**
  * Serialize ratchet state for storage
  */
-export function serializeRatchetState(state: RatchetState): string {
+export function serializeRatchetState(state: RatchetState): SerializedRatchetState {
   return JSON.stringify({
     DHs: {
       publicKey: toBase64(state.DHs.publicKey),

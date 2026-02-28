@@ -1,6 +1,6 @@
 import { edges, createEdge, burnEdge, showToast, loadEdges, sendMessage, edgeTypes } from '../state';
 import { useState, useEffect } from 'preact/hooks';
-import { Plus, Copy, FileText, Trash2 } from 'lucide-react';
+import { Plus, Copy, FileText, Trash2, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { EdgeCard, EdgeList } from '@/components/relay/EdgeCard';
 import { cn } from '@/lib/utils';
 import type { EdgeType } from '../utils/edgeHelpers';
@@ -176,26 +182,28 @@ export function EdgesView() {
             <p>No edges yet. Create a handle or email alias to get started!</p>
           </div>
         ) : (
-          <EdgeList>
-            {allEdges.map(edge => {
-              const rawEdge = edgeList.find(e => e.id === edge.id);
-              return (
-                <EdgeCard
-                  key={edge.id}
-                  id={edge.id}
-                  type={edge.type}
-                  address={edge.address}
-                  label={edge.subtitle || undefined}
-                  isActive={edge.status === 'active'}
-                  onManage={edge.status === 'active' ? () => openManageModal(edge.id, edge.type, edge.address) : undefined}
-                  onCopy={(addr) => {
-                    navigator.clipboard.writeText(addr);
-                    showToast('Address copied!');
-                  }}
-                />
-              );
-            })}
-          </EdgeList>
+          <div className="px-3 py-2">
+            <EdgeList>
+              {allEdges.map(edge => {
+                const rawEdge = edgeList.find(e => e.id === edge.id);
+                return (
+                  <EdgeCard
+                    key={edge.id}
+                    id={edge.id}
+                    type={edge.type}
+                    address={edge.address}
+                    label={edge.subtitle || undefined}
+                    isActive={edge.status === 'active'}
+                    onManage={edge.status === 'active' ? () => openManageModal(edge.id, edge.type, edge.address) : undefined}
+                    onCopy={(addr) => {
+                      navigator.clipboard.writeText(addr);
+                      showToast('Address copied!');
+                    }}
+                  />
+                );
+              })}
+            </EdgeList>
+          </div>
         )}
       </ScrollArea>
 
@@ -210,24 +218,26 @@ export function EdgesView() {
           </DialogHeader>
           
           <div className="flex flex-col gap-4">
-            <div className="grid grid-cols-2 gap-2">
-              {availableEdgeTypes.map(edgeType => (
-                <button
-                  key={edgeType.id}
-                  onClick={() => setSelectedEdgeTypeId(edgeType.id)}
-                  className={cn(
-                    "flex items-center gap-2 p-3 border-2 rounded-lg cursor-pointer transition-all duration-150",
-                    selectedEdgeTypeId === edgeType.id
-                      ? "border-[hsl(var(--primary))] bg-[hsl(var(--primary)/0.1)]"
-                      : "border-[hsl(var(--border))] bg-[hsl(var(--muted))] hover:border-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))]"
-                  )}
-                >
-                  <Badge variant="secondary" className="text-xs">
-                    {getEdgeTypeLabel(edgeType.id as EdgeType)}
-                  </Badge>
-                  <span className="text-sm font-medium text-[hsl(var(--foreground))]">{edgeType.name}</span>
-                </button>
-              ))}
+            <div>
+              <label className="text-sm font-medium text-[hsl(var(--foreground))] mb-1.5 block">Edge Type</label>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="w-full justify-between">
+                    <span>{selectedEdgeType?.name || 'Select edge type...'}</span>
+                    <ChevronDown className="h-4 w-4 opacity-50" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                  {availableEdgeTypes.map(edgeType => (
+                    <DropdownMenuItem
+                      key={edgeType.id}
+                      onClick={() => setSelectedEdgeTypeId(edgeType.id)}
+                    >
+                      {edgeType.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             {selectedEdgeType?.requiresCustomAddress && (selectedEdgeType.id === 'native' || selectedEdgeType.id === 'discord') ? (
@@ -266,12 +276,6 @@ export function EdgesView() {
           </div>
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowCreateModal(false)}
-            >
-              Cancel
-            </Button>
             <Button
               variant="accent"
               onClick={(selectedEdgeTypeId === 'native' || selectedEdgeTypeId === 'discord') ? handleCreateHandle : handleCreateEdge}

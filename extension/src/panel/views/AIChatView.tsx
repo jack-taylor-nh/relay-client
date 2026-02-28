@@ -54,6 +54,14 @@ const AUTO_MODEL: ModelAvailability = {
   supports_streaming: true, // Auto mode supports streaming if selected model does
 };
 
+interface ToolCall {
+  tool: string;   // 'web_search' | 'fetch_content' | 'deep_search'
+  detail: string; // query / URL / etc.
+  phase: 'running' | 'complete';
+  timestamp: number; // When this tool was called
+  contentPosition: number; // Character position in content when tool was called
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -68,6 +76,7 @@ interface Message {
   timeToFirstToken?: number; // NEW: time from request to first token (thinking time)
   isStreaming?: boolean; // NEW: indicates message is actively streaming
   streamStartTime?: number; // NEW: for calculating live tok/s
+  toolCalls?: ToolCall[]; // NEW: tools called during this message (mid-stream)
 }
 
 // Available models signal (populated from router)
@@ -89,10 +98,10 @@ interface ToolStatus {
 export const aiToolStatus = signal<ToolStatus | null>(null);
 
 // Map tool names to human-readable labels and icons
-const TOOL_UI: Record<string, { label: string; icon: preact.JSX.Element; color: string }> = {
-  web_search:    { label: 'Searching',        icon: <Globe className="w-3.5 h-3.5" />,    color: 'text-blue-400' },
-  fetch_content: { label: 'Reading page',     icon: <FileText className="w-3.5 h-3.5" />, color: 'text-purple-400' },
-  deep_search:   { label: 'Researching',      icon: <BookOpen className="w-3.5 h-3.5" />, color: 'text-emerald-400' },
+const TOOL_UI: Record<string, { labelRunning: string; labelComplete: string; icon: preact.JSX.Element; color: string }> = {
+  web_search:    { labelRunning: 'Searching',   labelComplete: 'Searched',   icon: <Globe className="w-3.5 h-3.5" />,    color: 'text-blue-400' },
+  fetch_content: { labelRunning: 'Reading',     labelComplete: 'Read',       icon: <FileText className="w-3.5 h-3.5" />, color: 'text-purple-400' },
+  deep_search:   { labelRunning: 'Researching', labelComplete: 'Researched', icon: <BookOpen className="w-3.5 h-3.5" />, color: 'text-emerald-400' },
 };
 
 // Spinner that never re-renders after mount — zero props means memo() never invalidates it,
@@ -145,7 +154,7 @@ const ToolStatusIndicator = memo(function ToolStatusIndicator() {
     <div class="flex items-start gap-2">
       <div class={`flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[hsl(var(--muted))/30] border border-[hsl(var(--border))] text-xs ${ui.color}`}>
         <span class="flex-shrink-0 animate-pulse">{ui.icon}</span>
-        <span class="font-medium">{ui.label}</span>
+        <span class="font-medium">{ui.labelRunning}</span>
         {truncated && (
           <span class="text-[hsl(var(--muted-foreground))] truncate max-w-[180px]">“{truncated}”</span>
         )}
@@ -402,24 +411,30 @@ function processInlineFormatting(text: string): preact.JSX.Element {
 const MODELS = computed(() => availableModels.value);
 
 // Curated list of top models to show in dropdown (based on popularity and quality)
+// Models are matched by base name (before colon) to support variants like "qwen2.5:7b", "mistral:7b-instruct"
 const CURATED_MODELS = [
   'auto', // Always show Auto first
   'llama3.2',
   'llama3.1',
   'deepseek-r1',
   'qwen2.5-coder',
-  'mistral',
-  'gemma2',
+  'qwen2.5', // Matches qwen2.5:7b, qwen2.5:14b, etc.
+  'mistral', // Matches mistral:7b, mistral:latest, etc.
+  'gemma2',  // Matches gemma2:latest, gemma2:27b, etc.
   'phi4',
-  'qwen2.5',
+  'codellama',
 ];
 
 // Computed: Curated models only (for dropdown), filtered to online only
 const curatedModels = computed(() => {
   const all = [AUTO_MODEL, ...availableModels.value]; // Add Auto to the list
   
-  // Filter to curated models (show all, regardless of availability)
-  const curated = all.filter(m => CURATED_MODELS.includes(m.model_name));
+  // Filter to curated models using base name matching
+  // This allows "qwen2.5:7b" to match curated "qwen2.5"
+  const curated = all.filter(m => {
+    const modelBaseName = m.model_name.split(':')[0]; // Extract base name (before colon)
+    return CURATED_MODELS.includes(m.model_name) || CURATED_MODELS.includes(modelBaseName);
+  });
   
   // Sort: Auto first, then by availability, then by curated list order
   return curated.sort((a, b) => {
@@ -427,7 +442,18 @@ const curatedModels = computed(() => {
     if (b.model_name === 'auto') return 1;
     if (a.is_available && !b.is_available) return -1;
     if (!a.is_available && b.is_available) return 1;
-    return CURATED_MODELS.indexOf(a.model_name) - CURATED_MODELS.indexOf(b.model_name);
+    
+    // Sort by curated list order (using base name for matching)
+    const aBaseName = a.model_name.split(':')[0];
+    const bBaseName = b.model_name.split(':')[0];
+    const aIndex = CURATED_MODELS.indexOf(a.model_name) !== -1 
+      ? CURATED_MODELS.indexOf(a.model_name) 
+      : CURATED_MODELS.indexOf(aBaseName);
+    const bIndex = CURATED_MODELS.indexOf(b.model_name) !== -1 
+      ? CURATED_MODELS.indexOf(b.model_name) 
+      : CURATED_MODELS.indexOf(bBaseName);
+    
+    return aIndex - bIndex;
   });
 });
 
@@ -483,6 +509,16 @@ export function AIChatView({ onBack, conversationTitle, initialConversationId }:
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [aiMessages.value]);
+
+  // Scroll to bottom on initial mount (after DOM paints)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
 
   // Focus input on mount
   useEffect(() => {
@@ -600,7 +636,7 @@ export function AIChatView({ onBack, conversationTitle, initialConversationId }:
   const models = curatedModels.value; // Use curated list for dropdown
 
   return (
-    <div className="flex flex-col h-full bg-[hsl(var(--background))]">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[hsl(var(--background))]">
       {/* Header */}
       <div className="flex-shrink-0 px-4 py-4 border-b border-[hsl(var(--border))] bg-[hsl(var(--card))]">
         {onBack && (
@@ -621,18 +657,9 @@ export function AIChatView({ onBack, conversationTitle, initialConversationId }:
             </h2>
             <SecurityBadge level="e2ee" variant="solid" size="sm" />
           </div>
-          <div className="flex items-center gap-2">
-            {aiMessages.value.length > 0 && (
-              <ContextWheel 
-                currentTokens={totalContextTokens.value}
-                maxTokens={8192}
-                messageCount={aiMessages.value.length}
-              />
-            )}
-          </div>
         </div>
 
-        {/* Model selection dropdown */}
+        {/* Model selection dropdown + context wheel */}
         <div className="flex items-center gap-2">
           <label className="text-sm text-[hsl(var(--muted-foreground))]">Model:</label>
           <DropdownMenu>
@@ -695,6 +722,13 @@ export function AIChatView({ onBack, conversationTitle, initialConversationId }:
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          {aiMessages.value.length > 0 && (
+            <ContextWheel
+              currentTokens={totalContextTokens.value}
+              maxTokens={8192}
+              messageCount={aiMessages.value.length}
+            />
+          )}
         </div>
       </div>
 
@@ -711,7 +745,8 @@ export function AIChatView({ onBack, conversationTitle, initialConversationId }:
             <MessageBubble key={message.id} message={message} />
           ))
         )}
-        {isLoading && !aiMessages.value.some(m => m.isStreaming) && (
+        {/* Only show separate tool indicator if no message exists yet with embedded tool calls */}
+        {isLoading && !aiMessages.value.some(m => m.isStreaming || (m.toolCalls && m.toolCalls.length > 0)) && (
           <ToolStatusIndicator />
         )}
       </div>
@@ -914,6 +949,108 @@ function MessageBubble({ message }: { message: Message }) {
       "border border-[hsl(var(--border)/0.3)]",
     ].join(" "),
   };
+  
+  // Tool UI mapping with phase-aware labels
+  const toolUI: Record<string, { 
+    labelRunning: string; 
+    labelComplete: string; 
+    icon: preact.JSX.Element; 
+    color: string 
+  }> = {
+    web_search:    { labelRunning: 'Searching',   labelComplete: 'Searched',   icon: <Globe className="w-3 h-3" />,    color: 'text-blue-400' },
+    fetch_content: { labelRunning: 'Reading',     labelComplete: 'Read',       icon: <FileText className="w-3 h-3" />, color: 'text-purple-400' },
+    deep_search:   { labelRunning: 'Researching', labelComplete: 'Researched', icon: <BookOpen className="w-3 h-3" />, color: 'text-emerald-400' },
+  };
+  
+  /**
+   * Render message content with inline tool badges at the positions where they were called
+   */
+  const renderContentWithInlineTools = (content: string, toolCalls: ToolCall[], isStreaming?: boolean) => {
+    // Sort tool calls by position (earliest first)
+    const sortedTools = [...toolCalls].sort((a, b) => a.contentPosition - b.contentPosition);
+    
+    // Split content at tool positions and interleave with badges
+    const parts: React.ReactNode[] = [];
+    let lastPosition = 0;
+    
+    sortedTools.forEach((toolCall, idx) => {
+      // Add content before this tool
+      if (toolCall.contentPosition > lastPosition) {
+        const textBefore = content.slice(lastPosition, toolCall.contentPosition);
+        if (textBefore) {
+          parts.push(
+            <span key={`text-${idx}`}>{renderMarkdown(textBefore)}</span>
+          );
+        }
+      }
+      
+      // Add tool badge (as a block element for proper line breaks)
+      const ui = toolUI[toolCall.tool] || { 
+        labelRunning: toolCall.tool, 
+        labelComplete: toolCall.tool,
+        icon: <span className="w-3 h-3">🔧</span>, 
+        color: 'text-gray-400' 
+      };
+      
+      const truncatedDetail = toolCall.detail.length > 40
+        ? toolCall.detail.slice(0, 40) + '…'
+        : toolCall.detail;
+      
+      const label = toolCall.phase === 'running' ? ui.labelRunning : ui.labelComplete;
+      
+      parts.push(
+        <div key={`tool-${idx}`} className="my-2">
+          <div
+            className={cn(
+              "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] border",
+              "bg-[hsl(var(--muted))/40] border-[hsl(var(--border))/50]",
+              toolCall.phase === 'running' ? ui.color : "text-[hsl(var(--muted-foreground))]"
+            )}
+          >
+            {toolCall.phase === 'running' ? (
+              <>
+                <span className="flex-shrink-0 animate-pulse">{ui.icon}</span>
+                <span className="font-medium">{label}</span>
+                {truncatedDetail && (
+                  <span className="text-[hsl(var(--muted-foreground))]">"{truncatedDetail}"</span>
+                )}
+                <PersistentSpinner size="sm" />
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-3 h-3 text-emerald-500 flex-shrink-0" />
+                <span className="font-medium">{label}</span>
+                {truncatedDetail && (
+                  <span className="opacity-70">"{truncatedDetail}"</span>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      );
+      
+      lastPosition = toolCall.contentPosition;
+    });
+    
+    // Add any remaining content after the last tool
+    if (lastPosition < content.length) {
+      const textAfter = content.slice(lastPosition);
+      if (textAfter) {
+        parts.push(
+          <span key="text-final">{renderMarkdown(textAfter)}</span>
+        );
+      }
+    }
+    
+    // Add blinking cursor if streaming
+    if (isStreaming) {
+      parts.push(
+        <span key="cursor" className="inline-block w-[2px] h-4 ml-0.5 bg-current animate-pulse" />
+      );
+    }
+    
+    return <>{parts}</>;
+  };
 
   // Format metadata for assistant messages
   const visibleMetadata: string[] = [];
@@ -999,12 +1136,21 @@ function MessageBubble({ message }: { message: Message }) {
       >
         <div className="relative">
           <div className={cn("text-sm break-words", isUser ? "whitespace-pre-wrap" : "")}>
-            {isUser ? message.content : renderMarkdown(message.content)}
-            {/* Blinking cursor while streaming */}
-            {!isUser && message.isStreaming && (
-              <span className="inline-block w-[2px] h-4 ml-0.5 bg-current animate-pulse" />
+            {/* Render content with inline tool badges */}
+            {!isUser && message.toolCalls && message.toolCalls.length > 0 ? (
+              renderContentWithInlineTools(message.content, message.toolCalls, message.isStreaming)
+            ) : (
+              <>
+                {isUser ? message.content : renderMarkdown(message.content)}
+                {/* Blinking cursor while streaming */}
+                {!isUser && message.isStreaming && (
+                  <span className="inline-block w-[2px] h-4 ml-0.5 bg-current animate-pulse" />
+                )}
+              </>
             )}
           </div>
+          
+          {/* OLD tool rendering removed - now inline within content */}
         </div>
         <div className={cn(
           "mt-1 text-xs flex items-center gap-1",
@@ -1133,9 +1279,10 @@ async function sendStreamingRequest(request: E2EEAIRequest): Promise<E2EEAIRespo
   const routeData = await routeResponse.json();
   const operatorEdgeId = routeData.operator_edge_id;
   const operatorPublicKey = routeData.x25519_public_key;
-  const actualModel = routeData.model || requestModel;
+  const actualModel = routeData.model || routeData.ollama_model_name || requestModel; // Use literal Ollama name
+  const displayName = routeData.display_name || actualModel;
   
-  console.log(`[AI Stream] Smart router selected: ${operatorEdgeId.slice(0, 8)}, model: ${actualModel}`);
+  console.log(`[AI Stream] Smart router selected: ${operatorEdgeId.slice(0, 8)}, display: "${displayName}", literal: "${actualModel}"`);
   
   // Step 2: Prepare and encrypt request payload
   const contextLimit = 8192; // TODO: Get from model metadata
@@ -1396,12 +1543,58 @@ async function sendStreamingRequest(request: E2EEAIRequest): Promise<E2EEAIRespo
               // Note: Auto-scroll handled by useEffect watching aiMessages
             }
           } else if (chunk.type === 'tool_status') {
-            // Live tool call status — update the indicator without touching message content
-            aiToolStatus.value = {
+            // Live tool call status — update the indicator AND append to current message
+            // Track content position so we can render tool inline where it occurred
+            const lastMessageIndex = aiMessages.value.length - 1;
+            const currentContentLength = lastMessageIndex >= 0 
+              ? aiMessages.value[lastMessageIndex].content.length 
+              : 0;
+            
+            const toolCall: ToolCall = {
               tool: chunk.tool || 'unknown',
               detail: chunk.detail || '',
               phase: chunk.phase === 'complete' ? 'complete' : 'running',
+              timestamp: Date.now(),
+              contentPosition: currentContentLength, // Where in the content this tool was called
             };
+            
+            aiToolStatus.value = {
+              tool: toolCall.tool,
+              detail: toolCall.detail,
+              phase: toolCall.phase,
+            };
+            
+            // Append tool call to the current message (if it exists)
+            if (lastMessageIndex >= 0 && aiMessages.value[lastMessageIndex].role === 'assistant') {
+              const updated = [...aiMessages.value];
+              const message = updated[lastMessageIndex];
+              
+              // Check if this tool already exists (match by tool name only, detail may vary)
+              // Find the most recent running instance of this tool to update
+              const existingToolIndex = (message.toolCalls || []).findIndex(
+                t => t.tool === toolCall.tool && t.phase === 'running'
+              );
+              
+              if (existingToolIndex >= 0 && toolCall.phase === 'complete') {
+                // Update the running tool to complete
+                message.toolCalls = message.toolCalls || [];
+                message.toolCalls[existingToolIndex] = {
+                  ...message.toolCalls[existingToolIndex],
+                  phase: 'complete',
+                  timestamp: Date.now(),
+                };
+              } else if (toolCall.phase === 'running') {
+                // Only append new tool if it's a running phase (avoid duplicate complete badges)
+                const alreadyExists = (message.toolCalls || []).some(
+                  t => t.tool === toolCall.tool && t.detail === toolCall.detail
+                );
+                if (!alreadyExists) {
+                  message.toolCalls = [...(message.toolCalls || []), toolCall];
+                }
+              }
+              
+              aiMessages.value = updated;
+            }
 
           } else if (chunk.type === 'done') {
             // Final metadata chunk
@@ -1467,9 +1660,10 @@ async function sendNonStreamingRequest(request: E2EEAIRequest): Promise<E2EEAIRe
   const routeData = await routeResponse.json();
   const operatorEdgeId = routeData.operator_edge_id;
   const operatorPublicKey = routeData.x25519_public_key;
-  const actualModel = routeData.model || requestModel; // Router returns the model it selected
+  const actualModel = routeData.model || routeData.ollama_model_name || requestModel; // Router returns the model it selected (literal Ollama name)
+  const displayName = routeData.display_name || actualModel;
   
-  console.log(`[AI Chat] Smart router selected operator: ${operatorEdgeId.slice(0, 8)}, model: ${actualModel}, estimated latency: ${routeData.estimated_latency_ms}ms`);
+  console.log(`[AI Chat] Smart router selected operator: ${operatorEdgeId.slice(0, 8)}, display: "${displayName}", literal: "${actualModel}", estimated latency: ${routeData.estimated_latency_ms}ms`);
   console.log(`[DEBUG] Operator public key from router: ${operatorPublicKey?.slice(0, 16)}...${operatorPublicKey?.slice(-8)}`);
   console.log(`[DEBUG] Operator public key length: ${operatorPublicKey?.length}`);
   

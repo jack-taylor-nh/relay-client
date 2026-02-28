@@ -142,3 +142,19 @@ export interface SSEEvent {
   type: 'connected' | 'conversation_update' | 'ping' | 'error';
   payload: any;
 }
+
+// Model Fit Analysis Types
+export {
+  FitLevel,
+  RunMode,
+  InferenceRuntime,
+  type GpuVendor,
+  type GpuBackend,
+  type CpuArchitecture,
+  type EnhancedGpuInfo,
+  type EnhancedSystemSpecs,
+  type ScoreComponents,
+  type ModelMetadata,
+  type ModelFitAnalysis,
+  type RecommendationFilters
+} from '../main/services/ModelFitTypes';

@@ -226,7 +226,7 @@ export function FullscreenNewView() {
   return (
     <div className="flex h-full">
       {/* Left Panel - Edge Selection */}
-      <div className="w-80 flex-shrink-0 flex flex-col border-r border-[hsl(var(--border))] bg-[hsl(var(--card))]">
+      <div className="w-96 flex-shrink-0 flex flex-col border-r border-[hsl(var(--border))] bg-[hsl(var(--card))]">
         <div className="px-4 py-4 border-b border-[hsl(var(--border))]">
           <h2 className="text-lg font-semibold text-[hsl(var(--foreground))]">Start new conversation</h2>
           <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">Choose which edge to use</p>

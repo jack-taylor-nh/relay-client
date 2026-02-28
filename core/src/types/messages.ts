@@ -62,6 +62,7 @@ export type EdgeType =
   | 'sms' 
   | 'telegram' 
   | 'slack' 
+  | 'relay-ai'
   | 'local-llm'
   | 'other';
 

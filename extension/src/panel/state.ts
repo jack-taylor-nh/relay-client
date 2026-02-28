@@ -76,13 +76,61 @@ export const tempConversations = signal<Conversation[]>([]); // Local-only temp 
 export const localAIConversations = signal<Conversation[]>([]); // Persisted AI chat conversations
 export const selectedConversationId = signal<string | null>(null);
 
+// ── Inbox UI state ────────────────────────────────────────────────────────
+export type InboxSort = 'newest' | 'oldest' | 'unread' | 'az';
+export type InboxFilter = 'all' | 'unread' | 'archived';
+export const inboxSort = signal<InboxSort>('newest');
+export const inboxFilter = signal<InboxFilter>('all');
+export const archivedConversationIds = signal<Set<string>>(new Set());
+export const deletedConversationIds = signal<Set<string>>(new Set());
+export const conversationCustomNames = signal<Map<string, string>>(new Map());
+
+/** Apply current sort + filter to a conversation list for rendering. */
+export function applyFilterAndSort(convos: Conversation[]): Conversation[] {
+  const archived = archivedConversationIds.value;
+  const filter = inboxFilter.value;
+  const sort = inboxSort.value;
+
+  let filtered: Conversation[];
+  if (filter === 'archived') {
+    filtered = convos.filter(c => archived.has(c.id));
+  } else if (filter === 'unread') {
+    filtered = convos.filter(c => !archived.has(c.id) && (c.isUnread || (c.unreadCount ?? 0) > 0));
+  } else {
+    filtered = convos.filter(c => !archived.has(c.id));
+  }
+
+  const names = conversationCustomNames.value;
+  switch (sort) {
+    case 'oldest':
+      return [...filtered].sort((a, b) => new Date(a.lastActivityAt).getTime() - new Date(b.lastActivityAt).getTime());
+    case 'unread':
+      return [...filtered].sort((a, b) => {
+        const aU = (a.isUnread || (a.unreadCount ?? 0) > 0) ? 1 : 0;
+        const bU = (b.isUnread || (b.unreadCount ?? 0) > 0) ? 1 : 0;
+        if (aU !== bU) return bU - aU;
+        return new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime();
+      });
+    case 'az':
+      return [...filtered].sort((a, b) => {
+        const na = (names.get(a.id) || a.counterpartyName || '').toLowerCase();
+        const nb = (names.get(b.id) || b.counterpartyName || '').toLowerCase();
+        return na.localeCompare(nb);
+      });
+    default: // 'newest'
+      return [...filtered].sort((a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime());
+  }
+}
+
 // Merge helper: server convos + temp + AI
 export function mergeAllConversations(serverConvos: Conversation[]): void {
   const aiIds = new Set(localAIConversations.value.map(c => c.id));
   const tempIds = new Set(tempConversations.value.map(c => c.id));
-  // Prefer local AI copies (they have up-to-date preview/title)
-  const filtered = serverConvos.filter(c => !aiIds.has(c.id) && !tempIds.has(c.id));
-  conversations.value = [...localAIConversations.value, ...filtered, ...tempConversations.value];
+  const deletedIds = deletedConversationIds.value;
+  // Prefer local AI copies; exclude permanently deleted conversations
+  const filtered = serverConvos.filter(c => !aiIds.has(c.id) && !tempIds.has(c.id) && !deletedIds.has(c.id));
+  const activeAI = localAIConversations.value.filter(c => !deletedIds.has(c.id));
+  conversations.value = [...activeAI, ...filtered, ...tempConversations.value];
 }
 
 export async function loadLocalAIConversations(): Promise<void> {
@@ -116,6 +164,92 @@ export async function saveLocalAIConversation(conv: Conversation): Promise<void>
   } catch (err) {
     console.warn('[State] Failed to save AI conversation:', err);
   }
+}
+
+// ── Inbox local overrides (archive / delete / rename) ────────────────────
+const INBOX_OVERRIDES_KEY = 'inbox_overrides';
+interface InboxOverride { deleted?: true; archived?: true; customName?: string; }
+
+async function saveInboxOverrides(): Promise<void> {
+  const overrides: Record<string, InboxOverride> = {};
+  for (const id of archivedConversationIds.value) overrides[id] = { ...overrides[id], archived: true };
+  for (const id of deletedConversationIds.value)  overrides[id] = { ...overrides[id], deleted: true };
+  for (const [id, name] of conversationCustomNames.value) overrides[id] = { ...overrides[id], customName: name };
+  await chrome.storage.local.set({ [INBOX_OVERRIDES_KEY]: overrides });
+}
+
+export async function loadInboxOverrides(): Promise<void> {
+  try {
+    const result = await chrome.storage.local.get(INBOX_OVERRIDES_KEY);
+    const overrides: Record<string, InboxOverride> = result[INBOX_OVERRIDES_KEY] || {};
+    const archived = new Set<string>();
+    const deleted  = new Set<string>();
+    const names    = new Map<string, string>();
+    for (const [id, o] of Object.entries(overrides)) {
+      if (o.archived)   archived.add(id);
+      if (o.deleted)    deleted.add(id);
+      if (o.customName) names.set(id, o.customName);
+    }
+    archivedConversationIds.value = archived;
+    deletedConversationIds.value  = deleted;
+    conversationCustomNames.value = names;
+  } catch (err) {
+    console.warn('[State] Failed to load inbox overrides:', err);
+  }
+}
+
+export async function deleteConversation(id: string): Promise<void> {
+  // AI conversations: remove from index + clear message history
+  const isAI = localAIConversations.value.some(c => c.id === id);
+  if (isAI) {
+    const updated = localAIConversations.value.filter(c => c.id !== id);
+    localAIConversations.value = updated;
+    await chrome.storage.local.set({ ai_conversations_index: updated });
+    try { await chrome.storage.sync.remove(`ai_conversation_${id}`); } catch {}
+  }
+  tempConversations.value = tempConversations.value.filter(c => c.id !== id);
+  // Persist deletion so server convos don't reappear on next poll
+  const newDeleted = new Set(deletedConversationIds.value);
+  newDeleted.add(id);
+  deletedConversationIds.value = newDeleted;
+  conversations.value = conversations.value.filter(c => c.id !== id);
+  if (selectedConversationId.value === id) selectedConversationId.value = null;
+  await saveInboxOverrides();
+}
+
+export async function archiveConversation(id: string): Promise<void> {
+  const newArchived = new Set(archivedConversationIds.value);
+  newArchived.add(id);
+  archivedConversationIds.value = newArchived;
+  if (selectedConversationId.value === id) selectedConversationId.value = null;
+  await saveInboxOverrides();
+}
+
+export async function unarchiveConversation(id: string): Promise<void> {
+  const newArchived = new Set(archivedConversationIds.value);
+  newArchived.delete(id);
+  archivedConversationIds.value = newArchived;
+  await saveInboxOverrides();
+}
+
+export async function renameConversation(id: string, name: string): Promise<void> {
+  const trimmed = name.trim();
+  const newNames = new Map(conversationCustomNames.value);
+  if (trimmed) { newNames.set(id, trimmed); } else { newNames.delete(id); }
+  conversationCustomNames.value = newNames;
+  // Update merged list immediately for instant UI feedback
+  conversations.value = conversations.value.map(c =>
+    c.id === id ? { ...c, counterpartyName: trimmed || c.counterpartyName } : c
+  );
+  // Persist AI conversation title
+  if (localAIConversations.value.some(c => c.id === id)) {
+    const updated = localAIConversations.value.map(c =>
+      c.id === id ? { ...c, counterpartyName: trimmed || c.counterpartyName } : c
+    );
+    localAIConversations.value = updated;
+    await chrome.storage.local.set({ ai_conversations_index: updated });
+  }
+  await saveInboxOverrides();
 }
 
 // Computed: Check if any conversation has unread messages
@@ -660,6 +794,7 @@ export async function loadConversations(): Promise<void> {
 
     if (storedResult.success && storedResult.conversations) {
       await loadLocalAIConversations();
+      await loadInboxOverrides();
       mergeAllConversations(storedResult.conversations);
     }
     
