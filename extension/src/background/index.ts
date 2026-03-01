@@ -533,7 +533,8 @@ async function handleMessage(message: MessageType): Promise<unknown> {
 
     case 'GET_AUTH_TOKEN':
       const token = await getAuthToken();
-      return token ? { token } : { error: 'Failed to get auth token' };
+      const apiUrl = await getApiUrl();
+      return token ? { token, apiUrl } : { error: 'Failed to get auth token' };
 
     case 'RESOLVE_HANDLE':
       return resolveHandle(message.payload.handle);

@@ -13,6 +13,19 @@ import { cn } from '@/lib/utils';
 import { AIChatView } from './AIChatView';
 import { EmojiPicker } from '../components/EmojiPicker';
 import { ReactionPicker } from '../components/ReactionPicker';
+import { FileUploadButton } from '@/components/relay/FileUploadButton';
+import { FileMessage } from '@/components/relay/FileMessage';
+import {
+  encryptFile,
+  decryptFile,
+  uploadFile,
+  downloadFile,
+  createFileMessage,
+  parseFileMessage,
+  isFileMessage,
+  serializeRatchetState,
+  deserializeRatchetState,
+} from '@relay/core';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -819,7 +832,81 @@ function MessageBubble({ message, onSend }: { message: Message; onSend: (content
           
           {/* Message Content */}
           <div className="text-[15px] leading-snug whitespace-pre-wrap break-words">
-            {shouldRenderMarkdown ? renderMarkdown(actualContent) : actualContent}
+            {isFileMessage(actualContent) ? (
+              (() => {
+                const fileData = parseFileMessage(actualContent);
+                if (!fileData) return actualContent;
+                
+                return (
+                  <FileMessage
+                    fileId={fileData.fileId}
+                    mimeType={fileData.mimeType}
+                    originalFilename={fileData.originalFilename}
+                    onDownload={async (fileId) => {
+                      // Access the parent component's handleFileDownload via a ref or context
+                      // For now, we'll implement it inline
+                      const authResult = await sendMessage<{
+                        token?: string;
+                        apiUrl?: string;
+                      }>({ type: 'GET_AUTH_TOKEN' });
+                      
+                      if (!authResult.token || !authResult.apiUrl) {
+                        throw new Error('Authentication failed');
+                      }
+                      
+                      const encryptedData = await downloadFile(
+                        fileId,
+                        authResult.apiUrl,
+                        authResult.token
+                      );
+                      
+                      const conversationId = selectedConversationId.value;
+                      if (!conversationId) throw new Error('No conversation selected');
+                      
+                      // Get ratchet state from storage
+                      const ratchetKey = `ratchet:${conversationId}`;
+                      const storedState = await chrome.storage.local.get([ratchetKey]);
+                      
+                      if (!storedState[ratchetKey]) {
+                        throw new Error('Decryption keys not found');
+                      }
+                      
+                      const ratchetState = deserializeRatchetState(storedState[ratchetKey]);
+                      
+                      const decryptResult = decryptFile(
+                        {
+                          ciphertext: encryptedData,
+                          nonce: fileData.nonce,
+                          encryptedKey: fileData.encryptedKey,
+                          mimeType: fileData.mimeType,
+                          encryptedFilename: fileData.encryptedFilename,
+                        },
+                        ratchetState
+                      );
+                      
+                      if (!decryptResult) {
+                        throw new Error('Failed to decrypt file');
+                      }
+                      
+                      // Save updated ratchet state
+                      await chrome.storage.local.set({ 
+                        [ratchetKey]: serializeRatchetState(decryptResult.newState) 
+                      });
+                      
+                      return {
+                        data: decryptResult.fileData,
+                        filename: decryptResult.filename || fileData.originalFilename || null,
+                      };
+                    }}
+                    className={message.isMine ? "text-white" : ""}
+                  />
+                );
+              })()
+            ) : shouldRenderMarkdown ? (
+              renderMarkdown(actualContent)
+            ) : (
+              actualContent
+            )}
           </div>
           
           {/* Reactions Display */}
@@ -868,7 +955,7 @@ function MessageBubble({ message, onSend }: { message: Message; onSend: (content
   );
 }
 
-function MessageInput({ onSend, conversationId }: { onSend: (content: string) => void; conversationId: string }) {
+function MessageInput({ onSend, conversationId, onFileUpload }: { onSend: (content: string) => void; conversationId: string; onFileUpload: (file: File) => void }) {
   const [text, setText] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -999,6 +1086,13 @@ function MessageInput({ onSend, conversationId }: { onSend: (content: string) =>
             onClose={() => setShowEmojiPicker(false)}
           />
         )}
+        
+        {/* File Upload Button */}
+        <FileUploadButton
+          onFileSelect={onFileUpload}
+          accept="image/*,application/pdf,.doc,.docx,.txt"
+          maxSize={50 * 1024 * 1024}
+        />
         
         {/* Emoji Button */}
         <Button
@@ -1362,6 +1456,84 @@ export function ConversationDetailView() {
     }
   }
   
+  async function handleFileUpload(file: File) {
+    if (!conversationId) return;
+    
+    const conv = conversations.value.find(c => c.id === conversationId);
+    if (!conv) {
+      showToast('Conversation not found');
+      return;
+    }
+    
+    showToast('Encrypting and uploading file...');
+    
+    try {
+      // Read file data
+      const fileData = await file.arrayBuffer();
+      const fileBytes = new Uint8Array(fileData);
+      
+      // Get ratchet state from storage
+      const ratchetKey = `ratchet:${conversationId}`;
+      const storedState = await chrome.storage.local.get([ratchetKey]);
+      
+      if (!storedState[ratchetKey]) {
+        showToast('Encryption keys not found');
+        return;
+      }
+      
+      const ratchetState = deserializeRatchetState(storedState[ratchetKey]);
+      
+      // Encrypt file
+      const { encrypted, newState } = encryptFile(
+        fileBytes,
+        file.type || 'application/octet-stream',
+        file.name,
+        ratchetState
+      );
+      
+      // Save updated ratchet state
+      await chrome.storage.local.set({ 
+        [ratchetKey]: serializeRatchetState(newState) 
+      });
+      
+      // Get auth token and API URL
+      const authResult = await sendMessage<{
+        token?: string;
+        apiUrl?: string;
+      }>({ type: 'GET_AUTH_TOKEN' });
+      
+      if (!authResult.token || !authResult.apiUrl) {
+        showToast('Authentication failed');
+        return;
+      }
+      
+      // Upload encrypted file
+      const metadata = await uploadFile(
+        encrypted,
+        conversationId,
+        undefined, // messageId will be set when we send the message
+        authResult.apiUrl,
+        authResult.token
+      );
+      
+      // Create file message
+      const fileMessageContent = createFileMessage(
+        metadata.id,
+        encrypted,
+        file.name
+      );
+      
+      // Send message with file reference
+      await handleSendMessage(fileMessageContent);
+      
+      showToast('File uploaded successfully');
+    } catch (error) {
+      console.error('File upload error:', error);
+      showToast('Failed to upload file');
+    }
+  }
+  
+  
   if (!conversationId) {
     return null;
   }
@@ -1449,7 +1621,7 @@ export function ConversationDetailView() {
       </ScrollArea>
       
       {/* Input - for all conversations */}
-      <MessageInput onSend={handleSendMessage} conversationId={conversationId} />
+      <MessageInput onSend={handleSendMessage} conversationId={conversationId} onFileUpload={handleFileUpload} />
       
       <style>{`
         /* Subtle gradient background for glass effect depth */

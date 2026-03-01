@@ -11,6 +11,7 @@ export * from './crypto/ratchet.js';
 
 // Messaging (Unified protocol)
 export * from './messaging/index.js';
+export * from './messaging/files.js';
 
 // Identity & Assets (Portable identity system)
 export * from './identity/index.js';
