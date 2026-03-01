@@ -2938,6 +2938,18 @@ const pendingNativeSends = new Set<string>();
 const recentNativeSends = new Map<string, number>();
 const SEND_COOLDOWN_MS = 2000; // 2 second cooldown for same content
 
+// Per-conversation send queue to prevent ratchet state race conditions
+// Maps conversation key (myEdgeId:recipientEdgeId) to Promise chain
+const conversationSendQueues = new Map<string, Promise<any>>();
+
+/**
+ * Get or create a conversation queue key for send ordering
+ */
+function getConversationQueueKey(myEdgeId: string, recipientEdgeId: string): string {
+  // Sort IDs to ensure consistent key regardless of direction
+  return [myEdgeId, recipientEdgeId].sort().join(':');
+}
+
 /**
  * @deprecated Use sendToEdge() instead - this function resolves handle internally.
  * New code should resolve the edge first, then call sendToEdge directly.
@@ -3184,6 +3196,55 @@ async function sendToEdge(
   messageId?: string;
   error?: string;
 }> {
+  if (!unlockedIdentity) {
+    return { success: false, error: 'Wallet is locked' };
+  }
+
+  // Get conversation queue key for sequential sends
+  const queueKey = getConversationQueueKey(myEdgeId, recipientEdgeId);
+  
+  // Get existing queue or create new promise
+  const previousSend = conversationSendQueues.get(queueKey) || Promise.resolve();
+  
+  // Create new promise for this send that waits for previous
+  const thisSend = previousSend
+    .then(() => sendToEdgeInternal(myEdgeId, recipientEdgeId, recipientX25519PublicKey, content, conversationId, origin))
+    .catch(error => {
+      console.error('[sendToEdge] Previous send failed, continuing with this send:', error);
+      // Even if previous failed, try this send
+      return sendToEdgeInternal(myEdgeId, recipientEdgeId, recipientX25519PublicKey, content, conversationId, origin);
+    })
+    .finally(() => {
+      // Clean up queue if this was the last send
+      if (conversationSendQueues.get(queueKey) === thisSend) {
+        conversationSendQueues.delete(queueKey);
+      }
+    });
+  
+  // Store this send as the latest in the queue
+  conversationSendQueues.set(queueKey, thisSend);
+  
+  return thisSend;
+}
+
+/**
+ * Internal sendToEdge implementation (queue-wrapped by sendToEdge)
+ * Do not call directly - use sendToEdge() which handles queueing
+ */
+async function sendToEdgeInternal(
+  myEdgeId: string,
+  recipientEdgeId: string,
+  recipientX25519PublicKey: string,
+  content: string,
+  conversationId?: string,
+  origin: 'native' | 'email' | 'contact_link' | 'discord' | 'local-llm' | 'other' = 'native'
+): Promise<{
+  success: boolean;
+  conversationId?: string;
+  messageId?: string;
+  error?: string;
+}> {
+  // Check if wallet is locked (can happen if locked during queue wait)
   if (!unlockedIdentity) {
     return { success: false, error: 'Wallet is locked' };
   }

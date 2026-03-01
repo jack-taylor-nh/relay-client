@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { signal } from '@preact/signals';
-import { Lock, Mail, FileText, ChevronLeft, Send, Link as LinkIcon } from 'lucide-react';
+import { Lock, Mail, FileText, ChevronLeft, Send, Link as LinkIcon, Copy, MoreVertical, Smile, Reply, X, SmilePlus } from 'lucide-react';
 import { selectedConversationId, currentIdentity, showToast, sendMessage, conversations, tempConversations } from '../state';
 import type { ConversationType } from '../../types';
 import { CodeBlock } from '../components/CodeBlock';
@@ -11,10 +11,30 @@ import { ViaBadge } from '@/components/relay/ViaBadge';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { AIChatView } from './AIChatView';
+import { EmojiPicker } from '../components/EmojiPicker';
+import { ReactionPicker } from '../components/ReactionPicker';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 // ============================================
 // Types
 // ============================================
+
+interface ReplyContext {
+  messageId: string;
+  content: string;
+  isMine: boolean;
+}
+
+interface Reaction {
+  emoji: string;
+  count: number;
+  userReacted: boolean; // Did the current user react with this emoji?
+}
 
 interface Message {
   id: string;
@@ -22,6 +42,7 @@ interface Message {
   content: string; // Decrypted content
   createdAt: string;
   isMine: boolean;
+  reactions?: Reaction[];
 }
 
 interface ConversationDetails {
@@ -38,6 +59,7 @@ interface ConversationDetails {
 const messages = signal<Message[]>([]);
 const conversationDetails = signal<ConversationDetails | null>(null);
 const isLoadingMessages = signal(false);
+const replyContext = signal<ReplyContext | null>(null);
 
 // ============================================
 // Load Messages from API
@@ -128,15 +150,20 @@ async function loadMessages(conversationId: string, isPolling = false) {
       
       if (messagesToAdd.length > 0 || messages.value.length === 0) {
         // If we have new messages or this is initial load
+        let combinedMessages: Message[];
+        
         if (messages.value.length === 0) {
           // Initial load - set all messages
-          messages.value = newMessages;
+          combinedMessages = newMessages;
           console.log('Initial load:', newMessages.length, 'messages');
         } else {
           // Incremental update - only add new messages
-          messages.value = [...messages.value, ...messagesToAdd];
+          combinedMessages = [...messages.value, ...messagesToAdd];
           console.log('Added', messagesToAdd.length, 'new messages');
         }
+        
+        // Aggregate reactions across all messages
+        messages.value = aggregateReactions(combinedMessages);
       }
     } else {
       if (!isPolling) {
@@ -158,6 +185,87 @@ async function loadMessages(conversationId: string, isPolling = false) {
       isLoadingMessages.value = false;
     }
   }
+}
+
+// ============================================
+// Reaction Aggregation
+// ============================================
+
+/**
+ * Parse reaction message format: [REACT:messageId:emoji:add|remove]
+ */
+function parseReactionMessage(content: string): { isReaction: boolean; messageId?: string; emoji?: string; action?: 'add' | 'remove' } {
+  const match = content.match(/^\[REACT:([^:]+):([^:]+):(add|remove)\]$/);
+  if (match) {
+    return {
+      isReaction: true,
+      messageId: match[1],
+      emoji: match[2],
+      action: match[3] as 'add' | 'remove',
+    };
+  }
+  return { isReaction: false };
+}
+
+/**
+ * Aggregate reactions across all messages
+ */
+function aggregateReactions(allMessages: Message[]): Message[] {
+  const myFingerprint = currentIdentity.value?.id || '';
+  
+  // Separate regular messages from reaction messages
+  const regularMessages: Message[] = [];
+  const reactionData: Map<string, Map<string, { count: number; userReacted: boolean }>> = new Map();
+  
+  for (const msg of allMessages) {
+    const parsed = parseReactionMessage(msg.content);
+    
+    if (parsed.isReaction && parsed.messageId && parsed.emoji) {
+      // This is a reaction message
+      if (!reactionData.has(parsed.messageId)) {
+        reactionData.set(parsed.messageId, new Map());
+      }
+      const messageReactions = reactionData.get(parsed.messageId)!;
+      
+      if (!messageReactions.has(parsed.emoji)) {
+        messageReactions.set(parsed.emoji, { count: 0, userReacted: false });
+      }
+      
+      const reactionInfo = messageReactions.get(parsed.emoji)!;
+      
+      if (parsed.action === 'add') {
+        reactionInfo.count++;
+        if (msg.isMine) {
+          reactionInfo.userReacted = true;
+        }
+      } else if (parsed.action === 'remove') {
+        reactionInfo.count = Math.max(0, reactionInfo.count - 1);
+        if (msg.isMine) {
+          reactionInfo.userReacted = false;
+        }
+      }
+    } else {
+      // This is a regular message
+      regularMessages.push(msg);
+    }
+  }
+  
+  // Attach aggregated reactions to messages
+  return regularMessages.map(msg => {
+    const msgReactions = reactionData.get(msg.id);
+    if (msgReactions && msgReactions.size > 0) {
+      const reactions: Reaction[] = Array.from(msgReactions.entries())
+        .filter(([emoji, info]) => info.count > 0)
+        .map(([emoji, info]) => ({
+          emoji,
+          count: info.count,
+          userReacted: info.userReacted,
+        }));
+      
+      return { ...msg, reactions };
+    }
+    return msg;
+  });
 }
 
 // ============================================
@@ -469,13 +577,74 @@ function formatDataValue(value: any): string {
   return String(value);
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({ message, onSend }: { message: Message; onSend: (content: string) => void }) {
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
+  
   const time = new Date(message.createdAt).toLocaleTimeString([], { 
     hour: '2-digit', 
     minute: '2-digit' 
   });
   
   const webhookPayload = tryParseWebhookPayload(message.content);
+  
+  // Parse reply metadata from message content
+  function parseReplyMetadata(content: string): { replyToId: string | null; actualContent: string } {
+    const replyMatch = content.match(/^\[REPLY:([^\]]+)\]/);
+    if (replyMatch) {
+      return {
+        replyToId: replyMatch[1],
+        actualContent: content.substring(replyMatch[0].length),
+      };
+    }
+    return { replyToId: null, actualContent: content };
+  }
+  
+  const { replyToId, actualContent } = parseReplyMetadata(message.content);
+  const replyToMessage = replyToId ? messages.value.find(m => m.id === replyToId) : null;
+  
+  // Copy message text to clipboard
+  async function handleCopyMessage() {
+    try {
+      await navigator.clipboard.writeText(actualContent);
+      showToast('Message copied to clipboard');
+    } catch (error) {
+      console.error('Failed to copy:', error);
+      showToast('Failed to copy message');
+    }
+    setContextMenuOpen(false);
+  }
+  
+  // Reply to this message
+  function handleReplyToMessage() {
+    replyContext.value = {
+      messageId: message.id,
+      content: actualContent,
+      isMine: message.isMine,
+    };
+    setContextMenuOpen(false);
+  }
+  
+  // React to this message
+  function handleReactToMessage(emoji: string) {
+    // Check if user already reacted with this emoji
+    const existingReaction = message.reactions?.find(r => r.emoji === emoji);
+    const action = existingReaction?.userReacted ? 'remove' : 'add';
+    
+    // Send reaction message with format: [REACT:messageId:emoji:add|remove]
+    const reactionContent = `[REACT:${message.id}:${emoji}:${action}]`;
+    onSend(reactionContent);
+    
+    setShowReactionPicker(false);
+  }
+  
+  // Handle right-click to open context menu
+  function handleContextMenu(e: MouseEvent) {
+    e.preventDefault();
+    setContextMenuPosition({ x: e.clientX, y: e.clientY });
+    setContextMenuOpen(true);
+  }
   
   // Liquid glass effect styles for message bubbles
   // Inspired by liquid-glass-react but kept subtle and lowkey
@@ -513,50 +682,67 @@ function MessageBubble({ message }: { message: Message }) {
     const hasRawData = webhookPayload.raw && Object.keys(webhookPayload.raw).length > 0;
     
     return (
-      <div className={cn(
-        "message-bubble webhook-message max-w-[85%] p-0 overflow-hidden rounded-2xl",
-        message.isMine 
-          ? cn("self-end rounded-br-md ml-[20%]", glassStyles.sent)
-          : cn("self-start rounded-bl-md mr-[20%]", glassStyles.received)
-      )}>
-        {webhookPayload.sender && (
-          <div className={cn(
-            "px-3.5 pt-2.5 pb-1.5 text-xs font-semibold uppercase tracking-wide",
-            message.isMine ? "text-white/70" : "text-[hsl(var(--muted-foreground))]"
-          )}>
-            {webhookPayload.detectedService && (
-              <Badge variant="accent" className="text-[10px] mr-2">
-                {webhookPayload.detectedService}
-              </Badge>
+      <DropdownMenu open={contextMenuOpen} onOpenChange={setContextMenuOpen}>
+        <DropdownMenuTrigger asChild>
+          <div 
+            className={cn(
+              "message-bubble webhook-message max-w-[85%] p-0 overflow-hidden rounded-2xl cursor-context-menu",
+              message.isMine 
+                ? cn("self-end rounded-br-md ml-[20%]", glassStyles.sent)
+                : cn("self-start rounded-bl-md mr-[20%]", glassStyles.received)
             )}
-            {webhookPayload.sender}
+            onContextMenu={handleContextMenu}
+          >
+            {webhookPayload.sender && (
+              <div className={cn(
+                "px-3.5 pt-2.5 pb-1.5 text-xs font-semibold uppercase tracking-wide",
+                message.isMine ? "text-white/70" : "text-[hsl(var(--muted-foreground))]"
+              )}>
+                {webhookPayload.detectedService && (
+                  <Badge variant="accent" className="text-[10px] mr-2">
+                    {webhookPayload.detectedService}
+                  </Badge>
+                )}
+                {webhookPayload.sender}
+              </div>
+            )}
+            {webhookPayload.title && (
+              <div className={cn(
+                "px-3.5 pb-2 text-[15px] font-semibold leading-tight",
+                message.isMine ? "text-white" : "text-[hsl(var(--foreground))]"
+              )}>{renderMarkdown(webhookPayload.title)}</div>
+            )}
+            {webhookPayload.body && (
+              <div className={cn(
+                "px-3.5 pb-3 text-sm leading-relaxed whitespace-pre-wrap break-words",
+                message.isMine ? "text-white/95" : "text-[hsl(var(--foreground))]"
+              )}>{renderMarkdown(webhookPayload.body)}</div>
+            )}
+            {hasStructuredData && !webhookPayload.raw && (
+              <WebhookDataDisplay data={webhookPayload.data!} />
+            )}
+            {hasRawData && (
+              <WebhookDataDisplay data={webhookPayload.raw!} isRaw={true} />
+            )}
+            <div className={cn(
+              "px-3.5 py-1.5 text-[11px] text-right border-t",
+              message.isMine 
+                ? "text-white/60 border-white/10 bg-black/10" 
+                : "text-[hsl(var(--muted-foreground))] border-[hsl(var(--border))] bg-[hsl(var(--muted))]"
+            )}>{time}</div>
           </div>
-        )}
-        {webhookPayload.title && (
-          <div className={cn(
-            "px-3.5 pb-2 text-[15px] font-semibold leading-tight",
-            message.isMine ? "text-white" : "text-[hsl(var(--foreground))]"
-          )}>{renderMarkdown(webhookPayload.title)}</div>
-        )}
-        {webhookPayload.body && (
-          <div className={cn(
-            "px-3.5 pb-3 text-sm leading-relaxed whitespace-pre-wrap break-words",
-            message.isMine ? "text-white/95" : "text-[hsl(var(--foreground))]"
-          )}>{renderMarkdown(webhookPayload.body)}</div>
-        )}
-        {hasStructuredData && !webhookPayload.raw && (
-          <WebhookDataDisplay data={webhookPayload.data!} />
-        )}
-        {hasRawData && (
-          <WebhookDataDisplay data={webhookPayload.raw!} isRaw={true} />
-        )}
-        <div className={cn(
-          "px-3.5 py-1.5 text-[11px] text-right border-t",
-          message.isMine 
-            ? "text-white/60 border-white/10 bg-black/10" 
-            : "text-[hsl(var(--muted-foreground))] border-[hsl(var(--border))] bg-[hsl(var(--muted))]"
-        )}>{time}</div>
-      </div>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem onClick={handleReplyToMessage}>
+            <Reply className="h-4 w-4 mr-2" />
+            Reply
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleCopyMessage}>
+            <Copy className="h-4 w-4 mr-2" />
+            Copy Message
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     );
   }
   
@@ -564,34 +750,180 @@ function MessageBubble({ message }: { message: Message }) {
   const isLocalLLM = conversationDetails.value?.type === 'local-llm';
   const shouldRenderMarkdown = isLocalLLM && !message.isMine; // Only LLM responses get markdown
   
+  // Helper to format reply preview (first 50 characters)
+  function getReplyPreview(content: string): string {
+    if (content.length <= 50) return content;
+    return content.substring(0, 50) + '...';
+  }
+  
   return (
     <div className={cn(
-      "max-w-[75%] px-4 py-3 rounded-2xl",
-      message.isMine 
-        ? cn("self-end rounded-br-md ml-[20%]", glassStyles.sent)
-        : cn("self-start rounded-bl-md mr-[20%]", glassStyles.received)
+      "relative max-w-[75%] group",
+      message.isMine ? "self-end ml-[20%]" : "self-start mr-[20%]"
     )}>
-      <div className="text-[15px] leading-snug whitespace-pre-wrap break-words">
-        {shouldRenderMarkdown ? renderMarkdown(message.content) : message.content}
-      </div>
-      <div className={cn(
-        "text-[11px] mt-1 text-right font-medium",
-        message.isMine ? "text-white/60" : "text-[hsl(var(--muted-foreground))]"
-      )}>{time}</div>
+      {/* Add Reaction Button - Top Left Edge, Hover Only */}
+      <button
+        onClick={() => setShowReactionPicker(true)}
+        className={cn(
+          "absolute -top-2 -left-2 z-10 flex items-center justify-center w-7 h-7 rounded-full text-xs transition-all opacity-0 group-hover:opacity-100 shadow-lg",
+          message.isMine
+            ? "bg-[hsl(var(--accent))] border border-white/20 text-white hover:bg-[hsl(var(--accent)/0.9)]"
+            : "bg-[hsl(var(--card))] border border-[hsl(var(--border))] text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
+        )}
+        title="Add reaction"
+      >
+        <SmilePlus className="h-4 w-4" />
+      </button>
+      
+      {/* Reaction Picker */}
+      {showReactionPicker && (
+        <div className={cn(
+          "absolute -top-2 z-20",
+          message.isMine ? "-right-2" : "-left-2"
+        )}>
+          <ReactionPicker
+            onReactionSelect={handleReactToMessage}
+            onClose={() => setShowReactionPicker(false)}
+            alignRight={message.isMine}
+          />
+        </div>
+      )}
+      
+      <DropdownMenu open={contextMenuOpen} onOpenChange={setContextMenuOpen}>
+        <DropdownMenuTrigger asChild>
+          <div 
+            className={cn(
+              "px-4 py-3 rounded-2xl cursor-context-menu",
+              message.isMine 
+                ? cn("rounded-br-md", glassStyles.sent)
+                : cn("rounded-bl-md", glassStyles.received)
+            )}
+            onContextMenu={handleContextMenu}
+          >
+          {/* Reply Quote */}
+          {replyToMessage && (
+            <div className={cn(
+              "mb-2 px-2 py-1.5 rounded-lg border-l-2 text-xs",
+              message.isMine
+                ? "bg-white/10 border-white/30 text-white/80"
+                : "bg-[hsl(var(--muted))] border-[hsl(var(--primary))] text-[hsl(var(--muted-foreground))]"
+            )}>
+              <div className="font-medium mb-0.5">
+                {replyToMessage.isMine ? 'You' : 'Them'}
+              </div>
+              <div className="opacity-90 truncate">
+                {getReplyPreview(replyToMessage.content)}
+              </div>
+            </div>
+          )}
+          
+          {/* Message Content */}
+          <div className="text-[15px] leading-snug whitespace-pre-wrap break-words">
+            {shouldRenderMarkdown ? renderMarkdown(actualContent) : actualContent}
+          </div>
+          
+          {/* Reactions Display */}
+          {message.reactions && message.reactions.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-2">
+              {message.reactions.map((reaction) => (
+                <button
+                  key={reaction.emoji}
+                  onClick={() => handleReactToMessage(reaction.emoji)}
+                  className={cn(
+                    "flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-all",
+                    reaction.userReacted
+                      ? message.isMine
+                        ? "bg-white/25 border border-white/40 text-white shadow-sm"
+                        : "bg-[hsl(var(--primary)/0.15)] border border-[hsl(var(--primary)/0.4)] text-[hsl(var(--primary))] shadow-sm"
+                      : message.isMine
+                        ? "bg-white/10 border border-white/20 text-white/80 hover:bg-white/15"
+                        : "bg-[hsl(var(--muted))] border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted)/0.8)]"
+                  )}
+                >
+                  <span>{reaction.emoji}</span>
+                  <span>{reaction.count}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          
+          <div className={cn(
+            "text-[11px] mt-1 text-right font-medium",
+            message.isMine ? "text-white/60" : "text-[hsl(var(--muted-foreground))]"
+          )}>{time}</div>
+        </div>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem onClick={handleReplyToMessage}>
+          <Reply className="h-4 w-4 mr-2" />
+          Reply
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={handleCopyMessage}>
+          <Copy className="h-4 w-4 mr-2" />
+          Copy Message
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
     </div>
   );
 }
 
-function MessageInput({ onSend }: { onSend: (content: string) => void }) {
+function MessageInput({ onSend, conversationId }: { onSend: (content: string) => void; conversationId: string }) {
   const [text, setText] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const currentReply = replyContext.value;
+  
+  // Load draft when conversation changes
+  useEffect(() => {
+    if (!conversationId) return;
+    
+    const draftKey = `draft:${conversationId}`;
+    chrome.storage.local.get([draftKey]).then((result) => {
+      if (result[draftKey]) {
+        setText(result[draftKey]);
+      } else {
+        setText('');
+      }
+    });
+  }, [conversationId]);
+  
+  // Save draft when text changes (debounced)
+  useEffect(() => {
+    if (!conversationId) return;
+    
+    const draftKey = `draft:${conversationId}`;
+    const timeoutId = setTimeout(() => {
+      if (text.trim()) {
+        chrome.storage.local.set({ [draftKey]: text });
+      } else {
+        chrome.storage.local.remove([draftKey]);
+      }
+    }, 500); // 500ms debounce
+    
+    return () => clearTimeout(timeoutId);
+  }, [text, conversationId]);
   
   function handleSubmit() {
     const trimmed = text.trim();
     if (!trimmed) return;
     
-    onSend(trimmed);
+    // If replying, include reply metadata in the message
+    let messageContent = trimmed;
+    if (currentReply) {
+      const replyPrefix = `[REPLY:${currentReply.messageId}]`;
+      messageContent = replyPrefix + trimmed;
+    }
+    
+    onSend(messageContent);
     setText('');
+    replyContext.value = null; // Clear reply context
+    
+    // Clear draft from storage
+    if (conversationId) {
+      chrome.storage.local.remove([`draft:${conversationId}`]);
+    }
+    
     inputRef.current?.focus();
   }
   
@@ -600,28 +932,108 @@ function MessageInput({ onSend }: { onSend: (content: string) => void }) {
       e.preventDefault();
       handleSubmit();
     }
+    // Cancel reply on Escape
+    if (e.key === 'Escape' && currentReply) {
+      e.preventDefault();
+      replyContext.value = null;
+    }
+  }
+  
+  function handleEmojiSelect(emoji: string) {
+    // Insert emoji at cursor position
+    const textarea = inputRef.current;
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const newText = text.substring(0, start) + emoji + text.substring(end);
+      setText(newText);
+      
+      // Set cursor position after emoji
+      setTimeout(() => {
+        textarea.focus();
+        textarea.setSelectionRange(start + emoji.length, start + emoji.length);
+      }, 0);
+    } else {
+      setText(text + emoji);
+    }
+  }
+  
+  // Format reply preview (first 50 characters)
+  function getReplyPreview(content: string): string {
+    if (content.length <= 50) return content;
+    return content.substring(0, 50) + '...';
   }
   
   return (
-    <div className="flex items-center gap-3 p-4 bg-[hsl(var(--card))] border-t border-[hsl(var(--border))]">
-      <textarea
-        ref={inputRef}
-        className="flex-1 px-3 py-2 text-sm bg-[hsl(var(--background))] border border-[hsl(var(--border))] rounded-md resize-none max-h-32 min-h-10 leading-normal text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary))] transition-colors"
-        placeholder="Type a message..."
-        value={text}
-        onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
-        onKeyDown={handleKeyDown}
-        rows={1}
-      />
-      <Button
-        variant="accent"
-        size="icon"
-        onClick={handleSubmit}
-        disabled={!text.trim()}
-        aria-label="Send message"
-      >
-        <Send className="h-4 w-4" />
-      </Button>
+    <div className="relative flex flex-col bg-[hsl(var(--card))] border-t border-[hsl(var(--border))]">
+      {/* Reply Preview */}
+      {currentReply && (
+        <div className="flex items-center gap-2 px-4 pt-3 pb-2 bg-[hsl(var(--muted))] border-b border-[hsl(var(--border))]">
+          <Reply className="h-4 w-4 text-[hsl(var(--muted-foreground))] flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-[hsl(var(--muted-foreground))]">
+              Replying to {currentReply.isMine ? 'yourself' : 'them'}
+            </div>
+            <div className="text-sm text-[hsl(var(--foreground))] truncate">
+              {getReplyPreview(currentReply.content)}
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => replyContext.value = null}
+            className="flex-shrink-0 h-6 w-6"
+            aria-label="Cancel reply"
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      )}
+      
+      {/* Input Area */}
+      <div className="flex items-center gap-3 p-4">
+        {/* Emoji Picker */}
+        {showEmojiPicker && (
+          <EmojiPicker
+            onEmojiSelect={handleEmojiSelect}
+            onClose={() => setShowEmojiPicker(false)}
+          />
+        )}
+        
+        {/* Emoji Button */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+          className="flex-shrink-0"
+          aria-label="Insert emoji"
+        >
+          <Smile className="h-4 w-4" />
+        </Button>
+        
+        {/* Text Input */}
+        <textarea
+          ref={inputRef}
+          className="flex-1 px-3 py-2 text-sm bg-[hsl(var(--background))] border border-[hsl(var(--border))] rounded-md resize-none max-h-32 min-h-10 leading-normal text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary))] transition-colors"
+          placeholder={currentReply ? "Type your reply..." : "Type a message..."}
+          value={text}
+          onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
+          onKeyDown={handleKeyDown}
+          rows={1}
+        />
+        
+        {/* Send Button */}
+        <Button
+          variant="accent"
+          size="icon"
+          onClick={handleSubmit}
+          disabled={!text.trim()}
+          className="flex-shrink-0"
+          aria-label="Send message"
+        >
+          <Send className="h-4 w-4" />
+        </Button>
+      </div>
     </div>
   );
 }
@@ -739,16 +1151,23 @@ export function ConversationDetailView() {
       x25519KeyPreview: conv.counterpartyX25519PublicKey?.substring(0, 20),
     });
     
-    // Add optimistic message
-    const newMessage: Message = {
-      id: `msg_${Date.now()}`,
-      senderFingerprint: currentIdentity.value?.id || '',
-      content,
-      createdAt: new Date().toISOString(),
-      isMine: true,
-    };
+    // Check if this is a reaction message
+    const isReactionMessage = /^\[REACT:[^:]+:[^:]+:(add|remove)\]$/.test(content);
     
-    messages.value = [...messages.value, newMessage];
+    // Add optimistic message (skip for reactions as they don't display as regular messages)
+    let optimisticMessageId: string | null = null;
+    if (!isReactionMessage) {
+      optimisticMessageId = `msg_${Date.now()}`;
+      const newMessage: Message = {
+        id: optimisticMessageId,
+        senderFingerprint: currentIdentity.value?.id || '',
+        content,
+        createdAt: new Date().toISOString(),
+        isMine: true,
+      };
+      
+      messages.value = [...messages.value, newMessage];
+    }
     
     try {
       // Phase 4: Use unified SEND_TO_EDGE if we have edge info
@@ -779,13 +1198,21 @@ export function ConversationDetailView() {
         
         if (!result.success) {
           showToast(`Failed to send: ${result.error}`);
-          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+          // Only filter out optimistic message if it was added (not for reactions)
+          if (optimisticMessageId) {
+            messages.value = messages.value.filter(m => m.id !== optimisticMessageId);
+          }
         } else {
-          // Update optimistic message with real ID from server
-          if (result.messageId) {
-            messages.value = messages.value.map(m => 
-              m.id === newMessage.id ? { ...m, id: result.messageId! } : m
-            );
+          // For reaction messages, reload to see the aggregated reaction immediately
+          if (isReactionMessage) {
+            loadMessages(conversationId, true);
+          } else if (optimisticMessageId) {
+            // Update optimistic message with real ID from server
+            if (result.messageId) {
+              messages.value = messages.value.map(m => 
+                m.id === optimisticMessageId ? { ...m, id: result.messageId! } : m
+              );
+            }
           }
           
           // If this was a temp conversation, replace it with the real one
@@ -820,7 +1247,9 @@ export function ConversationDetailView() {
         
         if (!handlesResult.success || !handlesResult.handles || handlesResult.handles.length === 0) {
           showToast('No handle found to send from');
-          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+          if (optimisticMessageId) {
+            messages.value = messages.value.filter(m => m.id !== optimisticMessageId);
+          }
           return;
         }
         
@@ -829,7 +1258,9 @@ export function ConversationDetailView() {
         // Get recipient handle from conversation counterparty
         if (!conv.counterpartyName) {
           showToast('Cannot send: recipient unknown');
-          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+          if (optimisticMessageId) {
+            messages.value = messages.value.filter(m => m.id !== optimisticMessageId);
+          }
           return;
         }
         const recipientHandle = conv.counterpartyName.replace(/^&/, ''); // Remove & prefix
@@ -850,12 +1281,14 @@ export function ConversationDetailView() {
         
         if (!result.success) {
           showToast(`Failed to send: ${result.error}`);
-          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+          if (optimisticMessageId) {
+            messages.value = messages.value.filter(m => m.id !== optimisticMessageId);
+          }
         } else {
           // Update optimistic message with real ID
-          if (result.messageId) {
+          if (result.messageId && optimisticMessageId) {
             messages.value = messages.value.map(m => 
-              m.id === newMessage.id ? { ...m, id: result.messageId! } : m
+              m.id === optimisticMessageId ? { ...m, id: result.messageId! } : m
             );
           }
           // Don't reload - the optimistic message is already correct
@@ -874,10 +1307,14 @@ export function ConversationDetailView() {
         
         if (!result.success) {
           showToast(`Failed to send: ${result.error}`);
-          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+          if (optimisticMessageId) {
+            messages.value = messages.value.filter(m => m.id !== optimisticMessageId);
+          }
         } else {
           // Remove optimistic message and reload to get the server message
-          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+          if (optimisticMessageId) {
+            messages.value = messages.value.filter(m => m.id !== optimisticMessageId);
+          }
           await loadMessages(conversationId, false);
         }
       } else if (conv.securityLevel === 'gateway_secured') {
@@ -893,10 +1330,14 @@ export function ConversationDetailView() {
         
         if (!result.success) {
           showToast(`Failed to send: ${result.error}`);
-          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+          if (optimisticMessageId) {
+            messages.value = messages.value.filter(m => m.id !== optimisticMessageId);
+          }
         } else {
           // Remove optimistic message and reload to get the server message
-          messages.value = messages.value.filter(m => m.id !== newMessage.id);
+          if (optimisticMessageId) {
+            messages.value = messages.value.filter(m => m.id !== optimisticMessageId);
+          }
           await loadMessages(conversationId, false);
         }
       } else {
@@ -908,12 +1349,16 @@ export function ConversationDetailView() {
           hasX25519Key: !!conv.counterpartyX25519PublicKey,
         });
         showToast('Unsupported conversation type');
-        messages.value = messages.value.filter(m => m.id !== newMessage.id);
+        if (optimisticMessageId) {
+          messages.value = messages.value.filter(m => m.id !== optimisticMessageId);
+        }
       }
     } catch (error) {
       console.error('Send error:', error);
       showToast('Failed to send message');
-      messages.value = messages.value.filter(m => m.id !== newMessage.id);
+      if (optimisticMessageId) {
+        messages.value = messages.value.filter(m => m.id !== optimisticMessageId);
+      }
     }
   }
   
@@ -995,7 +1440,7 @@ export function ConversationDetailView() {
         ) : (
           <>
             {messages.value.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
+              <MessageBubble key={msg.id} message={msg} onSend={handleSendMessage} />
             ))}
             <div ref={messagesEndRef} />
           </>
@@ -1004,7 +1449,7 @@ export function ConversationDetailView() {
       </ScrollArea>
       
       {/* Input - for all conversations */}
-      <MessageInput onSend={handleSendMessage} />
+      <MessageInput onSend={handleSendMessage} conversationId={conversationId} />
       
       <style>{`
         /* Subtle gradient background for glass effect depth */

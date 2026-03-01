@@ -43,7 +43,7 @@ interface ProcessedConversation {
  * - 'identity' - StoredIdentity
  * - 'edgeKeys' - Record<edgeId, EdgeKeys>
  * - 'ratchet:{conversationId}' - Serialized ratchet state
- * - 'relay-message-cache' - Encrypted message cache
+ * - 'encryptedMessageCache' - Encrypted message cache (unified with background/index.ts)
  * - 'processedConversations' - ProcessedConversation[]
  * - 'assets' - AssetState
  */
@@ -188,21 +188,39 @@ export class ChromeIdentityStorage implements ExtendedIdentityStorage {
   // ===== Message Cache =====
 
   async getMessageCache(): Promise<MessageCache | null> {
-    const { 'relay-message-cache': cache } = await chrome.storage.local.get(['relay-message-cache']);
+    // Try new unified key first
+    const { 'encryptedMessageCache': cache } = await chrome.storage.local.get(['encryptedMessageCache']);
     
-    if (!cache) return null;
-
-    // Extension stores cache differently - need to transform
-    // Cache format: { conversationId: { messageId: { ciphertext, nonce } } }
-    return {
-      encryptionKey: '', // Will be derived from identity on unlock
-      conversations: cache
-    };
+    if (cache) {
+      return {
+        encryptionKey: '', // Will be derived from identity on unlock
+        conversations: cache
+      };
+    }
+    
+    // Migration: Check legacy key for backwards compatibility
+    const { 'relay-message-cache': legacyCache } = await chrome.storage.local.get(['relay-message-cache']);
+    if (legacyCache) {
+      console.log('[Storage Migration] Found legacy message cache, migrating to unified key...');
+      // Migrate to new key
+      await chrome.storage.local.set({ 'encryptedMessageCache': legacyCache });
+      // Remove old key
+      await chrome.storage.local.remove(['relay-message-cache']);
+      console.log('[Storage Migration] Message cache migrated successfully');
+      
+      return {
+        encryptionKey: '',
+        conversations: legacyCache
+      };
+    }
+    
+    return null;
   }
 
   async setMessageCache(cache: MessageCache): Promise<void> {
+    // Use unified storage key (matches background/index.ts MESSAGE_CACHE_KEY)
     await chrome.storage.local.set({ 
-      'relay-message-cache': cache.conversations 
+      'encryptedMessageCache': cache.conversations 
     });
   }
 
