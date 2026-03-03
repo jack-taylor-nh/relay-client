@@ -10,6 +10,42 @@ import { SecurityBadge } from '@/components/relay/SecurityBadge';
 import { ViaBadge } from '@/components/relay/ViaBadge';
 import { cn } from '@/lib/utils';
 
+/**
+ * Format message preview to show user-friendly text for special message types
+ */
+function formatMessagePreview(content: string): string {
+  if (!content) return '';
+  
+  // Handle REACT messages: [REACT:messageId:emoji:add|remove]
+  const reactMatch = content.match(/^\[REACT:[^:]+:([^:]+):(add|remove)\]/);
+  if (reactMatch) {
+    const emoji = reactMatch[1];
+    const action = reactMatch[2];
+    return action === 'add' ? `${emoji} Reacted to a message` : `Removed ${emoji} reaction`;
+  }
+  
+  // Handle FILE messages: [FILE:{...}] or [FILE:{...}]text
+  if (content.startsWith('[FILE:')) {
+    // Check if there's text after the file message
+    const fileEndMatch = content.match(/^\[FILE:.*?\](.*)$/s);
+    if (fileEndMatch && fileEndMatch[1].trim()) {
+      return `📎 Sent a file`;
+    }
+    return `📎 Sent a file`;
+  }
+  
+  // Handle REPLY prefix: [REPLY:messageId]actualContent
+  const replyMatch = content.match(/^\[REPLY:[^\]]+\](.*)$/s);
+  if (replyMatch) {
+    // Recursively format the actual content (might be FILE, REACT, or text)
+    const actualContent = replyMatch[1];
+    return formatMessagePreview(actualContent);
+  }
+  
+  // Regular message - return as-is
+  return content;
+}
+
 export interface ConversationItemActions {
   onRename?: (id: string, currentName: string) => void;
   onArchive?: (id: string) => void;
@@ -80,7 +116,9 @@ export function ConversationItem({
     'Unknown';
   const displayName = isLocalLlm && rawName.length > 30 ? rawName.slice(0, 30) + '…' : rawName;
   const rawPreview = conversation.lastMessagePreview ?? '';
-  const displayPreview = isLocalLlm && rawPreview.length > 30 ? rawPreview.slice(0, 30) + '…' : rawPreview;
+  // Format special message types (reactions, files, etc.) into user-friendly text
+  const formattedPreview = formatMessagePreview(rawPreview);
+  const displayPreview = isLocalLlm && formattedPreview.length > 30 ? formattedPreview.slice(0, 30) + '…' : formattedPreview;
   const hasPreview = displayPreview.trim().length > 0;
   const securityLevel = conversation.securityLevel || 'e2ee';
   const edgeAddress = conversation.edgeAddress;

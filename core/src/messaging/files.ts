@@ -17,12 +17,14 @@ export interface EncryptedFile {
   ciphertext: Uint8Array;
   /** Nonce for decryption */
   nonce: string;
-  /** File encryption key (encrypted with ratchet) */
+  /** File encryption key (encrypted with conversation key) */
   encryptedKey: string;
   /** Original MIME type */
   mimeType: string;
   /** Original filename (optional, encrypted) */
   encryptedFilename?: string;
+  /** Root key snapshot (base64) - used to derive file encryption key */
+  rkSnapshot?: string;
 }
 
 export interface FileMetadata {
@@ -35,12 +37,26 @@ export interface FileMetadata {
   createdAt: string;
 }
 
+export interface FileUploadResponse {
+  success: boolean;
+  file: {
+    id: string;
+    conversation_id: string;
+    message_id?: string;
+    mime_type: string;
+    size_bytes: number;
+    cdn_url?: string;
+    created_at: string;
+  };
+}
+
 // =============================================================================
 // File Encryption
 // =============================================================================
 
 /**
- * Encrypt a file with a random key, then encrypt the key with the ratchet
+ * Encrypt a file with a random key, then encrypt the key with a conversation-derived key
+ * This allows both sender and receiver to decrypt files without issues
  */
 export function encryptFile(
   fileData: Uint8Array,
@@ -57,11 +73,27 @@ export function encryptFile(
   // Encrypt file with symmetric key
   const ciphertext = nacl.secretbox(fileData, nonce, fileKey);
   
-  // Encrypt the file key with the ratchet
-  const { message: encryptedKeyMessage, newState } = RatchetEncrypt(
-    ratchetState,
-    toBase64(fileKey)
+  // Derive a file-specific key from the conversation root key
+  // This allows both parties to decrypt files without advancing the ratchet
+  const fileKdfInfo = new TextEncoder().encode('RelayFileKey');
+  const conversationFileKey = nacl.hash(new Uint8Array([...ratchetState.RK, ...fileKdfInfo])).slice(0, 32);
+  
+  // Encrypt the file key with the conversation file key
+  const fileKeyNonce = nacl.randomBytes(24);
+  const encryptedFileKey = nacl.secretbox(
+    fileKey,
+    fileKeyNonce,
+    conversationFileKey
   );
+  
+  // Store encrypted file key as JSON with nonce
+  const encryptedKeyMessage = JSON.stringify({
+    c: toBase64(encryptedFileKey),
+    n: toBase64(fileKeyNonce),
+  });
+  
+  // Store RK snapshot so we can decrypt even if ratchet has advanced
+  const rkSnapshot = toBase64(ratchetState.RK);
   
   // Encrypt filename if provided
   let encryptedFilename: string | undefined;
@@ -82,33 +114,69 @@ export function encryptFile(
     encrypted: {
       ciphertext,
       nonce: toBase64(nonce),
-      encryptedKey: JSON.stringify(encryptedKeyMessage),
+      encryptedKey: encryptedKeyMessage,
       mimeType,
       encryptedFilename,
+      rkSnapshot, // Include RK snapshot for decryption
     },
-    newState,
+    newState: ratchetState, // Don't advance ratchet for file operations
   };
 }
 
 /**
- * Decrypt a file by first decrypting the key with the ratchet
+ * Decrypt a file by first decrypting the key with the conversation-derived key
+ * Also supports legacy ratchet-based encryption for backward compatibility
  */
 export function decryptFile(
   encrypted: EncryptedFile,
   ratchetState: RatchetState
 ): { fileData: Uint8Array; filename: string | null; newState: RatchetState } | null {
   try {
-    // Decrypt the file key using the ratchet
-    const encryptedKeyMessage = JSON.parse(encrypted.encryptedKey);
-    const decryptResult = RatchetDecrypt(ratchetState, encryptedKeyMessage);
+    const encryptedKeyData = JSON.parse(encrypted.encryptedKey);
+    let fileKey: Uint8Array;
+    let newState = ratchetState;
     
-    if (!decryptResult) {
-      console.error('Failed to decrypt file key');
-      return null;
+    // Check if this is old ratchet-based encryption (has 'dh' property)
+    if ('dh' in encryptedKeyData) {
+      console.log('Detected legacy ratchet-based file encryption, using RatchetDecrypt');
+      // Legacy format: decrypt with ratchet
+      const decryptResult = RatchetDecrypt(ratchetState, encryptedKeyData);
+      
+      if (!decryptResult) {
+        console.error('Failed to decrypt file key (legacy ratchet format)');
+        return null;
+      }
+      
+      const { plaintext: fileKeyBase64, newState: updatedState } = decryptResult;
+      fileKey = fromBase64(fileKeyBase64);
+      newState = updatedState;
+    } else {
+      // New format: decrypt with conversation-derived key
+      const fileKdfInfo = new TextEncoder().encode('RelayFileKey');
+      
+      // Use RK snapshot from file metadata if available, otherwise use current RK
+      const rkToUse = encrypted.rkSnapshot 
+        ? fromBase64(encrypted.rkSnapshot)
+        : ratchetState.RK;
+      
+      const conversationFileKey = nacl.hash(new Uint8Array([...rkToUse, ...fileKdfInfo])).slice(0, 32);
+      
+      const fileKeyNonce = fromBase64(encryptedKeyData.n);
+      const encryptedFileKey = fromBase64(encryptedKeyData.c);
+      
+      const decryptedKey = nacl.secretbox.open(
+        encryptedFileKey,
+        fileKeyNonce,
+        conversationFileKey
+      );
+      
+      if (!decryptedKey) {
+        console.error('Failed to decrypt file key');
+        return null;
+      }
+      
+      fileKey = decryptedKey;
     }
-    
-    const { plaintext: fileKeyBase64, newState } = decryptResult;
-    const fileKey = fromBase64(fileKeyBase64);
     
     // Decrypt the file data
     const nonce = fromBase64(encrypted.nonce);
@@ -142,7 +210,7 @@ export function decryptFile(
     return {
       fileData: decryptedFile,
       filename,
-      newState,
+      newState, // Use newState (updated for legacy, unchanged for new format)
     };
   } catch (error) {
     console.error('File decryption error:', error);
@@ -163,11 +231,17 @@ export async function uploadFile(
   messageId: string | undefined,
   apiUrl: string,
   authToken: string
-): Promise<FileMetadata> {
+): Promise<FileUploadResponse> {
   const formData = new FormData();
   
   // Add encrypted file as blob
-  const blob = new Blob([encryptedFile.ciphertext.buffer as ArrayBuffer], {
+  // IMPORTANT: Create a new ArrayBuffer with only the exact bytes we need
+  // to avoid uploading extra bytes if the Uint8Array is a view into a larger ArrayBuffer
+  const exactBuffer = encryptedFile.ciphertext.buffer.slice(
+    encryptedFile.ciphertext.byteOffset,
+    encryptedFile.ciphertext.byteOffset + encryptedFile.ciphertext.byteLength
+  ) as ArrayBuffer;
+  const blob = new Blob([exactBuffer], {
     type: 'application/octet-stream',
   });
   formData.append('file', blob);
@@ -261,6 +335,7 @@ export function createFileMessage(
     nonce: encryptedFile.nonce,
     encryptedKey: encryptedFile.encryptedKey,
     encryptedFilename: encryptedFile.encryptedFilename,
+    rkSnapshot: encryptedFile.rkSnapshot, // Include RK snapshot
     // Store original filename for UI (not encrypted)
     ...(originalFilename && { originalFilename }),
   };
@@ -278,6 +353,7 @@ export function parseFileMessage(content: string): {
   encryptedKey: string;
   encryptedFilename?: string;
   originalFilename?: string;
+  rkSnapshot?: string;
 } | null {
   const match = content.match(/^\[FILE:(.*)\]$/);
   if (!match) return null;
@@ -294,4 +370,36 @@ export function parseFileMessage(content: string): {
  */
 export function isFileMessage(content: string): boolean {
   return content.startsWith('[FILE:');
+}
+
+/**
+ * Parse a combined message that may contain both a file message and text
+ * Returns the file data and any remaining text content
+ */
+export function parseCombinedMessage(content: string): {
+  fileData: {
+    fileId: string;
+    mimeType: string;
+    nonce: string;
+    encryptedKey: string;
+    encryptedFilename?: string;
+    originalFilename?: string;
+    rkSnapshot?: string;
+  } | null;
+  textContent: string;
+} {
+  // Match [FILE:{...}] anywhere in the content
+  const match = content.match(/^\[FILE:(.*?)\](.*)$/s);
+  
+  if (!match) {
+    return { fileData: null, textContent: content };
+  }
+  
+  try {
+    const fileData = JSON.parse(match[1]);
+    const textContent = match[2]; // Everything after the file message
+    return { fileData, textContent };
+  } catch {
+    return { fileData: null, textContent: content };
+  }
 }

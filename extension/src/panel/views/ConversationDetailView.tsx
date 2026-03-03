@@ -15,6 +15,7 @@ import { EmojiPicker } from '../components/EmojiPicker';
 import { ReactionPicker } from '../components/ReactionPicker';
 import { FileUploadButton } from '@/components/relay/FileUploadButton';
 import { FileMessage } from '@/components/relay/FileMessage';
+import { LinkPreview } from '@/components/relay/LinkPreview';
 import {
   encryptFile,
   decryptFile,
@@ -23,8 +24,10 @@ import {
   createFileMessage,
   parseFileMessage,
   isFileMessage,
+  parseCombinedMessage,
   serializeRatchetState,
   deserializeRatchetState,
+  type EncryptedFile,
 } from '@relay/core';
 import {
   DropdownMenu,
@@ -56,6 +59,24 @@ interface Message {
   createdAt: string;
   isMine: boolean;
   reactions?: Reaction[];
+  linkPreview?: LinkPreviewData;
+}
+
+interface LinkPreviewData {
+  url: string;
+  title?: string | null;
+  description?: string | null;
+  image?: string | null;
+  siteName?: string | null;
+  security?: {
+    level: 'safe' | 'warning' | 'danger' | 'unknown';
+    score: number;
+    warnings: string[];
+    safe_browsing?: {
+      status: string;
+      checked: boolean;
+    };
+  };
 }
 
 interface ConversationDetails {
@@ -73,6 +94,120 @@ const messages = signal<Message[]>([]);
 const conversationDetails = signal<ConversationDetails | null>(null);
 const isLoadingMessages = signal(false);
 const replyContext = signal<ReplyContext | null>(null);
+const linkPreviews = signal<Map<string, LinkPreviewData>>(new Map()); // messageId -> preview
+const fetchingPreviews = signal<Set<string>>(new Set()); // Track in-flight requests by messageId
+
+// ============================================
+// Utility Functions
+// ============================================
+
+/**
+ * Extract first HTTP(S) URL from text content
+ * More strict - only captures well-formed URLs
+ */
+function extractFirstUrl(text: string): string | null {
+  // Match URLs but stop at punctuation that's likely not part of the URL
+  const urlRegex = /(https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9@:%._\+~#=]{0,256}\.[a-zA-Z0-9()]{1,6}\b[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)/i;
+  const match = text.match(urlRegex);
+  if (!match) return null;
+  
+  const url = match[1];
+  
+  // Validate the URL is well-formed
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return null;
+    }
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch link preview for a URL
+ */
+async function fetchLinkPreview(url: string, messageId: string): Promise<void> {
+  // Don't fetch if already fetching or already have preview
+  if (fetchingPreviews.value.has(messageId) || linkPreviews.value.has(messageId)) {
+    return;
+  }
+  
+  // Mark as fetching
+  fetchingPreviews.value = new Set(fetchingPreviews.value).add(messageId);
+  
+  try {
+    const authResult = await sendMessage<{
+      token?: string;
+      apiUrl?: string;
+    }>({ type: 'GET_AUTH_TOKEN' });
+    
+    if (!authResult.token || !authResult.apiUrl) {
+      console.error('[LinkPreview] Failed to get auth token');
+      return;
+    }
+    
+    const response = await fetch(`${authResult.apiUrl}/v1/messages/preview`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authResult.token}`,
+      },
+      body: JSON.stringify({ url }),
+    });
+    
+    if (!response.ok) {
+      console.error('[LinkPreview] Request failed:', response.status);
+      return;
+    }
+    
+    const preview = await response.json();
+    
+    // Block dangerous links - don't show preview
+    if (preview.security?.level === 'danger') {
+      console.warn('[LinkPreview] Blocked dangerous link:', url, preview.security.warnings);
+      linkPreviews.value = new Map(linkPreviews.value).set(messageId, {
+        url: preview.url,
+        title: '⚠️ Dangerous Link Blocked',
+        description: preview.security.warnings.join('. '),
+        image: null,
+        siteName: null,
+        security: preview.security,
+      });
+      
+      // Update message with blocked preview
+      messages.value = messages.value.map(msg => 
+        msg.id === messageId ? { ...msg, linkPreview: linkPreviews.value.get(messageId) } : msg
+      );
+      return;
+    }
+    
+    if (preview.success && (preview.title || preview.description || preview.image)) {
+      // Store preview in map with security data
+      linkPreviews.value = new Map(linkPreviews.value).set(messageId, {
+        url: preview.url,
+        title: preview.title,
+        description: preview.description,
+        image: preview.image,
+        siteName: preview.site_name,
+        security: preview.security,
+      });
+      
+      // Update message with preview
+      messages.value = messages.value.map(msg => 
+        msg.id === messageId ? { ...msg, linkPreview: linkPreviews.value.get(messageId) } : msg
+      );
+    }
+  } catch (error) {
+    console.error('[LinkPreview] Fetch error:', error);
+  } finally {
+    // Remove from fetching set
+    const newSet = new Set(fetchingPreviews.value);
+    newSet.delete(messageId);
+    fetchingPreviews.value = newSet;
+  }
+}
 
 // ============================================
 // Load Messages from API
@@ -590,10 +725,11 @@ function formatDataValue(value: any): string {
   return String(value);
 }
 
-function MessageBubble({ message, onSend }: { message: Message; onSend: (content: string) => void }) {
+function MessageBubble({ message, onSend }: { message: Message; onSend: (content: string, replyToId?: string) => void }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const isRightClickRef = useRef(false);
   
   const time = new Date(message.createdAt).toLocaleTimeString([], { 
     hour: '2-digit', 
@@ -647,7 +783,7 @@ function MessageBubble({ message, onSend }: { message: Message; onSend: (content
     
     // Send reaction message with format: [REACT:messageId:emoji:add|remove]
     const reactionContent = `[REACT:${message.id}:${emoji}:${action}]`;
-    onSend(reactionContent);
+    onSend(reactionContent, undefined);
     
     setShowReactionPicker(false);
   }
@@ -655,8 +791,22 @@ function MessageBubble({ message, onSend }: { message: Message; onSend: (content
   // Handle right-click to open context menu
   function handleContextMenu(e: MouseEvent) {
     e.preventDefault();
+    isRightClickRef.current = true;
     setContextMenuPosition({ x: e.clientX, y: e.clientY });
     setContextMenuOpen(true);
+  }
+  
+  // Handle menu open/close - only allow opening from right-click
+  function handleOpenChange(open: boolean) {
+    if (open && !isRightClickRef.current) {
+      // Prevent opening from left-click
+      return;
+    }
+    setContextMenuOpen(open);
+    if (!open) {
+      // Reset the flag when closing
+      isRightClickRef.current = false;
+    }
   }
   
   // Liquid glass effect styles for message bubbles
@@ -695,7 +845,7 @@ function MessageBubble({ message, onSend }: { message: Message; onSend: (content
     const hasRawData = webhookPayload.raw && Object.keys(webhookPayload.raw).length > 0;
     
     return (
-      <DropdownMenu open={contextMenuOpen} onOpenChange={setContextMenuOpen}>
+      <DropdownMenu open={contextMenuOpen} onOpenChange={handleOpenChange}>
         <DropdownMenuTrigger asChild>
           <div 
             className={cn(
@@ -802,7 +952,7 @@ function MessageBubble({ message, onSend }: { message: Message; onSend: (content
         </div>
       )}
       
-      <DropdownMenu open={contextMenuOpen} onOpenChange={setContextMenuOpen}>
+      <DropdownMenu open={contextMenuOpen} onOpenChange={handleOpenChange}>
         <DropdownMenuTrigger asChild>
           <div 
             className={cn(
@@ -834,72 +984,82 @@ function MessageBubble({ message, onSend }: { message: Message; onSend: (content
           <div className="text-[15px] leading-snug whitespace-pre-wrap break-words">
             {isFileMessage(actualContent) ? (
               (() => {
-                const fileData = parseFileMessage(actualContent);
+                // Parse combined message (file + optional text)
+                const { fileData, textContent } = parseCombinedMessage(actualContent);
                 if (!fileData) return actualContent;
                 
                 return (
-                  <FileMessage
-                    fileId={fileData.fileId}
-                    mimeType={fileData.mimeType}
-                    originalFilename={fileData.originalFilename}
-                    onDownload={async (fileId) => {
-                      // Access the parent component's handleFileDownload via a ref or context
-                      // For now, we'll implement it inline
-                      const authResult = await sendMessage<{
-                        token?: string;
-                        apiUrl?: string;
-                      }>({ type: 'GET_AUTH_TOKEN' });
-                      
-                      if (!authResult.token || !authResult.apiUrl) {
-                        throw new Error('Authentication failed');
-                      }
-                      
-                      const encryptedData = await downloadFile(
-                        fileId,
-                        authResult.apiUrl,
-                        authResult.token
-                      );
-                      
-                      const conversationId = selectedConversationId.value;
-                      if (!conversationId) throw new Error('No conversation selected');
-                      
-                      // Get ratchet state from storage
-                      const ratchetKey = `ratchet:${conversationId}`;
-                      const storedState = await chrome.storage.local.get([ratchetKey]);
-                      
-                      if (!storedState[ratchetKey]) {
-                        throw new Error('Decryption keys not found');
-                      }
-                      
-                      const ratchetState = deserializeRatchetState(storedState[ratchetKey]);
-                      
-                      const decryptResult = decryptFile(
-                        {
-                          ciphertext: encryptedData,
-                          nonce: fileData.nonce,
-                          encryptedKey: fileData.encryptedKey,
-                          mimeType: fileData.mimeType,
-                          encryptedFilename: fileData.encryptedFilename,
-                        },
-                        ratchetState
-                      );
-                      
-                      if (!decryptResult) {
-                        throw new Error('Failed to decrypt file');
-                      }
-                      
-                      // Save updated ratchet state
-                      await chrome.storage.local.set({ 
-                        [ratchetKey]: serializeRatchetState(decryptResult.newState) 
-                      });
-                      
-                      return {
-                        data: decryptResult.fileData,
-                        filename: decryptResult.filename || fileData.originalFilename || null,
-                      };
-                    }}
-                    className={message.isMine ? "text-white" : ""}
-                  />
+                  <div className="space-y-2">
+                    <FileMessage
+                      fileId={fileData.fileId}
+                      mimeType={fileData.mimeType}
+                      originalFilename={fileData.originalFilename}
+                      onDownload={async (fileId) => {
+                        // Access the parent component's handleFileDownload via a ref or context
+                        // For now, we'll implement it inline
+                        const authResult = await sendMessage<{
+                          token?: string;
+                          apiUrl?: string;
+                        }>({ type: 'GET_AUTH_TOKEN' });
+                        
+                        if (!authResult.token || !authResult.apiUrl) {
+                          throw new Error('Authentication failed');
+                        }
+                        
+                        const encryptedData = await downloadFile(
+                          fileId,
+                          authResult.apiUrl,
+                          authResult.token
+                        );
+                        
+                        const conversationId = selectedConversationId.value;
+                        if (!conversationId) throw new Error('No conversation selected');
+                        
+                        // Get ratchet state from storage
+                        const ratchetKey = `ratchet:${conversationId}`;
+                        const storedState = await chrome.storage.local.get([ratchetKey]);
+                        
+                        if (!storedState[ratchetKey]) {
+                          throw new Error('Decryption keys not found');
+                        }
+                        
+                        const ratchetState = deserializeRatchetState(storedState[ratchetKey]);
+                        
+                        const decryptResult = decryptFile(
+                          {
+                            ciphertext: encryptedData,
+                            nonce: fileData.nonce,
+                            encryptedKey: fileData.encryptedKey,
+                            mimeType: fileData.mimeType,
+                            encryptedFilename: fileData.encryptedFilename,
+                            rkSnapshot: fileData.rkSnapshot, // Include RK snapshot from message
+                          },
+                          ratchetState
+                        );
+                        
+                        if (!decryptResult) {
+                          throw new Error('Failed to decrypt file');
+                        }
+                        
+                        // Save updated ratchet state
+                        await chrome.storage.local.set({ 
+                          [ratchetKey]: serializeRatchetState(decryptResult.newState) 
+                        });
+                        
+                        return {
+                          data: decryptResult.fileData,
+                          filename: decryptResult.filename || fileData.originalFilename || null,
+                        };
+                      }}
+                      className={message.isMine ? "text-white" : ""}
+                    />
+                    {/* Render text content if present */}
+                    {textContent && (
+                      <div>
+                        {shouldRenderMarkdown ? renderMarkdown(textContent) : textContent}
+                      </div>
+                    )}
+                  </div>
                 );
               })()
             ) : shouldRenderMarkdown ? (
@@ -908,6 +1068,17 @@ function MessageBubble({ message, onSend }: { message: Message; onSend: (content
               actualContent
             )}
           </div>
+          
+          {/* Link Preview */}
+          {message.linkPreview && (
+            <LinkPreview
+              url={message.linkPreview.url}
+              title={message.linkPreview.title}
+              description={message.linkPreview.description}
+              image={message.linkPreview.image}
+              siteName={message.linkPreview.siteName}
+            />
+          )}
           
           {/* Reactions Display */}
           {message.reactions && message.reactions.length > 0 && (
@@ -955,7 +1126,13 @@ function MessageBubble({ message, onSend }: { message: Message; onSend: (content
   );
 }
 
-function MessageInput({ onSend, conversationId, onFileUpload }: { onSend: (content: string) => void; conversationId: string; onFileUpload: (file: File) => void }) {
+function MessageInput({ onSend, conversationId, onFileUpload, pendingFile, onClearFile }: { 
+  onSend: (content: string, fileMessageContent?: string) => void; 
+  conversationId: string; 
+  onFileUpload: (file: File) => void;
+  pendingFile: { filename: string; mimeType: string; previewUrl?: string } | null;
+  onClearFile: () => void;
+}) {
   const [text, setText] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -993,16 +1170,11 @@ function MessageInput({ onSend, conversationId, onFileUpload }: { onSend: (conte
   
   function handleSubmit() {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed && !pendingFile) return; // Need either text or file
     
-    // If replying, include reply metadata in the message
-    let messageContent = trimmed;
-    if (currentReply) {
-      const replyPrefix = `[REPLY:${currentReply.messageId}]`;
-      messageContent = replyPrefix + trimmed;
-    }
+    // Call onSend with both text and file content if both exist
+    onSend(trimmed, currentReply?.messageId);
     
-    onSend(messageContent);
     setText('');
     replyContext.value = null; // Clear reply context
     
@@ -1077,6 +1249,40 @@ function MessageInput({ onSend, conversationId, onFileUpload }: { onSend: (conte
         </div>
       )}
       
+      {/* File Attachment Preview */}
+      {pendingFile && (
+        <div className="flex items-center gap-3 px-4 py-2 bg-[hsl(var(--muted))] border-b border-[hsl(var(--border))]">
+          {pendingFile.mimeType.startsWith('image/') && pendingFile.previewUrl ? (
+            <img
+              src={pendingFile.previewUrl}
+              alt={pendingFile.filename}
+              className="h-12 w-12 object-cover rounded border border-[hsl(var(--border))]"
+            />
+          ) : (
+            <div className="h-12 w-12 rounded bg-[hsl(var(--background))] border border-[hsl(var(--border))] flex items-center justify-center">
+              <FileText className="h-6 w-6 text-[hsl(var(--muted-foreground))]" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium text-[hsl(var(--foreground))] truncate">
+              {pendingFile.filename}
+            </div>
+            <div className="text-xs text-[hsl(var(--muted-foreground))]">
+              Ready to send
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClearFile}
+            className="flex-shrink-0 h-6 w-6"
+            aria-label="Remove attachment"
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      )}
+      
       {/* Input Area */}
       <div className="flex items-center gap-3 p-4">
         {/* Emoji Picker */}
@@ -1121,7 +1327,7 @@ function MessageInput({ onSend, conversationId, onFileUpload }: { onSend: (conte
           variant="accent"
           size="icon"
           onClick={handleSubmit}
-          disabled={!text.trim()}
+          disabled={!text.trim() && !pendingFile}
           className="flex-shrink-0"
           aria-label="Send message"
         >
@@ -1144,6 +1350,22 @@ export function ConversationDetailView() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const conversationId = selectedConversationId.value;
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  
+  // State for pending file attachment
+  const [pendingFile, setPendingFile] = useState<{
+    file: File;
+    encrypted: EncryptedFile;
+    fileMessageContent: string;
+    previewUrl?: string;
+  } | null>(null);
+  
+  // Clear pending file when conversation changes
+  useEffect(() => {
+    if (pendingFile?.previewUrl) {
+      URL.revokeObjectURL(pendingFile.previewUrl);
+    }
+    setPendingFile(null);
+  }, [conversationId]);
   
   // Load messages initially and set up polling
   useEffect(() => {
@@ -1214,16 +1436,47 @@ export function ConversationDetailView() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.value.length]);
   
+  // Detect URLs and fetch link previews
+  useEffect(() => {
+    messages.value.forEach(message => {
+      // Skip if already has preview or is being processed
+      if (message.linkPreview || linkPreviews.value.has(message.id)) {
+        return;
+      }
+      
+      // Skip file messages
+      if (message.content.startsWith('[FILE:')) {
+        return;
+      }
+      
+      // Skip reaction messages
+      if (message.content.startsWith('[REACT:')) {
+        return;
+      }
+      
+      // Extract text content (skip reply prefix)
+      let content = message.content;
+      const replyMatch = content.match(/^\[REPLY:[^\]]+\](.*)$/s);
+      if (replyMatch) {
+        content = replyMatch[1];
+      }
+      
+      // Look for URLs
+      const url = extractFirstUrl(content);
+      if (url) {
+        // Fetch preview asynchronously
+        fetchLinkPreview(url, message.id).catch(err => {
+          console.error('[ConversationDetailView] Failed to fetch link preview:', err);
+        });
+      }
+    });
+  }, [messages.value]);
+  
   function handleBack() {
     selectedConversationId.value = null;
   }
   
-  async function handleSendMessage(content: string) {
-    console.log('[ConversationDetailView] handleSendMessage called with content:', content.substring(0, 50));
-    console.log('[ConversationDetailView] conversationId:', conversationId);
-    console.log('[ConversationDetailView] conversations.value.length:', conversations.value.length);
-    console.log('[ConversationDetailView] conversations IDs:', conversations.value.map(c => c.id));
-    
+  async function handleSendMessage(textContent: string, replyToId?: string) {
     if (!conversationId) {
       console.error('[ConversationDetailView] No conversationId!');
       return;
@@ -1235,6 +1488,65 @@ export function ConversationDetailView() {
       return;
     }
     
+    // Build message content
+    let content = '';
+    
+    // Add reply prefix if replying
+    if (replyToId) {
+      content += `[REPLY:${replyToId}]`;
+    }
+    
+    // Add file message if there's a pending file
+    if (pendingFile) {
+      // Upload the file first
+      try {
+        const authResult = await sendMessage<{ token?: string; apiUrl?: string; }>({ type: 'GET_AUTH_TOKEN' });
+        if (!authResult.token || !authResult.apiUrl) {
+          showToast('Authentication failed');
+          return;
+        }
+        
+        const metadata = await uploadFile(
+          pendingFile.encrypted,
+          conversationId,
+          undefined,
+          authResult.apiUrl,
+          authResult.token
+        );
+        
+        // Update file message content with actual file ID
+        const fileMessageContent = createFileMessage(
+          metadata.file.id,
+          pendingFile.encrypted,
+          pendingFile.file.name
+        );
+        
+        content += fileMessageContent;
+        
+        // Clean up preview URL
+        if (pendingFile.previewUrl) {
+          URL.revokeObjectURL(pendingFile.previewUrl);
+        }
+        setPendingFile(null);
+      } catch (error) {
+        console.error('File upload error:', error);
+        showToast('Failed to upload file');
+        return;
+      }
+    }
+    
+    // Add text content
+    if (textContent.trim()) {
+      content += textContent;
+    }
+    
+    // Must have either file or text
+    if (!content) return;
+    
+    console.log('[ConversationDetailView] handleSendMessage called with content:', content.substring(0, 50));
+    console.log('[ConversationDetailView] conversationId:', conversationId);
+    console.log('[ConversationDetailView] conversations.value.length:', conversations.value.length);
+    console.log('[ConversationDetailView] conversations IDs:', conversations.value.map(c => c.id));
     console.log('[ConversationDetailView] handleSendMessage - conversation:', {
       id: conv.id,
       type: conv.type,
@@ -1465,7 +1777,7 @@ export function ConversationDetailView() {
       return;
     }
     
-    showToast('Encrypting and uploading file...');
+    showToast('Encrypting file...');
     
     try {
       // Read file data
@@ -1496,40 +1808,24 @@ export function ConversationDetailView() {
         [ratchetKey]: serializeRatchetState(newState) 
       });
       
-      // Get auth token and API URL
-      const authResult = await sendMessage<{
-        token?: string;
-        apiUrl?: string;
-      }>({ type: 'GET_AUTH_TOKEN' });
-      
-      if (!authResult.token || !authResult.apiUrl) {
-        showToast('Authentication failed');
-        return;
+      // Create preview URL for images
+      let previewUrl: string | undefined;
+      if (file.type.startsWith('image/')) {
+        previewUrl = URL.createObjectURL(file);
       }
       
-      // Upload encrypted file
-      const metadata = await uploadFile(
+      // Stage the file  
+      setPendingFile({
+        file,
         encrypted,
-        conversationId,
-        undefined, // messageId will be set when we send the message
-        authResult.apiUrl,
-        authResult.token
-      );
+        fileMessageContent: '', // Will be populated with actual file ID on send
+        previewUrl,
+      });
       
-      // Create file message
-      const fileMessageContent = createFileMessage(
-        metadata.id,
-        encrypted,
-        file.name
-      );
-      
-      // Send message with file reference
-      await handleSendMessage(fileMessageContent);
-      
-      showToast('File uploaded successfully');
+      showToast('File ready to send');
     } catch (error) {
-      console.error('File upload error:', error);
-      showToast('Failed to upload file');
+      console.error('File encryption error:', error);
+      showToast('Failed to encrypt file');
     }
   }
   
@@ -1621,7 +1917,22 @@ export function ConversationDetailView() {
       </ScrollArea>
       
       {/* Input - for all conversations */}
-      <MessageInput onSend={handleSendMessage} conversationId={conversationId} onFileUpload={handleFileUpload} />
+      <MessageInput 
+        onSend={handleSendMessage} 
+        conversationId={conversationId} 
+        onFileUpload={handleFileUpload}
+        pendingFile={pendingFile ? {
+          filename: pendingFile.file.name,
+          mimeType: pendingFile.file.type,
+          previewUrl: pendingFile.previewUrl,
+        } : null}
+        onClearFile={() => {
+          if (pendingFile?.previewUrl) {
+            URL.revokeObjectURL(pendingFile.previewUrl);
+          }
+          setPendingFile(null);
+        }}
+      />
       
       <style>{`
         /* Subtle gradient background for glass effect depth */

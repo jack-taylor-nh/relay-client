@@ -45,7 +45,9 @@ export function FileMessage({
     
     try {
       const { data, filename } = await onDownload(fileId);
-      const blob = new Blob([data.buffer as ArrayBuffer], { type: mimeType });
+      // Create proper ArrayBuffer for Blob
+      const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+      const blob = new Blob([buffer], { type: mimeType });
       const url = URL.createObjectURL(blob);
       setImageUrl(url);
     } catch (err) {
@@ -64,7 +66,8 @@ export function FileMessage({
       const { data, filename } = await onDownload(fileId);
       
       // Create download link
-      const blob = new Blob([data.buffer as ArrayBuffer], { type: mimeType });
+      const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+      const blob = new Blob([buffer], { type: mimeType });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
